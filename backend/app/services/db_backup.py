@@ -153,7 +153,8 @@ def main() -> int:
         backup = backup_before_migration(db_path, _alembic_config())
     except MigrationBackupError as exc:
         print(
-            f"ОШИБКА: {exc}\nОсвободите место в томе данных и проверьте права на запись. База не изменена. Запуск без резервной копии (на свой риск): переменная окружения {SKIP_BACKUP_ENV}=1.",
+            f"ОШИБКА: {exc}\nОсвободите место в томе данных и проверьте права на запись. База не изменена. Запуск без "
+            f"резервной копии (на свой риск): переменная окружения {SKIP_BACKUP_ENV}=1.",
             file=sys.stderr,
         )
         return 1

@@ -33,7 +33,9 @@ def test_each_audit_only_entity_type_is_really_written_to_the_audit_log():
     """Исключение не должно пережить код, ради которого сделано: если никто больше не пишет в журнал этот тип, ключ можно удалить."""
     sources = "\n".join(path.read_text(encoding="utf-8") for path in APP_DIR.rglob("*.py"))
     for entity_type in AUDIT_ONLY_ENTITY_TYPES:
-        assert re.search(rf"audit\(\s*session\s*,\s*[\"']{re.escape(entity_type)}[\"']", sources), f"{entity_type}: в журнал не пишется — удалите ключ из DISPLAY_NAMES и из исключений"
+        assert re.search(rf"audit\(\s*session\s*,\s*[\"']{re.escape(entity_type)}[\"']", sources), (
+            f"{entity_type}: в журнал не пишется — удалите ключ из DISPLAY_NAMES и из исключений"
+        )
 
 
 # --- ИА-04 код-ревью r3: подпись — для людей, пояснение для разработчика — в комментарии --------------------------------------------------

@@ -130,7 +130,9 @@ class TestSyncDeviceDeployedSoftwareAudit:
         item = _sync(client, device["id"], [_sw(one_c)]).json()["items"][0]
 
         def entries() -> list[str]:
-            rows = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == "devices", AuditLog.entity_id == device["id"], AuditLog.details.like("Программные активы:%"))).all()
+            rows = db_session.scalars(
+                select(AuditLog).where(AuditLog.entity_type == "devices", AuditLog.entity_id == device["id"], AuditLog.details.like("Программные активы:%"))
+            ).all()
             return [r.details for r in rows]
 
         assert entries() == ["Программные активы: добавлено 1, изменено 0, удалено 0"]

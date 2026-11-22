@@ -54,7 +54,8 @@ def _insert_legacy_open_port(conn: sqlite3.Connection, *, port: int, protocol: s
     open_port_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO open_ports (id, owner_type, owner_id, transport_protocol, port, protocol, protocol_catalog_id, created_at, updated_at) VALUES (?, 'virtual_machine', ?, ?, ?, ?, NULL, ?, ?)",
+        "INSERT INTO open_ports (id, owner_type, owner_id, transport_protocol, port, protocol, protocol_catalog_id, "
+        "created_at, updated_at) VALUES (?, 'virtual_machine', ?, ?, ?, ?, NULL, ?, ?)",
         (open_port_id, _uid(), transport_protocol, port, protocol, now, now),
     )
     conn.commit()

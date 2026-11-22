@@ -126,7 +126,9 @@ class TestRowEnrichment:
 class TestUpdateResourceBehaviour:
     def _host(self, client, serial: str, os_id: str | None) -> dict:
         categories = client.get("/api/v1/resources/device-categories").json()["items"]
-        device_type = client.post("/api/v1/resources/device-types", json={"name": f"Хост {serial}", "category_id": categories[0]["id"], "allows_vm_hosting": True})
+        device_type = client.post(
+            "/api/v1/resources/device-types", json={"name": f"Хост {serial}", "category_id": categories[0]["id"], "allows_vm_hosting": True}
+        )
         assert device_type.status_code == 201, device_type.text
         body = {"device_type_id": device_type.json()["id"], "serial_number": serial}
         if os_id:

@@ -25,7 +25,21 @@ from ..models import (
 DEFAULT_CATALOGS_SEED_MARKER = "default_catalogs.v1"
 
 DEFAULT_NAMES = {
-    InterfaceSpeed: ["10 Mbps", "100 Mbps", "1 Gbps", "2.5 Gbps", "5 Gbps", "10 Gbps", "25 Gbps", "40 Gbps", "50 Gbps", "100 Gbps", "200 Gbps", "400 Gbps", "Auto"],
+    InterfaceSpeed: [
+        "10 Mbps",
+        "100 Mbps",
+        "1 Gbps",
+        "2.5 Gbps",
+        "5 Gbps",
+        "10 Gbps",
+        "25 Gbps",
+        "40 Gbps",
+        "50 Gbps",
+        "100 Gbps",
+        "200 Gbps",
+        "400 Gbps",
+        "Auto",
+    ],
     InterfaceType: ["Ethernet", "SFP", "SFP+", "SFP28", "QSFP", "QSFP28", "Management", "Console", "Fiber", "Virtual", "Loopback", "Wi-Fi", "Другое"],
     ConnectionType: ["Витая пара", "Оптическое волокно", "Медный патч-корд", "Оптический патч-корд", "Прямая связь", "Агрегированный канал", "Другое"],
     OperatingSystemCategory: ["Гипервизор", "Серверная ОС", "Клиентская ОС", "Сетевая ОС", "ОС средства защиты", "Мобильная ОС", "Другое"],

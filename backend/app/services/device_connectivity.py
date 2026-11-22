@@ -65,7 +65,9 @@ def _active_connections_of_device(device_id: str, session: Session) -> list[Conn
     return list(session.scalars(stmt).all())
 
 
-def list_free_interfaces(device_id: str, session: Session, *, q: str | None = None, include: Iterable[str] = (), offset: int = 0, limit: int = 100) -> dict[str, Any]:
+def list_free_interfaces(
+    device_id: str, session: Session, *, q: str | None = None, include: Iterable[str] = (), offset: int = 0, limit: int = 100
+) -> dict[str, Any]:
     """Свободные порты устройства в естественном порядке имён, одна страница.
 
     Для каждого порта возвращаются роль, режим и ``all_vlans`` — признак «Все VLAN» С УЧЁТОМ режима (в access он
@@ -153,7 +155,9 @@ def list_interface_connections(device_id: str, session: Session) -> dict[str, An
     return {"items": items}
 
 
-def list_device_options(session: Session, *, q: str | None = None, include: Iterable[str] = (), exclude: Iterable[str] = (), offset: int = 0, limit: int = 50) -> dict[str, Any]:
+def list_device_options(
+    session: Session, *, q: str | None = None, include: Iterable[str] = (), exclude: Iterable[str] = (), offset: int = 0, limit: int = 50
+) -> dict[str, Any]:
     """Устройства для выбора соседа в форме подключения: лёгкие записи, поиск и одна страница.
 
     Каждая запись — ``id``, ``label`` (системное имя, а без него серийный номер, как везде в интерфейсе),
@@ -182,7 +186,12 @@ def list_device_options(session: Session, *, q: str | None = None, include: Iter
         return not needle or needle in (system_name or "").casefold() or needle in (serial_number or "").casefold()
 
     selected = [
-        {"id": device_id, "label": device_label_from_parts(system_name, serial_number, fallback=device_id), "system_name": system_name, "serial_number": serial_number}
+        {
+            "id": device_id,
+            "label": device_label_from_parts(system_name, serial_number, fallback=device_id),
+            "system_name": system_name,
+            "serial_number": serial_number,
+        }
         for device_id, system_name, serial_number in rows
         if device_id not in excluded and (device_id in forced or matches(system_name, serial_number))
     ]

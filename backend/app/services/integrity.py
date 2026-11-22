@@ -92,7 +92,9 @@ def integrity_error_response(resource: str, exc: IntegrityError) -> HTTPExceptio
             409,
             detail={
                 "code": ErrorCode.RACK_POSITION_OCCUPIED,
-                "message": "Позиция в стойке уже занята другим устройством (возможно, его только что сохранил другой пользователь). Обновите данные и повторите.",
+                "message": (
+                    "Позиция в стойке уже занята другим устройством (возможно, его только что сохранил другой пользователь). Обновите данные и повторите."
+                ),
             },
         )
     if SAME_PORT_CHECK in lowered:
@@ -104,10 +106,14 @@ def integrity_error_response(resource: str, exc: IntegrityError) -> HTTPExceptio
             409,
             detail={
                 "code": ErrorCode.PORT_ALREADY_CONNECTED,
-                "message": ("Порт уже участвует в другом активном подключении (возможно, его только что подключил другой пользователь). Обновите данные и повторите."),
+                "message": (
+                    "Порт уже участвует в другом активном подключении (возможно, его только что подключил другой пользователь). Обновите данные и повторите."
+                ),
             },
         )
-    return HTTPException(409, detail={"code": ErrorCode.INTEGRITY_ERROR, "message": "Нарушение целостности данных: операция противоречит существующим записям."})
+    return HTTPException(
+        409, detail={"code": ErrorCode.INTEGRITY_ERROR, "message": "Нарушение целостности данных: операция противоречит существующим записям."}
+    )
 
 
 # resource_key (см. registry.MODEL_MAP) → значение InformationSystemSource.source_type, которое
@@ -147,7 +153,14 @@ def count_source_references(bind: Any, source_type: str, owner_id: str) -> int:
     """Сколько строк information_system_sources ссылаются на владельца. bind — Session или
     Connection (у обоих есть .scalar), поэтому одна функция обслуживает и прикладную проверку,
     и before_delete, которому доступно только соединение."""
-    return bind.scalar(select(func.count()).select_from(InformationSystemSource).where(InformationSystemSource.source_type == source_type, InformationSystemSource.owner_id == owner_id)) or 0
+    return (
+        bind.scalar(
+            select(func.count())
+            .select_from(InformationSystemSource)
+            .where(InformationSystemSource.source_type == source_type, InformationSystemSource.owner_id == owner_id)
+        )
+        or 0
+    )
 
 
 def source_reference_refs(resource: str, item_id: str, bind: Any) -> list[tuple[str, int]]:
@@ -207,9 +220,13 @@ def find_orphaned_owner_references(session: Session) -> list[dict[str, Any]]:
     for child in _POLYMORPHIC_CHILD_MODELS:
         for owner_type, owner_model in _OWNER_MODEL_BY_TYPE.items():
             rows = session.execute(select(child.id, child.owner_id).where(child.owner_type == owner_type, ~child.owner_id.in_(select(owner_model.id)))).all()
-            orphans.extend({"table": child.__tablename__, "id": r.id, "owner_type": owner_type, "owner_id": r.owner_id, "reason": "owner_missing"} for r in rows)
+            orphans.extend(
+                {"table": child.__tablename__, "id": r.id, "owner_type": owner_type, "owner_id": r.owner_id, "reason": "owner_missing"} for r in rows
+            )
         rows = session.execute(select(child.id, child.owner_type, child.owner_id).where(child.owner_type.not_in(list(_OWNER_MODEL_BY_TYPE)))).all()
-        orphans.extend({"table": child.__tablename__, "id": r.id, "owner_type": r.owner_type, "owner_id": r.owner_id, "reason": "unknown_owner_type"} for r in rows)
+        orphans.extend(
+            {"table": child.__tablename__, "id": r.id, "owner_type": r.owner_type, "owner_id": r.owner_id, "reason": "unknown_owner_type"} for r in rows
+        )
 
     for owner_model, source_type in SOURCE_TYPE_BY_MODEL.items():
         rows = session.execute(
@@ -219,7 +236,10 @@ def find_orphaned_owner_references(session: Session) -> list[dict[str, Any]]:
                 ~InformationSystemSource.owner_id.in_(select(owner_model.id)),
             )
         ).all()
-        orphans.extend({"table": InformationSystemSource.__tablename__, "id": r.id, "owner_type": source_type, "owner_id": r.owner_id, "reason": "owner_missing"} for r in rows)
+        orphans.extend(
+            {"table": InformationSystemSource.__tablename__, "id": r.id, "owner_type": source_type, "owner_id": r.owner_id, "reason": "owner_missing"}
+            for r in rows
+        )
     return orphans
 
 
@@ -317,8 +337,14 @@ def find_stale_subinterfaces(session: Session, vlan_id: str | None = None) -> li
     used_vlans = select(DeviceSubinterface.vlan_id)
     if vlan_id is not None:
         used_vlans = used_vlans.where(DeviceSubinterface.vlan_id == vlan_id)
-    assigned = {(r.physical_device_id, r.vlan_id) for r in session.execute(select(PhysicalDeviceVLAN.physical_device_id, PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.vlan_id.in_(used_vlans)))}
-    by_type = {(r.device_type_id, r.vlan_id) for r in session.execute(select(DeviceTypeVLAN.device_type_id, DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.vlan_id.in_(used_vlans)))}
+    assigned = {
+        (r.physical_device_id, r.vlan_id)
+        for r in session.execute(select(PhysicalDeviceVLAN.physical_device_id, PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.vlan_id.in_(used_vlans)))
+    }
+    by_type = {
+        (r.device_type_id, r.vlan_id)
+        for r in session.execute(select(DeviceTypeVLAN.device_type_id, DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.vlan_id.in_(used_vlans)))
+    }
 
     stale = [
         {
@@ -421,7 +447,11 @@ def find_stale_group_subinterfaces(session: Session, vlan_id: str | None = None)
     if not rows:
         return []
     group_ids = {r.group_id for r in rows}
-    groups = session.scalars(select(InterfaceGroup).where(InterfaceGroup.id.in_(group_ids))).all() if len(group_ids) < 400 else session.scalars(select(InterfaceGroup)).all()
+    groups = (
+        session.scalars(select(InterfaceGroup).where(InterfaceGroup.id.in_(group_ids))).all()
+        if len(group_ids) < 400
+        else session.scalars(select(InterfaceGroup)).all()
+    )
     on_group = effective_group_vlan_ids(groups, session)
     stale = [
         {

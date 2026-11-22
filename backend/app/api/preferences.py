@@ -50,6 +50,12 @@ def update_global_preferences(payload: GlobalPreferencesUpdate, request: Request
     update_preferences(session, OWNER_GLOBAL, patch)
     if "organization_name" in patch:
         name = patch["organization_name"]
-        audit(session, "preferences", OWNER_GLOBAL, AuditAction.UPDATE, f"Название организации: «{name}»" if name else "Название организации сброшено к значению по умолчанию")
+        audit(
+            session,
+            "preferences",
+            OWNER_GLOBAL,
+            AuditAction.UPDATE,
+            f"Название организации: «{name}»" if name else "Название организации сброшено к значению по умолчанию",
+        )
         session.commit()
     return read_preferences(session, user)

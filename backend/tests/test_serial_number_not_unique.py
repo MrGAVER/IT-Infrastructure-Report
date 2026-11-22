@@ -2,12 +2,14 @@
 
 Серийные номера разных производителей совпадают, поэтому глобальная уникальность была ошибкой модели. Раньше поведение
 зависело от СУБД: PostgreSQL и схема из `create_all` (тесты) не пускали дубль (409 INTEGRITY_ERROR с общим текстом), а в
-SQLite из миграций ограничение потерялось случайно на e8c2f1a9b430. Здесь проверяются модель, API (на схеме из `create_all` и на схеме из миграций SQLite), миграция на SQLite
-(цепочка и сама функция upgrade на схемах, где ограничение есть) и — отдельным блоком, только на PostgreSQL — снятие
+SQLite из миграций ограничение потерялось случайно на e8c2f1a9b430. Здесь проверяются модель, API (на схеме из `create_all` и на схеме из
+миграций SQLite), миграция на SQLite (цепочка и сама функция upgrade на схемах, где ограничение есть) и — отдельным блоком, только на
+PostgreSQL — снятие
 реального ограничения `physical_devices_serial_number_key`. Проверок дублей и составного ограничения нет сознательно.
 
 Запуск: pytest backend/tests/test_serial_number_not_unique.py -v
-PostgreSQL-часть: INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/infra_test pytest backend/tests/test_serial_number_not_unique.py
+PostgreSQL-часть: INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/infra_test pytest
+backend/tests/test_serial_number_not_unique.py
 """
 
 from __future__ import annotations
@@ -62,7 +64,11 @@ def test_model_column_is_not_unique():
     column = table.c.serial_number
     assert not column.unique
     assert not column.nullable, "NOT NULL сохраняется: серийный номер по-прежнему обязателен"
-    unique_on_serial = [constraint for constraint in table.constraints if isinstance(constraint, sa.UniqueConstraint) and [c.name for c in constraint.columns] == ["serial_number"]]
+    unique_on_serial = [
+        constraint
+        for constraint in table.constraints
+        if isinstance(constraint, sa.UniqueConstraint) and [c.name for c in constraint.columns] == ["serial_number"]
+    ]
     assert not unique_on_serial
     assert not [index for index in table.indexes if index.unique and [c.name for c in index.columns] == ["serial_number"]]
 

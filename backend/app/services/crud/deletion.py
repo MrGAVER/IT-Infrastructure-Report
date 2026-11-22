@@ -75,7 +75,11 @@ def assert_deletable(resource: str, item_id: str, session: Session) -> None:
     (delete_resource() уже вызывает); сама защита на этом не заканчивается — см. before_delete и
     триггеры БД в integrity.py — но понятное сообщение пользователю даёт только этот уровень."""
     model = model_for(resource)
-    refs = _find_referencing_counts(model, item_id, session) + source_reference_refs(resource, item_id, session) + subinterface_references(resource, item_id, session)
+    refs = (
+        _find_referencing_counts(model, item_id, session)
+        + source_reference_refs(resource, item_id, session)
+        + subinterface_references(resource, item_id, session)
+    )
     if refs:
         raise HTTPException(409, detail={"code": ErrorCode.REFERENCED_BY_OTHER_RECORDS, "message": format_referenced_message(refs)})
 

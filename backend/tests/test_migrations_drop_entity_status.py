@@ -29,7 +29,9 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 PRE_REVISION = "e9b4c2a7d136"
 REVISION = "b3f7a2c91d54"
 
-_spec = importlib.util.spec_from_file_location("drop_entity_status_migration", BACKEND_DIR / "alembic" / "versions" / "b3f7a2c91d54_drop_entity_status_field.py")
+_spec = importlib.util.spec_from_file_location(
+    "drop_entity_status_migration", BACKEND_DIR / "alembic" / "versions" / "b3f7a2c91d54_drop_entity_status_field.py"
+)
 migration = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(migration)
 strip = migration.strip_status_paths
@@ -152,8 +154,26 @@ def _seed_old_schema(engine):
         clean_config = json.dumps({"sheets": [{"rows": []}]}, ensure_ascii=False, indent=2)
         clean = insert_row(connection, "report_templates", name="Без статуса", format="xlsx", config=clean_config)
         broken = insert_row(connection, "report_templates", name="Не JSON", format="xlsx", config="{это не json")
-        version = insert_row(connection, "report_template_versions", report_template_id=grid, version_number=1, name="Сетка со статусом", format="xlsx", config=json.dumps(GRID, ensure_ascii=False))
-    return {"device": device, "system": system, "vm": vm, "grid": grid, "docx": docx, "clean": clean, "clean_config": clean_config, "broken": broken, "version": version}
+        version = insert_row(
+            connection,
+            "report_template_versions",
+            report_template_id=grid,
+            version_number=1,
+            name="Сетка со статусом",
+            format="xlsx",
+            config=json.dumps(GRID, ensure_ascii=False),
+        )
+    return {
+        "device": device,
+        "system": system,
+        "vm": vm,
+        "grid": grid,
+        "docx": docx,
+        "clean": clean,
+        "clean_config": clean_config,
+        "broken": broken,
+        "version": version,
+    }
 
 
 def _config(engine, table, row_id):
@@ -175,7 +195,10 @@ class TestMigrationOnADatabase:
 
         assert not any("status" in _columns(engine, table) for table in ("physical_devices", "information_systems", "virtual_machines"))
         with engine.connect() as connection:
-            assert connection.execute(sa.text("SELECT serial_number, system_name FROM physical_devices WHERE id = :i"), {"i": ids["device"]}).one() == ("SN-1", "SW-1")
+            assert connection.execute(sa.text("SELECT serial_number, system_name FROM physical_devices WHERE id = :i"), {"i": ids["device"]}).one() == (
+                "SN-1",
+                "SW-1",
+            )
             assert connection.execute(sa.text("SELECT name FROM information_systems WHERE id = :i"), {"i": ids["system"]}).scalar_one() == "ИС-1"
             assert connection.execute(sa.text("SELECT name FROM virtual_machines WHERE id = :i"), {"i": ids["vm"]}).scalar_one() == "vm-1"
             assert connection.execute(sa.text("PRAGMA foreign_key_check")).all() == []  # таблицы не пересобирались — ссылки целы
@@ -268,7 +291,11 @@ E2E_GRID = {
                 {
                     "height": 20,
                     "repeat": False,
-                    "cells": [{"col": 0, "kind": "static", "text": "№", "colspan": 1}, {"col": 1, "kind": "static", "text": "Наименование"}, {"col": 2, "kind": "static", "text": "Состояние"}],
+                    "cells": [
+                        {"col": 0, "kind": "static", "text": "№", "colspan": 1},
+                        {"col": 1, "kind": "static", "text": "Наименование"},
+                        {"col": 2, "kind": "static", "text": "Состояние"},
+                    ],
                 },
                 {
                     "height": 18,

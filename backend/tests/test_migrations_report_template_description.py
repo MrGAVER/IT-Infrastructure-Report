@@ -81,7 +81,8 @@ def _add_version(conn: sqlite3.Connection, description: str | None) -> str:
     template_id = conn.execute("SELECT id FROM report_templates WHERE name=?", (TEMPLATE_NAME,)).fetchone()["id"]
     version_id = str(uuid.uuid4())
     conn.execute(
-        "INSERT INTO report_template_versions (id, report_template_id, version_number, name, description, format, config, created_at, updated_at) VALUES (?, ?, 1, ?, ?, 'xlsx', '{}', ?, ?)",
+        "INSERT INTO report_template_versions (id, report_template_id, version_number, name, description, format, "
+        "config, created_at, updated_at) VALUES (?, ?, 1, ?, ?, 'xlsx', '{}', ?, ?)",
         (version_id, template_id, TEMPLATE_NAME, description, _now(), _now()),
     )
     return version_id

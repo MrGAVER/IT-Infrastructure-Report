@@ -62,7 +62,12 @@ def test_the_field_is_required_in_openapi(schema, field):
 @pytest.mark.parametrize(
     ("method", "path", "body", "message"),
     [
-        ("put", f"/api/v1/interfaces/{MISSING}/port-role", {}, "Поле is_management должно быть true или false; Поле is_data_transfer должно быть true или false"),
+        (
+            "put",
+            f"/api/v1/interfaces/{MISSING}/port-role",
+            {},
+            "Поле is_management должно быть true или false; Поле is_data_transfer должно быть true или false",
+        ),
         ("put", f"/api/v1/interfaces/{MISSING}/port-role", {"is_management": True}, "Поле is_data_transfer должно быть true или false"),
         ("post", f"/api/v1/interfaces/{MISSING}/vlan-mode-cascade/preview", {}, "Режим порта должен быть 'access' или 'trunk'"),
         ("post", "/api/v1/report-templates", {"name": "Шаблон"}, "Поле config должно быть объектом с описанием листов/блоков"),

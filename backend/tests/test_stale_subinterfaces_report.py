@@ -34,7 +34,10 @@ def _device(client, serial: str, vlans: tuple[dict, ...] = ()) -> dict:
 
 
 def _add_subinterface(client, device: dict, port: str, name: str, vlan: dict) -> dict:
-    r = client.put(f"{API}/devices/{device['id']}/interfaces", json={"interfaces": [{"name": port, "vlan_mode": "trunk", "all_vlans": True, "subinterfaces": [{"name": name, "vlan_id": vlan["id"]}]}]})
+    r = client.put(
+        f"{API}/devices/{device['id']}/interfaces",
+        json={"interfaces": [{"name": port, "vlan_mode": "trunk", "all_vlans": True, "subinterfaces": [{"name": name, "vlan_id": vlan["id"]}]}]},
+    )
     assert r.status_code == 200, r.text
     return r.json()["items"][0]["subinterfaces"][0]
 
@@ -130,7 +133,8 @@ def _drop_port_vlans(db_session, port_id: str) -> None:
 
 def _port_with_vlan(client, device: dict, port: str, name: str, vlan: dict) -> dict:
     r = client.put(
-        f"{API}/devices/{device['id']}/interfaces", json={"interfaces": [{"name": port, "vlan_mode": "trunk", "vlan_ids": [vlan["id"]], "subinterfaces": [{"name": name, "vlan_id": vlan["id"]}]}]}
+        f"{API}/devices/{device['id']}/interfaces",
+        json={"interfaces": [{"name": port, "vlan_mode": "trunk", "vlan_ids": [vlan["id"]], "subinterfaces": [{"name": name, "vlan_id": vlan["id"]}]}]},
     )
     assert r.status_code == 200, r.text
     return r.json()["items"][0]
@@ -192,7 +196,16 @@ def _group_with_template(client, device: dict, vlans: tuple[dict, ...], template
         f"{API}/devices/{device['id']}/interfaces",
         json={
             "interfaces": [{"name": "Gi0/0", "group_key": "g1"}],
-            "groups": [{"key": "g1", "name": name, "vlan_mode": "trunk", "vlan_ids": [v["id"] for v in vlans], "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": template_vlan["id"]}]}],
+            "groups": [
+                {
+                    "key": "g1",
+                    "name": name,
+                    "vlan_mode": "trunk",
+                    "vlan_ids": [v["id"] for v in vlans],
+                    "manage_subinterfaces": True,
+                    "subinterfaces": [{"vlan_id": template_vlan["id"]}],
+                }
+            ],
         },
     )
     assert r.status_code == 200, r.text
@@ -242,7 +255,9 @@ def test_all_vlans_group_template_follows_the_device_vlans(client, db_session):
         f"{API}/devices/{dev['id']}/interfaces",
         json={
             "interfaces": [{"name": "Gi0/0", "group_key": "g1"}],
-            "groups": [{"key": "g1", "name": "Все", "vlan_mode": "trunk", "all_vlans": True, "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": v10["id"]}]}],
+            "groups": [
+                {"key": "g1", "name": "Все", "vlan_mode": "trunk", "all_vlans": True, "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": v10["id"]}]}
+            ],
         },
     )
     assert r.status_code == 200, r.text

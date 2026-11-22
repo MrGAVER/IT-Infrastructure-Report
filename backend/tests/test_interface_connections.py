@@ -188,7 +188,10 @@ def test_removing_a_connected_port_gives_a_clear_409_and_works_after_disconnect(
     assert "«eth0»" in blocked.json()["detail"] and "FOREIGN KEY" not in blocked.json()["detail"]
     assert len(_ports(client, dev["id"])) == 2  # ничего не удалено
 
-    assert _sync(client, dev["id"], [{"id": ports["eth0"]["id"], "name": "eth0", "connection": None}, {"id": ports["eth1"]["id"], "name": "eth1"}]).status_code == 200
+    assert (
+        _sync(client, dev["id"], [{"id": ports["eth0"]["id"], "name": "eth0", "connection": None}, {"id": ports["eth1"]["id"], "name": "eth1"}]).status_code
+        == 200
+    )
     assert _sync(client, dev["id"], [{"id": ports["eth1"]["id"], "name": "eth1"}]).status_code == 200
     assert list(_ports(client, dev["id"])) == ["eth1"]
 
@@ -234,7 +237,9 @@ def test_connection_has_no_incoming_references():
     удаление должно пойти через crud.assert_deletable(), а не напрямую."""
     from app.models import Base
 
-    referencing = sorted(f"{table.name}.{fk.parent.name}" for table in Base.metadata.tables.values() for fk in table.foreign_keys if fk.column.table.name == "connections")
+    referencing = sorted(
+        f"{table.name}.{fk.parent.name}" for table in Base.metadata.tables.values() for fk in table.foreign_keys if fk.column.table.name == "connections"
+    )
     assert referencing == []
 
 

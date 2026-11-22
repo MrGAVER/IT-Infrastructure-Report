@@ -130,7 +130,10 @@ def _as_loaded(client, iface: dict, group_key: str | None) -> dict:
         "vlan_mode": iface["vlan_mode"],
         "vlan_ids": [l["vlan_id"] for l in _links(client, iface["id"])],
         "ips": [{"id": i["id"], "ip_address": i["ip_address"], "prefix_length": i["prefix_length"]} for i in _ips(client, iface["id"])],
-        "open_ports": [{"id": p["id"], "protocol_catalog_id": p["protocol_catalog_id"], "transport_protocol": p["transport_protocol"]} for p in _open_ports(client, iface["id"])],
+        "open_ports": [
+            {"id": p["id"], "protocol_catalog_id": p["protocol_catalog_id"], "transport_protocol": p["transport_protocol"]}
+            for p in _open_ports(client, iface["id"])
+        ],
     }
 
 
@@ -418,7 +421,9 @@ def test_group_ip_purpose_is_trimmed_and_blank_means_not_set(client):
 def test_group_ip_purpose_is_not_stored_without_ip_address(client):
     dev = _device(client, serial="SW-IP-PURPOSE-NOIP")
 
-    r = _sync(client, dev["id"], [_port("Gi0/1", "g1")], [{"key": "g1", "name": "Без IP", "ips": [{"purpose": "Управление"}]}])  # назначение без адреса — плейсхолдер
+    r = _sync(
+        client, dev["id"], [_port("Gi0/1", "g1")], [{"key": "g1", "name": "Без IP", "ips": [{"purpose": "Управление"}]}]
+    )  # назначение без адреса — плейсхолдер
 
     assert r.status_code == 200, r.text
     assert r.json()["groups"][0]["ips"] == []
@@ -446,7 +451,14 @@ def test_group_ip_purpose_is_applied_to_existing_ip_in_place(client):
     r = _sync(
         client,
         dev["id"],
-        [{"id": iface["id"], "name": "Gi0/1", "group_key": group_id, "ips": [{"id": ip_before["id"], "ip_address": "10.0.0.5", "prefix_length": 24, "purpose": ip_before["purpose"]}]}],
+        [
+            {
+                "id": iface["id"],
+                "name": "Gi0/1",
+                "group_key": group_id,
+                "ips": [{"id": ip_before["id"], "ip_address": "10.0.0.5", "prefix_length": 24, "purpose": ip_before["purpose"]}],
+            }
+        ],
         [_ip_group(key=group_id, id=group_id, ip_purpose="Резервный канал")],
     )
 

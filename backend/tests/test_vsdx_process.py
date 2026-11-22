@@ -174,7 +174,9 @@ def test_a_timed_out_export_is_not_cached(client, diagram, monkeypatch):
 def test_launcher_calls_freeze_support_before_main():
     """Рендер в дочернем процессе (spawn) в замороженном EXE работает только при freeze_support() первым делом под __main__-охраной."""
     tree = ast.parse((ROOT / "launcher.py").read_text(encoding="utf-8"))
-    guard = next(node for node in tree.body if isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and getattr(node.test.left, "id", None) == "__name__")
+    guard = next(
+        node for node in tree.body if isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and getattr(node.test.left, "id", None) == "__name__"
+    )
     calls = [ast.unparse(stmt.value.func) for stmt in guard.body if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call)]
     assert calls[:2] == ["multiprocessing.freeze_support", "main"], f"вызовы под __main__: {calls}"
 

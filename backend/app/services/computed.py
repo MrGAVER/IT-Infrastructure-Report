@@ -78,7 +78,10 @@ def device_management_ports_and_ips(
     parent_names = port_name_by_id or {}
     sub_ips = ips_by_subinterface or {}
     # «Gi0/0 (подинтерфейс Gi0/0.99)»; если имя порта-родителя неизвестно — только имя подинтерфейса.
-    subinterface_labels = [f"{parent_names[sub.parent_interface_id]} (подинтерфейс {sub.name})" if parent_names.get(sub.parent_interface_id) else sub.name for sub in management_subinterfaces]
+    subinterface_labels = [
+        f"{parent_names[sub.parent_interface_id]} (подинтерфейс {sub.name})" if parent_names.get(sub.parent_interface_id) else sub.name
+        for sub in management_subinterfaces
+    ]
     port_names = [i.name for i in management_interfaces] + subinterface_labels + vlan_labels
 
     ip_values = [ip_label(ip) for iface in management_interfaces for ip in ips_by_interface.get(iface.id, [])]

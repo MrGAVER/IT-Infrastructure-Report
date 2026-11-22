@@ -46,7 +46,12 @@ def _ensure_port_number_is_free(model: type, owner_filters: list[Any], catalog_i
     owner_filters» — для открытых портов (OpenPort, владелец — ВМ/порт) и протоколов ИС (ISProtocol).
     Сверяется только эта запись с остальными (current_id исключается), а не весь список владельца."""
     port = _resolve_protocol_catalog_entry(catalog_id, session).port
-    stmt = select(model.id).join(ProtocolPortCatalog, ProtocolPortCatalog.id == model.protocol_catalog_id).where(*owner_filters, ProtocolPortCatalog.port == port).limit(1)
+    stmt = (
+        select(model.id)
+        .join(ProtocolPortCatalog, ProtocolPortCatalog.id == model.protocol_catalog_id)
+        .where(*owner_filters, ProtocolPortCatalog.port == port)
+        .limit(1)
+    )
     if current_id:
         stmt = stmt.where(model.id != current_id)
     if session.scalar(stmt) is not None:
@@ -99,7 +104,15 @@ def _validate_open_port_catalog(data: dict[str, Any], session: Session) -> None:
 
 
 def _sync_owned_rows(
-    model: type, owner_type: str, owner_id: str, items: Any, session: Session, *, normalize: Callable[[dict[str, Any]], dict[str, Any] | None], array_error: str, foreign_id_error: str
+    model: type,
+    owner_type: str,
+    owner_id: str,
+    items: Any,
+    session: Session,
+    *,
+    normalize: Callable[[dict[str, Any]], dict[str, Any] | None],
+    array_error: str,
+    foreign_id_error: str,
 ) -> tuple[int, int, int]:
     """Общая diff-синхронизация вложенных записей с полиморфным владельцем (OpenPort, IPAddress,
     DeployedSoftware: owner_type/owner_id) по присланному списку: элемент с id обновляет существующую
@@ -147,7 +160,9 @@ def _sync_owned_rows(
     return created, updated, len(stale_rows)
 
 
-def sync_owner_open_ports(owner_type: str, owner_id: str, open_ports: Any, session: Session, *, owner_label: str, array_error: str, foreign_id_error: str) -> tuple[int, int, int]:
+def sync_owner_open_ports(
+    owner_type: str, owner_id: str, open_ports: Any, session: Session, *, owner_label: str, array_error: str, foreign_id_error: str
+) -> tuple[int, int, int]:
     """Открытые порты владельца (ВМ или порт устройства) по присланному списку, см. _sync_owned_rows.
     Уникальность номеров проверяется по списку целиком (validate_unique_open_port_numbers), а не по
     записям в БД поочерёдно, поэтому обмен номерами между двумя строками за один запрос допустим.
@@ -167,10 +182,14 @@ def sync_owner_open_ports(owner_type: str, owner_id: str, open_ports: Any, sessi
             "description": port_data.get("description") or None,
         }
 
-    return _sync_owned_rows(OpenPort, owner_type, owner_id, open_ports, session, normalize=normalize, array_error=array_error, foreign_id_error=foreign_id_error)
+    return _sync_owned_rows(
+        OpenPort, owner_type, owner_id, open_ports, session, normalize=normalize, array_error=array_error, foreign_id_error=foreign_id_error
+    )
 
 
-def sync_owner_ip_addresses(owner_type: str, owner_id: str, ip_addresses: Any, session: Session, *, array_error: str, foreign_id_error: str) -> tuple[int, int, int]:
+def sync_owner_ip_addresses(
+    owner_type: str, owner_id: str, ip_addresses: Any, session: Session, *, array_error: str, foreign_id_error: str
+) -> tuple[int, int, int]:
     """IP-адреса владельца (ВМ) по присланному списку, см. _sync_owned_rows. Те же проверки, что у
     generic create/update ресурса ip-addresses (_validate_ip_address_entry): формат IPv4 и префикс
     0-32 — плюс длина назначения (колонка ограничена _IP_PURPOSE_MAX_LENGTH). Строка без адреса
@@ -193,10 +212,14 @@ def sync_owner_ip_addresses(owner_type: str, owner_id: str, ip_addresses: Any, s
             "is_management": bool(ip_data.get("is_management")),
         }
 
-    return _sync_owned_rows(IPAddress, owner_type, owner_id, ip_addresses, session, normalize=normalize, array_error=array_error, foreign_id_error=foreign_id_error)
+    return _sync_owned_rows(
+        IPAddress, owner_type, owner_id, ip_addresses, session, normalize=normalize, array_error=array_error, foreign_id_error=foreign_id_error
+    )
 
 
-def sync_owner_deployed_software(owner_type: str, owner_id: str, deployed_software: Any, session: Session, *, array_error: str, foreign_id_error: str) -> tuple[int, int, int]:
+def sync_owner_deployed_software(
+    owner_type: str, owner_id: str, deployed_software: Any, session: Session, *, array_error: str, foreign_id_error: str
+) -> tuple[int, int, int]:
     """Развёрнутое ПО владельца (ВМ) по присланному списку, см. _sync_owned_rows. Записи каталога
     программных активов проверяются одним запросом на весь список: несуществующий актив — понятный
     422, а не IntegrityError по внешнему ключу. Строка без выбранного актива (пустой плейсхолдер
@@ -216,11 +239,21 @@ def sync_owner_deployed_software(owner_type: str, owner_id: str, deployed_softwa
             raise HTTPException(422, f"Версия ПО не должна превышать {_SOFTWARE_VERSION_MAX_LENGTH} символов")
         return {"software_asset_id": software_data["software_asset_id"], "version": version}
 
-    return _sync_owned_rows(DeployedSoftware, owner_type, owner_id, deployed_software, session, normalize=normalize, array_error=array_error, foreign_id_error=foreign_id_error)
+    return _sync_owned_rows(
+        DeployedSoftware, owner_type, owner_id, deployed_software, session, normalize=normalize, array_error=array_error, foreign_id_error=foreign_id_error
+    )
 
 
 def _sync_owner_collection(
-    owner_model: type, entity: str, not_found: str, owner_id: str, session: Session, *, label: str, sync: Callable[[Any], tuple[int, int, int]], load: Callable[[Any], list[dict[str, Any]]]
+    owner_model: type,
+    entity: str,
+    not_found: str,
+    owner_id: str,
+    session: Session,
+    *,
+    label: str,
+    sync: Callable[[Any], tuple[int, int, int]],
+    load: Callable[[Any], list[dict[str, Any]]],
 ) -> dict[str, Any]:
     """Общий каркас атомарной синхронизации одного вложенного списка владельца (ВМ или физического
     устройства: порты, IP-адреса, ПО): владелец существует (404 с текстом not_found), список
@@ -244,7 +277,9 @@ def _sync_owner_collection(
     return {"items": load(owner)}
 
 
-def _sync_vm_collection(vm_id: str, session: Session, *, label: str, sync: Callable[[VirtualMachine], tuple[int, int, int]], load: Callable[[VirtualMachine], list[dict[str, Any]]]) -> dict[str, Any]:
+def _sync_vm_collection(
+    vm_id: str, session: Session, *, label: str, sync: Callable[[VirtualMachine], tuple[int, int, int]], load: Callable[[VirtualMachine], list[dict[str, Any]]]
+) -> dict[str, Any]:
     """Список ВМ (порты, IP-адреса, ПО) — см. _sync_owner_collection."""
     return _sync_owner_collection(VirtualMachine, "vms", "Виртуальная машина не найдена", vm_id, session, label=label, sync=sync, load=load)
 
@@ -288,7 +323,9 @@ def sync_vm_ip_addresses(vm_id: str, payload: dict[str, Any], session: Session) 
     sync_owner_ip_addresses). Ответ: {'items': [...]} — IP-адреса ВМ по возрастанию адреса."""
 
     def load(vm: VirtualMachine) -> list[dict[str, Any]]:
-        rows = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.VIRTUAL_MACHINE, IPAddress.owner_id == vm.id).order_by(IPAddress.ip_address, IPAddress.id)).all()
+        rows = session.scalars(
+            select(IPAddress).where(IPAddress.owner_type == OwnerType.VIRTUAL_MACHINE, IPAddress.owner_id == vm.id).order_by(IPAddress.ip_address, IPAddress.id)
+        ).all()
         return [serialize(row) for row in rows]
 
     return _sync_vm_collection(
@@ -313,7 +350,9 @@ def sync_vm_deployed_software(vm_id: str, payload: dict[str, Any], session: Sess
 
     def load(vm: VirtualMachine) -> list[dict[str, Any]]:
         rows = session.scalars(
-            select(DeployedSoftware).where(DeployedSoftware.owner_type == OwnerType.VIRTUAL_MACHINE, DeployedSoftware.owner_id == vm.id).order_by(DeployedSoftware.created_at, DeployedSoftware.id)
+            select(DeployedSoftware)
+            .where(DeployedSoftware.owner_type == OwnerType.VIRTUAL_MACHINE, DeployedSoftware.owner_id == vm.id)
+            .order_by(DeployedSoftware.created_at, DeployedSoftware.id)
         ).all()
         return [serialize(row) for row in rows]
 
@@ -342,7 +381,9 @@ def sync_device_deployed_software(device_id: str, payload: dict[str, Any], sessi
 
     def load(device: PhysicalDevice) -> list[dict[str, Any]]:
         rows = session.scalars(
-            select(DeployedSoftware).where(DeployedSoftware.owner_type == OwnerType.PHYSICAL_DEVICE, DeployedSoftware.owner_id == device.id).order_by(DeployedSoftware.created_at, DeployedSoftware.id)
+            select(DeployedSoftware)
+            .where(DeployedSoftware.owner_type == OwnerType.PHYSICAL_DEVICE, DeployedSoftware.owner_id == device.id)
+            .order_by(DeployedSoftware.created_at, DeployedSoftware.id)
         ).all()
         return [serialize(row) for row in rows]
 

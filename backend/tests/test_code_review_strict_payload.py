@@ -68,7 +68,10 @@ class TestDevices:
 
     def test_service_flags_are_accepted(self, client):
         device = _device(client, "T-5")
-        r = client.put(f"/api/v1/resources/devices/{device['id']}", json={"description": "x", "confirm_system_name_duplicate": True, "confirm_rack_position_reassign": False})
+        r = client.put(
+            f"/api/v1/resources/devices/{device['id']}",
+            json={"description": "x", "confirm_system_name_duplicate": True, "confirm_rack_position_reassign": False},
+        )
         assert r.status_code == 200, r.text
 
     def test_echoing_a_fetched_record_back_still_works(self, client):

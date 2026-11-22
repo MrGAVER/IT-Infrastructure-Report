@@ -15,7 +15,14 @@ from ..port_vlans import effective_vlan_ids
 from ..interface_connections import assert_interfaces_not_connected, sync_interface_connections
 from ..validation import validate_ipv4_field, validate_prefix_length_field
 from .audit_log import audit
-from .interface_groups import _VLAN_MODES, _apply_group_to_interface, _delete_stale_groups, _resolve_interface_group, _sync_interface_groups, list_interface_groups
+from .interface_groups import (
+    _VLAN_MODES,
+    _apply_group_to_interface,
+    _delete_stale_groups,
+    _resolve_interface_group,
+    _sync_interface_groups,
+    list_interface_groups,
+)
 from .owned_rows import sync_owner_open_ports
 from .subinterfaces import purge_subinterfaces_of_interfaces, subinterfaces_by_parent, sync_subinterfaces, validate_device_subinterfaces
 
@@ -180,7 +187,11 @@ def _remove_stale_interfaces(existing: list[DeviceInterface], incoming_ids: set[
 
 def _synced_interfaces_response(device_id: str, session: Session) -> dict[str, Any]:
     """Ответ PUT /devices/{id}/interfaces: группы и порты в порядке sort_order с IP, открытыми портами и подинтерфейсами."""
-    result = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.sort_order, DeviceInterface.created_at, DeviceInterface.id)).all()
+    result = session.scalars(
+        select(DeviceInterface)
+        .where(DeviceInterface.physical_device_id == device_id)
+        .order_by(DeviceInterface.sort_order, DeviceInterface.created_at, DeviceInterface.id)
+    ).all()
     subinterfaces = subinterfaces_by_parent([iface.id for iface in result], session)
     return {
         "groups": list_interface_groups(device_id, session),
@@ -190,7 +201,11 @@ def _synced_interfaces_response(device_id: str, session: Session) -> dict[str, A
                 "subinterfaces": subinterfaces.get(iface.id, []),
                 "ips": [
                     serialize(ip)
-                    for ip in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).order_by(IPAddress.ip_address)).all()
+                    for ip in session.scalars(
+                        select(IPAddress)
+                        .where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id)
+                        .order_by(IPAddress.ip_address)
+                    ).all()
                 ],
                 # port больше не колонка OpenPort (см. models.py) — сортируем по номеру порта из
                 # справочника через join, а не по несуществующей больше колонке.
@@ -269,7 +284,11 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
         connections_changed = sync_interface_connections(connection_requests, session, row_objects) if connection_requests else 0
         all_ifaces = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id)).all()
         for iface in all_ifaces:
-            session.execute(update(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).values(is_management=bool(iface.is_management)))
+            session.execute(
+                update(IPAddress)
+                .where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id)
+                .values(is_management=bool(iface.is_management))
+            )
         audit(
             session,
             "interfaces",
@@ -298,14 +317,20 @@ def get_device_interface_vlans(device_id: str, session: Session) -> dict[str, An
     if not session.get(PhysicalDevice, device_id):
         raise HTTPException(404, "Физическое устройство не найдено")
     ports = session.execute(
-        select(DeviceInterface.id, DeviceInterface.all_vlans, DeviceInterface.vlan_mode).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.name, DeviceInterface.id)
+        select(DeviceInterface.id, DeviceInterface.all_vlans, DeviceInterface.vlan_mode)
+        .where(DeviceInterface.physical_device_id == device_id)
+        .order_by(DeviceInterface.name, DeviceInterface.id)
     ).all()
     by_port = effective_vlan_ids(session, [port_id for port_id, _, _ in ports])
     wanted = set().union(*by_port.values()) if by_port else set()
     number_of = {vlan_id: number for vlan_id, number in session.execute(select(VLAN.id, VLAN.vlan_id).where(VLAN.id.in_(wanted))).all()} if wanted else {}
     return {
         "items": [
-            {"interface_id": port_id, "all_vlans": bool(all_vlans) and mode == "trunk", "vlan_ids": sorted(by_port.get(port_id, ()), key=lambda v: (number_of.get(v, 0), v))}
+            {
+                "interface_id": port_id,
+                "all_vlans": bool(all_vlans) and mode == "trunk",
+                "vlan_ids": sorted(by_port.get(port_id, ()), key=lambda v: (number_of.get(v, 0), v)),
+            }
             for port_id, all_vlans, mode in ports
         ]
     }

@@ -209,7 +209,9 @@ class TestVlanMovedBetweenDomains:
         saved_ports = client.get(f"{API}/resources/interfaces", params={"physical_device_id": former["id"], "limit": 1000}).json()["items"]
         r = client.put(
             f"{API}/devices/{former['id']}/interfaces",
-            json={"interfaces": [{"id": p["id"], "name": p["name"], "vlan_mode": p["vlan_mode"], "vlan_ids": _port_vlans(client, former)} for p in saved_ports]},
+            json={
+                "interfaces": [{"id": p["id"], "name": p["name"], "vlan_mode": p["vlan_mode"], "vlan_ids": _port_vlans(client, former)} for p in saved_ports]
+            },
         )
         assert r.status_code == 200, r.text
         assert client.put(f"{API}/devices/{former['id']}/vlans", json={"vlans": []}).status_code == 200
@@ -331,7 +333,16 @@ class TestSubinterfacesOnMovedVlan:
             f"{API}/devices/{router['id']}/interfaces",
             json={
                 "interfaces": [{"name": "Gi0/0", "group_key": "g1"}],
-                "groups": [{"key": "g1", "name": "Серверные", "vlan_mode": "trunk", "vlan_ids": [vlan["id"]], "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": vlan["id"]}]}],
+                "groups": [
+                    {
+                        "key": "g1",
+                        "name": "Серверные",
+                        "vlan_mode": "trunk",
+                        "vlan_ids": [vlan["id"]],
+                        "manage_subinterfaces": True,
+                        "subinterfaces": [{"vlan_id": vlan["id"]}],
+                    }
+                ],
             },
         )
         assert r.status_code == 200, r.text

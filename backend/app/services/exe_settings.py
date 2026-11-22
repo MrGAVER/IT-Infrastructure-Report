@@ -163,7 +163,9 @@ def _parse_clients(entries: list[str]) -> tuple[str, ...]:
 def _parse_hosts(entries: list[str]) -> tuple[str, ...]:
     for entry in entries:
         if any(ch in entry for ch in ":/ \t"):
-            raise SettingsError(f"[access] allowed_hosts: некорректное имя {entry!r} — нужно только имя без порта и адреса страницы (например, reestr-pc или *.corp.local).")
+            raise SettingsError(
+                f"[access] allowed_hosts: некорректное имя {entry!r} — нужно только имя без порта и адреса страницы (например, reestr-pc или *.corp.local)."
+            )
         try:
             ipaddress.ip_address(entry)
         except ValueError:

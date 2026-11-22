@@ -43,7 +43,13 @@ def _connection_type(client) -> dict:
 def _connect(client, a: dict, b: dict, *, active: bool = True, description: str | None = None) -> dict:
     r = client.post(
         f"{API}/resources/connections",
-        json={"source_interface_id": a["id"], "destination_interface_id": b["id"], "connection_type_id": _connection_type(client)["id"], "is_active": active, "description": description},
+        json={
+            "source_interface_id": a["id"],
+            "destination_interface_id": b["id"],
+            "connection_type_id": _connection_type(client)["id"],
+            "is_active": active,
+            "description": description,
+        },
     )
     assert r.status_code == 201, r.text
     return r.json()
@@ -203,7 +209,9 @@ def test_a_cable_between_two_ports_of_the_same_device_is_reported_for_both_ports
 
     items = client.get(f"{API}/devices/{dev['id']}/interface-connections").json()["items"]
 
-    assert sorted((x["interface_id"], x["peer_interface_id"]) for x in items) == sorted([(ports["eth0"]["id"], ports["eth1"]["id"]), (ports["eth1"]["id"], ports["eth0"]["id"])])
+    assert sorted((x["interface_id"], x["peer_interface_id"]) for x in items) == sorted(
+        [(ports["eth0"]["id"], ports["eth1"]["id"]), (ports["eth1"]["id"], ports["eth0"]["id"])]
+    )
     assert {x["peer_device_id"] for x in items} == {dev["id"]}
 
 

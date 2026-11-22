@@ -206,7 +206,9 @@ def test_a_template_name_that_is_not_a_string_is_a_422_not_a_500(client, name):
 
 @pytest.mark.parametrize("description", [5, ["x"], {"a": 1}])
 def test_a_template_description_must_be_a_string_or_null(client, description):
-    _assert_422(client.post("/api/v1/report-templates", json={"name": "Т", "config": {}, "description": description}), "Поле description должно быть строкой или null")
+    _assert_422(
+        client.post("/api/v1/report-templates", json={"name": "Т", "config": {}, "description": description}), "Поле description должно быть строкой или null"
+    )
 
 
 # --- На корректных запросах поведение прежнее -----------------------------------------------------------------------------------

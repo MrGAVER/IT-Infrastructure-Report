@@ -83,7 +83,10 @@ def _status_insert(conn, table: str) -> tuple[str, str]:
 def _insert_vm(conn) -> str:
     vm_id = _uid()
     status_column, status_value = _status_insert(conn, "virtual_machines")
-    conn.execute(f"INSERT INTO virtual_machines (id, name{status_column}, created_at, updated_at) VALUES (?, ?{status_value}, ?, ?)", (vm_id, f"VM-{vm_id[:8]}", _now(), _now()))
+    conn.execute(
+        f"INSERT INTO virtual_machines (id, name{status_column}, created_at, updated_at) VALUES (?, ?{status_value}, ?, ?)",
+        (vm_id, f"VM-{vm_id[:8]}", _now(), _now()),
+    )
     conn.commit()
     return vm_id
 
@@ -99,7 +102,8 @@ def _insert_is(conn) -> str:
     is_id = _uid()
     status_column, status_value = _status_insert(conn, "information_systems")
     conn.execute(
-        f"INSERT INTO information_systems (id, name, type{status_column}, siem_enabled, crypto_protection_enabled, created_at, updated_at) VALUES (?, ?, 'ИС'{status_value}, 0, 0, ?, ?)",
+        f"INSERT INTO information_systems (id, name, type{status_column}, siem_enabled, crypto_protection_enabled, "
+        f"created_at, updated_at) VALUES (?, ?, 'ИС'{status_value}, 0, 0, ?, ?)",
         (is_id, f"ИС {is_id[:8]}", _now(), _now()),
     )
     conn.commit()
@@ -109,7 +113,8 @@ def _insert_is(conn) -> str:
 def _insert_source(conn, is_id: str, source_type: str, owner_id: str | None = None) -> str:
     source_id = _uid()
     conn.execute(
-        "INSERT INTO information_system_sources (id, information_system_id, source_type, owner_id, external_interaction, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
+        "INSERT INTO information_system_sources (id, information_system_id, source_type, owner_id, "
+        "external_interaction, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
         (source_id, is_id, source_type, owner_id, _now(), _now()),
     )
     conn.commit()

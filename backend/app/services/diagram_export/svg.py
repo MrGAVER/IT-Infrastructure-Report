@@ -74,7 +74,10 @@ def _svg_node(node: dict, x: float, y: float) -> str:
         # без внешних запросов, поэтому открытый в браузере .svg не выполняет код из каталога иконок
         # (остаточный риск .svg-экспорта).
         encoded = base64.b64encode(custom_svg.encode("utf-8")).decode("ascii")
-        parts.append(f'<image x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" preserveAspectRatio="xMidYMid meet" xlink:href="data:image/svg+xml;base64,{encoded}"/>')
+        parts.append(
+            f'<image x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" preserveAspectRatio="xMidYMid meet" '
+            f'xlink:href="data:image/svg+xml;base64,{encoded}"/>'
+        )
     else:
         # Два слоя: _icon_color — значение должно быть HEX-цветом, _esc — разметка не собирается из данных ни при каких
         # обстоятельствах.
@@ -130,11 +133,15 @@ def _svg_edge(edge: dict, nodes_by_id: dict) -> str:
     dash = "" if edge.get("is_active", True) else ' stroke-dasharray="6,4"'
     label_text = _vlan_label(edge)
     label = (
-        f'<text x="{(x1 + x2) / 2}" y="{(y1 + y2) / 2}" text-anchor="middle" font-size="{DIAGRAM_EDGE_FONT_SIZE}" font-family="{DIAGRAM_FONT_FAMILY}" fill="#555555">{_esc(label_text)}</text>'
+        f'<text x="{(x1 + x2) / 2}" y="{(y1 + y2) / 2}" text-anchor="middle" font-size="{DIAGRAM_EDGE_FONT_SIZE}" '
+        f'font-family="{DIAGRAM_FONT_FAMILY}" fill="#555555">{_esc(label_text)}</text>'
         if label_text
         else ""
     )
-    return f'<g class="diagram-edge" data-edge-id="{_esc(edge["id"])}"><line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#666666" stroke-width="1.5"{dash}/>{label}</g>'
+    return (
+        f'<g class="diagram-edge" data-edge-id="{_esc(edge["id"])}"><line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" '
+        f'stroke="#666666" stroke-width="1.5"{dash}/>{label}</g>'
+    )
 
 
 def export_svg(graph: dict) -> str:

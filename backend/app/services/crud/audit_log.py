@@ -19,7 +19,11 @@ def audit(session: Session, entity_type: str, entity_id: str, action: str, detai
     if entity_type == "audit-log":
         return
     who = actor or current_actor.get()
-    session.add(AuditLog(entity_type=entity_type, entity_id=entity_id, action=action, details=details, actor_id=who.user_id, actor_username=who.username, actor_ip=who.ip))
+    session.add(
+        AuditLog(
+            entity_type=entity_type, entity_id=entity_id, action=action, details=details, actor_id=who.user_id, actor_username=who.username, actor_ip=who.ip
+        )
+    )
 
 
 def _fmt_audit_value(value: Any) -> str:

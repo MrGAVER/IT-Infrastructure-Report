@@ -173,7 +173,9 @@ def list_template_versions(template_id: str, session: Session = Depends(get_db))
     отдельный просмотр содержимого прошлой версии не нужен для этого сценария."""
     if not session.get(ReportTemplate, template_id):
         raise HTTPException(404, "Шаблон отчёта не найден")
-    rows = session.scalars(select(ReportTemplateVersion).where(ReportTemplateVersion.report_template_id == template_id).order_by(ReportTemplateVersion.version_number.desc())).all()
+    rows = session.scalars(
+        select(ReportTemplateVersion).where(ReportTemplateVersion.report_template_id == template_id).order_by(ReportTemplateVersion.version_number.desc())
+    ).all()
     return [
         {
             "id": v.id,

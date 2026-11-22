@@ -108,7 +108,11 @@ class TestInterfaceSync:
         proxy = _catalog(client, 80, "HTTP-Proxy-Test")
         ssh = _catalog(client, 22, "SSH")
 
-        r = _put_interfaces(client, dev["id"], [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": http["id"]}, {"protocol_catalog_id": ssh["id"]}, {"protocol_catalog_id": proxy["id"]}]}])
+        r = _put_interfaces(
+            client,
+            dev["id"],
+            [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": http["id"]}, {"protocol_catalog_id": ssh["id"]}, {"protocol_catalog_id": proxy["id"]}]}],
+        )
 
         assert r.status_code == 422, r.text
         assert "Gi0/1" in r.json()["detail"] and "80" in r.json()["detail"]
@@ -118,7 +122,11 @@ class TestInterfaceSync:
         dev = _device(client)
         http = _catalog(client, 80, "HTTP")
 
-        r = _put_interfaces(client, dev["id"], [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": http["id"]}]}, {"name": "Gi0/2", "open_ports": [{"protocol_catalog_id": http["id"]}]}])
+        r = _put_interfaces(
+            client,
+            dev["id"],
+            [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": http["id"]}]}, {"name": "Gi0/2", "open_ports": [{"protocol_catalog_id": http["id"]}]}],
+        )
 
         assert r.status_code == 200, r.text
         assert len(_stored_open_ports(client, "device_interface")) == 2
@@ -134,7 +142,12 @@ class TestGroups:
         dev = _device(client)
         http = _catalog(client, 80, "HTTP")
         proxy = _catalog(client, 80, "HTTP-Proxy-Test")
-        group = {"key": "g1", "name": "Серверные", "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": http["id"]}, {"protocol_catalog_id": proxy["id"]}]}
+        group = {
+            "key": "g1",
+            "name": "Серверные",
+            "manage_open_ports": True,
+            "open_ports": [{"protocol_catalog_id": http["id"]}, {"protocol_catalog_id": proxy["id"]}],
+        }
 
         r = _put_interfaces(client, dev["id"], [{"name": "Gi0/1", "group_key": "g1"}], [group])
 
@@ -146,7 +159,12 @@ class TestGroups:
         dev = _device(client)
         http = _catalog(client, 80, "HTTP")
         proxy = _catalog(client, 80, "HTTP-Proxy-Test")
-        group = {"key": "g1", "name": "Серверные", "manage_open_ports": False, "open_ports": [{"protocol_catalog_id": http["id"]}, {"protocol_catalog_id": proxy["id"]}]}
+        group = {
+            "key": "g1",
+            "name": "Серверные",
+            "manage_open_ports": False,
+            "open_ports": [{"protocol_catalog_id": http["id"]}, {"protocol_catalog_id": proxy["id"]}],
+        }
 
         r = _put_interfaces(client, dev["id"], [{"name": "Gi0/1", "group_key": "g1"}], [group])
 

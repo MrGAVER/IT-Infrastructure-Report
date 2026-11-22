@@ -132,8 +132,17 @@ class BuildStructuralAppendixTestCase(unittest.TestCase):
         self.session.add(model)
         self.session.flush()
 
-        self.switch = PhysicalDevice(device_type_id=dtype.id, manufacturer_id=manufacturer.id, model_id=model.id, serial_number="SN-321", system_name="C2960X_210", embedded_os_id=embedded_os.id)
-        self.server = PhysicalDevice(device_type_id=dtype.id, manufacturer_id=manufacturer.id, serial_number="SN-123", system_name="srv-204", embedded_os_id=embedded_os.id)
+        self.switch = PhysicalDevice(
+            device_type_id=dtype.id,
+            manufacturer_id=manufacturer.id,
+            model_id=model.id,
+            serial_number="SN-321",
+            system_name="C2960X_210",
+            embedded_os_id=embedded_os.id,
+        )
+        self.server = PhysicalDevice(
+            device_type_id=dtype.id, manufacturer_id=manufacturer.id, serial_number="SN-123", system_name="srv-204", embedded_os_id=embedded_os.id
+        )
         self.session.add_all([self.switch, self.server])
         self.session.flush()
 

@@ -66,7 +66,11 @@ class TestDetailsSync:
         http_row = next(p for p in saved if p["protocol_catalog_id"] == http["id"])
 
         # Строка http очищена (выбор снят) + пустой плейсхолдер: первая удаляется, второй игнорируется.
-        r = _put_details(client, system["id"], [{"id": ssh_row["id"], "protocol_catalog_id": ssh["id"]}, {"id": http_row["id"], "protocol_catalog_id": ""}, {"protocol_catalog_id": ""}])
+        r = _put_details(
+            client,
+            system["id"],
+            [{"id": ssh_row["id"], "protocol_catalog_id": ssh["id"]}, {"id": http_row["id"], "protocol_catalog_id": ""}, {"protocol_catalog_id": ""}],
+        )
 
         assert r.status_code == 200, r.text
         assert [p["id"] for p in r.json()["protocols"]] == [ssh_row["id"]]
@@ -84,7 +88,9 @@ class TestDetailsSync:
     def test_rows_are_updated_in_place_and_numbers_can_be_swapped(self, client):
         system = _system(client)
         ssh, http = _catalog(client, 22, "SSH"), _catalog(client, 80, "HTTP")
-        first = _put_details(client, system["id"], [{"protocol_catalog_id": ssh["id"], "description": "админка"}, {"protocol_catalog_id": http["id"]}]).json()["protocols"]
+        first = _put_details(client, system["id"], [{"protocol_catalog_id": ssh["id"], "description": "админка"}, {"protocol_catalog_id": http["id"]}]).json()[
+            "protocols"
+        ]
         by_catalog = {p["protocol_catalog_id"]: p for p in first}
 
         # Две строки меняются номерами за один запрос — это не повтор, записи остаются теми же.
@@ -191,10 +197,19 @@ class TestGroupManagedPorts:
         before = {p["protocol_catalog_id"]: p for p in self._ports(client, iface_id)}
 
         group_id = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"][0]["id"]
-        group = {"id": group_id, "key": group_id, "name": "Серверные", "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": telnet["id"]}, {"protocol_catalog_id": http["id"]}]}
+        group = {
+            "id": group_id,
+            "key": group_id,
+            "name": "Серверные",
+            "manage_open_ports": True,
+            "open_ports": [{"protocol_catalog_id": telnet["id"]}, {"protocol_catalog_id": http["id"]}],
+        }
         # Клиент присылает порт с уже сохранёнными строками (как отправляет форма), а группа задаёт новый список.
         current = [{"id": p["id"], "protocol_catalog_id": p["protocol_catalog_id"]} for p in before.values()]
-        r = client.put(f"{API}/devices/{dev['id']}/interfaces", json={"interfaces": [{"id": iface_id, "name": "Gi0/1", "group_key": group_id, "open_ports": current}], "groups": [group]})
+        r = client.put(
+            f"{API}/devices/{dev['id']}/interfaces",
+            json={"interfaces": [{"id": iface_id, "name": "Gi0/1", "group_key": group_id, "open_ports": current}], "groups": [group]},
+        )
         assert r.status_code == 200, r.text
 
         after = self._ports(client, iface_id)
@@ -213,7 +228,9 @@ class TestGroupManagedPorts:
 
         def apply(ports):
             group = {"id": group_id, "key": group_id, "name": "Серверные", "manage_open_ports": True, "open_ports": ports}
-            return client.put(f"{API}/devices/{dev['id']}/interfaces", json={"interfaces": [{"id": iface_id, "name": "Gi0/1", "group_key": group_id}], "groups": [group]})
+            return client.put(
+                f"{API}/devices/{dev['id']}/interfaces", json={"interfaces": [{"id": iface_id, "name": "Gi0/1", "group_key": group_id}], "groups": [group]}
+            )
 
         assert apply([{"protocol_catalog_id": ssh["id"]}, {"protocol_catalog_id": telnet["id"]}, {"protocol_catalog_id": http["id"]}]).status_code == 200
         assert {p["protocol_catalog_id"] for p in self._ports(client, iface_id)} == {ssh["id"], telnet["id"], http["id"]}

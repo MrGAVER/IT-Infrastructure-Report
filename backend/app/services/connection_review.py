@@ -143,7 +143,8 @@ def _approve_connections(connections: Sequence[Connection], session: Session) ->
                 "connections",
                 conn.id,
                 AuditAction.UPDATE,
-                f"Одобрено расхождение конфигурации портов ({facets}): {_describe(names[conn.source_interface_id], source)}; {_describe(names[conn.destination_interface_id], destination)}",
+                f"Одобрено расхождение конфигурации портов ({facets}): {_describe(names[conn.source_interface_id], source)}; "
+                f"{_describe(names[conn.destination_interface_id], destination)}",
             )
             covered.append(conn)
             newly_approved += 1

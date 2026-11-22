@@ -496,7 +496,8 @@ class TestInterfacesSync:
 
         update_queries = [s for s in sql_log if s.strip().upper().startswith("UPDATE") and "DEVICE_INTERFACES" in s.upper()]
         assert not update_queries, (
-            f"Создание новых интерфейсов не должно требовать UPDATE device_interfaces (vlan_mode должен уходить в исходный INSERT), получено {len(update_queries)}: {update_queries}"
+            "Создание новых интерфейсов не должно требовать UPDATE device_interfaces (vlan_mode должен уходить в исходный "
+            f"INSERT), получено {len(update_queries)}: {update_queries}"
         )
 
     def test_sync_interfaces_creates_and_lists_open_ports(self, client):
@@ -779,7 +780,12 @@ class TestInformationSystemSourceDuplicates:
 
         r = client.put(
             self._details_url(info),
-            json={"sources": [{"id": existing["id"], "source_type": "vm", "owner_id": vm["id"], "external_interaction": False}, {"source_type": "vm", "owner_id": vm["id"]}]},
+            json={
+                "sources": [
+                    {"id": existing["id"], "source_type": "vm", "owner_id": vm["id"], "external_interaction": False},
+                    {"source_type": "vm", "owner_id": vm["id"]},
+                ]
+            },
         )
 
         assert r.status_code == 422
@@ -1482,7 +1488,9 @@ class TestPolymorphicOwnerCleanupOnDelete:
         vm = client.post("/api/v1/resources/vms", json={"name": "ВМ для удаления IP и ПО"}).json()
         ip = client.post("/api/v1/resources/ip-addresses", json={"owner_type": "virtual_machine", "owner_id": vm["id"], "ip_address": "10.0.0.9"}).json()
         asset = client.post("/api/v1/resources/software-assets", json={"name": "ПО для удаления ВМ"}).json()
-        software = client.post("/api/v1/resources/deployed-software", json={"owner_type": "virtual_machine", "owner_id": vm["id"], "software_asset_id": asset["id"]}).json()
+        software = client.post(
+            "/api/v1/resources/deployed-software", json={"owner_type": "virtual_machine", "owner_id": vm["id"], "software_asset_id": asset["id"]}
+        ).json()
 
         r = client.delete(f"/api/v1/resources/vms/{vm['id']}")
         assert r.status_code == 200, r.text
@@ -1494,7 +1502,9 @@ class TestPolymorphicOwnerCleanupOnDelete:
         dt = _create_device_type(client, "Устройство для удаления ПО")
         dev = client.post("/api/v1/resources/devices", json={"device_type_id": dt["id"], "serial_number": "SW-DEL-SOFT"}).json()
         asset = client.post("/api/v1/resources/software-assets", json={"name": "ПО для удаления устройства"}).json()
-        software = client.post("/api/v1/resources/deployed-software", json={"owner_type": "physical_device", "owner_id": dev["id"], "software_asset_id": asset["id"]}).json()
+        software = client.post(
+            "/api/v1/resources/deployed-software", json={"owner_type": "physical_device", "owner_id": dev["id"], "software_asset_id": asset["id"]}
+        ).json()
 
         r = client.delete(f"/api/v1/resources/devices/{dev['id']}")
         assert r.status_code == 200, r.text
@@ -1504,7 +1514,9 @@ class TestPolymorphicOwnerCleanupOnDelete:
     def test_deleting_is_source_removes_its_ip_addresses(self, client):
         is_ = client.post("/api/v1/resources/information-systems", json={"name": "ИС для удаления источника"}).json()
         source = client.post("/api/v1/resources/is-sources", json={"information_system_id": is_["id"], "source_type": "manual"}).json()
-        ip = client.post("/api/v1/resources/ip-addresses", json={"owner_type": "information_system_source", "owner_id": source["id"], "ip_address": "10.5.5.5"}).json()
+        ip = client.post(
+            "/api/v1/resources/ip-addresses", json={"owner_type": "information_system_source", "owner_id": source["id"], "ip_address": "10.5.5.5"}
+        ).json()
 
         r = client.delete(f"/api/v1/resources/is-sources/{source['id']}")
         assert r.status_code == 200, r.text
@@ -2219,7 +2231,14 @@ class TestReports:
                 {
                     "title": "Устройства",
                     "columns": [{"width": 20}],
-                    "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "registry-device-rows"}, "cells": [{"col": 0, "kind": "field", "path": "serial_number"}]}],
+                    "rows": [
+                        {
+                            "height": 18,
+                            "repeat": True,
+                            "data_source": {"root_entity": "registry-device-rows"},
+                            "cells": [{"col": 0, "kind": "field", "path": "serial_number"}],
+                        }
+                    ],
                 }
             ]
         }

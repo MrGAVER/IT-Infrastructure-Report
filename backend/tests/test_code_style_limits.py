@@ -47,12 +47,14 @@ def test_no_backend_line_is_longer_than_the_declared_line_length():
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         if len(line) > limit
     ]
-    assert too_long == [], f"строки длиннее {limit} символов (код оберните `ruff format`-ом, строку-литерал разрежьте на части, комментарий и докстринг перенесите): {too_long}"
+    assert too_long == [], (
+        f"строки длиннее {limit} символов (код оберните `ruff format`-ом, строку-литерал разрежьте на части, комментарий и докстринг перенесите): {too_long}"
+    )
 
 
 def test_the_limit_is_not_silently_raised():
     # Объявленный предел только снижается (план — 140). Поднять его, чтобы тест позеленел, нельзя: сначала нужно осознанно поменять число здесь.
-    assert _line_length_limit() <= 200
+    assert _line_length_limit() <= 160
 
 
 # --- Исключения из `ruff format` ----------------------------------------------------------------------------------------------------------

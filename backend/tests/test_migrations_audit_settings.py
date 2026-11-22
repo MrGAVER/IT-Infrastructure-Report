@@ -118,7 +118,9 @@ def test_upgrade_skips_a_table_that_already_exists(database):
     """Идемпотентность: база создана по моделям (таблица уже есть) или ревизию запускают повторно — готовая таблица и её данные не трогаются."""
     database.migrate(PRE_REVISION)
     with database.engine.begin() as connection:
-        connection.execute(sa.text(f"CREATE TABLE {TABLE} (id VARCHAR(20) PRIMARY KEY, retention_days INTEGER, last_cleanup_at TIMESTAMP, updated_at TIMESTAMP NOT NULL)"))
+        connection.execute(
+            sa.text(f"CREATE TABLE {TABLE} (id VARCHAR(20) PRIMARY KEY, retention_days INTEGER, last_cleanup_at TIMESTAMP, updated_at TIMESTAMP NOT NULL)")
+        )
     _insert_settings(database, retention_days=30)
 
     database.migrate(TARGET_REVISION)

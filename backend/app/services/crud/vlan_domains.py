@@ -5,7 +5,18 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 from ..integrity import find_stale_group_subinterfaces, find_stale_subinterfaces
-from ...models import DeviceInterface, PhysicalDevice, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice, InterfaceGroup, InterfaceGroupVLAN
+from ...models import (
+    DeviceInterface,
+    PhysicalDevice,
+    DeviceTypeVLAN,
+    PhysicalDeviceVLAN,
+    InterfaceVLAN,
+    VLAN,
+    VLANDomain,
+    VLANDomainDevice,
+    InterfaceGroup,
+    InterfaceGroupVLAN,
+)
 
 
 def _domain_device_ids(domain_id: str, session: Session) -> set[str]:
@@ -37,12 +48,18 @@ def _unassign_moved_vlan_from_former_domain_devices(vlan: "VLAN", old_domain_id:
     left_behind = _domain_device_ids(old_domain_id, session) - _domain_device_ids(vlan.domain_id, session)
     if not left_behind:
         return 0
-    assigned = set(session.scalars(select(PhysicalDeviceVLAN.physical_device_id).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_(left_behind))).all())
+    assigned = set(
+        session.scalars(
+            select(PhysicalDeviceVLAN.physical_device_id).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_(left_behind))
+        ).all()
+    )
     if not assigned:
         return 0
     type_allowed = set(session.scalars(select(DeviceTypeVLAN.device_type_id).where(DeviceTypeVLAN.vlan_id == vlan.id)).all())
     strip_ports_of = {
-        device_id for device_id, type_id in session.execute(select(PhysicalDevice.id, PhysicalDevice.device_type_id).where(PhysicalDevice.id.in_(assigned))).all() if type_id not in type_allowed
+        device_id
+        for device_id, type_id in session.execute(select(PhysicalDevice.id, PhysicalDevice.device_type_id).where(PhysicalDevice.id.in_(assigned))).all()
+        if type_id not in type_allowed
     }
     session.execute(delete(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_(assigned)))
     if strip_ports_of:

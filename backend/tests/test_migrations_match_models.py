@@ -14,7 +14,8 @@ SQLite: ограничения UNIQUE в сравнении пропускают
 их наличие проверяет `test_sqlite_model_uniqueness_exists_in_the_database` — по колонкам, а не по именам.
 
 Запуск: `pytest backend/tests/test_migrations_match_models.py` (SQLite);
-        INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/любая_база pytest backend/tests/test_migrations_match_models.py (PostgreSQL).
+        INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/любая_база pytest
+        backend/tests/test_migrations_match_models.py (PostgreSQL).
 """
 
 from __future__ import annotations
@@ -86,7 +87,10 @@ def _assert_matches_whitelist(drift: set[str], expected: set[str]) -> None:
     new, fixed = sorted(drift - expected), sorted(expected - drift)
     problems = []
     if new:
-        problems.append("Схема из миграций разошлась с models.py. Нужна миграция (alembic revision) или правка модели — НЕ дописывайте строки в EXPECTED_DRIFT:\n  " + "\n  ".join(new))
+        problems.append(
+            "Схема из миграций разошлась с models.py. Нужна миграция (alembic revision) или правка модели — НЕ дописывайте строки в EXPECTED_DRIFT:\n  "
+            + "\n  ".join(new)
+        )
     if fixed:
         problems.append("Эти расхождения уже исправлены — удалите их из EXPECTED_DRIFT, чтобы страж не молчал о новых:\n  " + "\n  ".join(fixed))
     assert not problems, "\n\n".join(problems)

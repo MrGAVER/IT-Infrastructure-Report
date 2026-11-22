@@ -61,7 +61,8 @@ def test_upgrade_removes_untouched_seed_template_with_its_versions(alembic_confi
         seeded = _template(conn)
         assert seeded is not None, "предусловие: b44cd42f9fa0 добавила шаблон"
         conn.execute(
-            "INSERT INTO report_template_versions (id, report_template_id, version_number, name, description, format, config, created_at, updated_at) VALUES (?, ?, 1, ?, NULL, 'docx', ?, ?, ?)",
+            "INSERT INTO report_template_versions (id, report_template_id, version_number, name, description, format, "
+            "config, created_at, updated_at) VALUES (?, ?, 1, ?, NULL, 'docx', ?, ?, ?)",
             (str(uuid.uuid4()), seeded["id"], seeded["name"], seeded["config"], _now(), _now()),
         )
 
@@ -153,7 +154,8 @@ def test_downgrade_does_not_overwrite_existing_template_with_same_name(alembic_c
     command.upgrade(cfg, REVISION)
     with _connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO report_templates (id, name, description, format, config, created_at, updated_at) VALUES (?, ?, 'моё', 'docx', '{\"blocks\": []}', ?, ?)",
+            "INSERT INTO report_templates (id, name, description, format, config, created_at, updated_at) VALUES (?, ?, "
+            "'моё', 'docx', '{\"blocks\": []}', ?, ?)",
             (str(uuid.uuid4()), TEMPLATE_NAME, _now(), _now()),
         )
 

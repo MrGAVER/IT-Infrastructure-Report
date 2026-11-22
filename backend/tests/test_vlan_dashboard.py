@@ -2,9 +2,11 @@
 A-06 (приоритет 1, код-ревью main @ b375f58): GET /api/v1/vlan-dashboard — основной источник данных экрана VLAN (frontend-vue/src/stores/vlans.ts), а на бэкенде
 функцию build_vlan_dashboard не вызывал ни один тест.
 
-Контракт ответа: `{"items": [{"vlan_id": N, "definitions": [{id, vlan_id, name, description, domain_id, domain_name, devices: [...]}]}]}`. Один номер VLAN может иметь
-несколько определений (в разных доменах и локальное); группы идут по возрастанию номера, определения внутри группы — по имени; у VLAN вне домена domain_name — «Локальный VLAN»;
-к каждому определению приложены только его собственные назначения устройств (подпись устройства — системное имя, а без него серийный номер).
+Контракт ответа: `{"items": [{"vlan_id": N, "definitions": [{id, vlan_id, name, description, domain_id, domain_name, devices: [...]}]}]}`.
+Один номер VLAN может иметь несколько определений (в разных доменах и локальное); группы идут по возрастанию номера, определения внутри
+группы — по имени; у VLAN вне
+домена domain_name — «Локальный VLAN»; к каждому определению приложены только его собственные назначения устройств (подпись устройства —
+системное имя, а без него серийный номер).
 
 Запуск: pytest backend/tests/test_vlan_dashboard.py -v
 """
@@ -74,9 +76,17 @@ def test_the_same_vlan_number_keeps_separate_definitions_with_their_own_devices(
     assert reserve[0]["domain_name"] == "Кампус"
 
     labs, servers = items[1]["definitions"]  # внутри группы — по имени: «Лаборатория» раньше «Серверы»
-    assert (labs["name"], labs["domain_id"], labs["domain_name"], labs["description"]) == ("Лаборатория", None, LOCAL, ""), "VLAN вне домена — «Локальный VLAN», описание None → ''"
+    assert (labs["name"], labs["domain_id"], labs["domain_name"], labs["description"]) == ("Лаборатория", None, LOCAL, ""), (
+        "VLAN вне домена — «Локальный VLAN», описание None → ''"
+    )
     assert labs["devices"] == [{"device_id": edge.id, "device_name": "SN-EDGE", "ip_address": None, "is_management": False}]
-    assert (servers["id"], servers["vlan_id"], servers["description"], servers["domain_id"], servers["domain_name"]) == (in_domain.id, 10, "Серверный сегмент", domain.id, "Кампус")
+    assert (servers["id"], servers["vlan_id"], servers["description"], servers["domain_id"], servers["domain_name"]) == (
+        in_domain.id,
+        10,
+        "Серверный сегмент",
+        domain.id,
+        "Кампус",
+    )
     assert servers["devices"] == [{"device_id": core.id, "device_name": "core-sw", "ip_address": "10.0.10.1", "is_management": True}]
 
 

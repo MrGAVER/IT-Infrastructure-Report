@@ -56,7 +56,9 @@ def test_every_glyph_literal_is_split_into_short_pieces():
     lines = source.splitlines()
     first = next(number for number, line in enumerate(lines, 1) if line.startswith("SHAPE_GLYPHS: dict"))
     last = next(number for number, line in enumerate(lines, 1) if number > first and line.startswith("# fmt: on"))
-    pieces = [token.string for token in tokenize.generate_tokens(io.StringIO(source).readline) if token.type == tokenize.STRING and first <= token.start[0] <= last]
+    pieces = [
+        token.string for token in tokenize.generate_tokens(io.StringIO(source).readline) if token.type == tokenize.STRING and first <= token.start[0] <= last
+    ]
     markup = [piece for piece in pieces if piece.startswith("'<")]
     assert len(markup) > len(SHAPE_GLYPHS), "каждый глиф должен состоять минимум из одного литерала, а большинство — из нескольких"
     assert max(len(piece) for piece in markup) <= 120 + 2  # плюс две кавычки

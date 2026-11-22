@@ -399,7 +399,9 @@ def _check_apply_consistency(action: str, apply_role: bool, apply_mode: bool, vl
     if vlan_policy == "adapt" and not apply_mode:
         raise RuleValidationError("Политика VLAN «по режиму» имеет смысл только вместе со сменой режима (apply.mode)")
     if vlan_policy == "union" and (apply_role or apply_mode):
-        raise RuleValidationError("Политика VLAN «объединить» меняет оба порта сразу и не сочетается со сменой роли или режима: их порт берёт у соседа, а не оба сразу")
+        raise RuleValidationError(
+            "Политика VLAN «объединить» меняет оба порта сразу и не сочетается со сменой роли или режима: их порт берёт у соседа, а не оба сразу"
+        )
     if action == "auto" and not (apply_role or apply_mode or vlan_policy != "keep"):
         raise RuleValidationError("Правило с действием «автоматически» должно что-то менять: роль, режим или VLAN")
 
@@ -531,7 +533,10 @@ DEFAULT_RULES: tuple[RuleSpec, ...] = (
     RuleSpec(
         code=ROLE_MATCH_RULE,
         name="Роль порта совпадает с ролью соседа",
-        description=("Роль («Управление» / «Передача данных») порта должна совпадать с ролью порта на другом конце подключения. Какой порт менять — решает человек: порту применяется роль соседа."),
+        description=(
+            "Роль («Управление» / «Передача данных») порта должна совпадать с ролью порта на другом конце подключения. "
+            "Какой порт менять — решает человек: порту применяется роль соседа."
+        ),
         action="manual",
         priority=20,
         relation=Side(role="differs"),
@@ -554,7 +559,10 @@ DEFAULT_RULES: tuple[RuleSpec, ...] = (
     RuleSpec(
         code=VLANS_MATCH_RULE,
         name="Наборы VLAN на концах линии совпадают",
-        description=("Набор VLAN порта должен совпадать с набором VLAN порта на другом конце подключения (по номерам VLAN). Какой порт менять — решает человек: порту применяются VLAN соседа."),
+        description=(
+            "Набор VLAN порта должен совпадать с набором VLAN порта на другом конце подключения (по номерам VLAN). Какой "
+            "порт менять — решает человек: порту применяются VLAN соседа."
+        ),
         action="manual",
         priority=40,
         relation=Side(vlans="differs"),

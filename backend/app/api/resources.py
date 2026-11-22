@@ -6,7 +6,16 @@ from ..db import get_db
 from ..models import InformationSystem
 from ..registry import DISPLAY_NAMES, MODEL_MAP
 from ..services.auth import require_admin_if_auth_enabled
-from ..services.crud import columns_for, create_resource, delete_resource, list_resource, model_for, update_resource, get_information_system_details, sync_information_system_details
+from ..services.crud import (
+    columns_for,
+    create_resource,
+    delete_resource,
+    list_resource,
+    model_for,
+    update_resource,
+    get_information_system_details,
+    sync_information_system_details,
+)
 from ..services.serialization import serialize
 from .resource_schemas import InformationSystemDetailsUpdate, ResourceBody
 

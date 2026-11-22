@@ -124,7 +124,13 @@ def _lock_statement(interface_ids: Sequence[str]):
     с пересекающимися портами не блокируют друг друга взаимно. populate_existing обновляет уже загруженные в сессию
     объекты портов состоянием, которое видно после получения блокировки. На SQLite FOR UPDATE не рисуется (безопасный
     no-op): там запись и так сериализована блокировкой файла."""
-    return select(DeviceInterface).where(DeviceInterface.id.in_(interface_ids)).order_by(DeviceInterface.id).with_for_update().execution_options(populate_existing=True)
+    return (
+        select(DeviceInterface)
+        .where(DeviceInterface.id.in_(interface_ids))
+        .order_by(DeviceInterface.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
 
 
 def _lock_interfaces(session: Session, interface_ids: Sequence[str]) -> None:
@@ -377,7 +383,9 @@ def _blocked_reason(changes: Changes, target: _Port, target_id: str, outcome: _V
     return None
 
 
-def _change_pairs(target: _Port, changes: Changes, outcome: _VlanOutcome) -> tuple[tuple[str, str] | None, tuple[str, str] | None, tuple[list[int], list[int]] | None]:
+def _change_pairs(
+    target: _Port, changes: Changes, outcome: _VlanOutcome
+) -> tuple[tuple[str, str] | None, tuple[str, str] | None, tuple[list[int], list[int]] | None]:
     """Пары «было → станет» по роли, режиму и набору VLAN; None — грань не меняется."""
     role_pair = (target.facts.role.value, changes.role.value) if changes.role else None
     mode_pair = (target.facts.mode, changes.mode) if changes.mode else None
@@ -424,7 +432,9 @@ def _plan_target(option: Option, rule: RuleSpec, connection: Connection, ports: 
     view = _changes_view(target, role_pair, mode_pair, vlan_pair, outcome.skipped)
     warnings = [] if blocked else _plan_warnings(changes, outcome, source)
     description = _describe(role_pair, mode_pair, vlan_pair, all_vlans=changes.all_vlans)
-    planned = None if blocked else _Planned(connection, target, rule, changes.role, changes.mode, outcome.resolved_ids, description, all_vlans=changes.all_vlans)
+    planned = (
+        None if blocked else _Planned(connection, target, rule, changes.role, changes.mode, outcome.resolved_ids, description, all_vlans=changes.all_vlans)
+    )
     return _TargetPlan(option.apply_to, target, view, warnings, blocked, planned, outcome.diverges)
 
 
@@ -463,7 +473,9 @@ def _decision_item(parts: list[_TargetPlan], ready: list[_TargetPlan]) -> dict[s
     return item
 
 
-def _apply_decision(decision: Decision, connection: Connection, ports: dict[str, _Port], vlans: dict[str, VLAN], claimed: set[str]) -> tuple[dict[str, Any], list[_Planned]]:
+def _apply_decision(
+    decision: Decision, connection: Connection, ports: dict[str, _Port], vlans: dict[str, VLAN], claimed: set[str]
+) -> tuple[dict[str, Any], list[_Planned]]:
     """Превращает решение auto в запись плана и список изменений портов (пустой — применять нечего).
 
     Обычно целевой порт один. У симметричного правила (политика VLAN «объединить») портов два, и они
@@ -539,7 +551,17 @@ def _parse_page(payload: dict[str, Any]) -> tuple[int, int, str | None]:
 
 
 def _plan_hash(planned: list[_Planned]) -> str:
-    effects = [[p.connection.id, p.port.iface.id, p.role.value if p.role else None, p.mode, sorted(p.vlan_ids) if p.vlan_ids is not None else None, p.rule.id or p.rule.code] for p in planned]
+    effects = [
+        [
+            p.connection.id,
+            p.port.iface.id,
+            p.role.value if p.role else None,
+            p.mode,
+            sorted(p.vlan_ids) if p.vlan_ids is not None else None,
+            p.rule.id or p.rule.code,
+        ]
+        for p in planned
+    ]
     return hashlib.sha256(json.dumps(effects, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 

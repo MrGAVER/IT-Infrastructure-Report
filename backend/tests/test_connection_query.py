@@ -307,7 +307,9 @@ def test_sql_status_matches_python_status_for_all_combinations(client, db_sessio
     for (src_role, dst_role, sig_kind, active), src_id, dst_id in zip(combos, src_ports, dst_ports):
         src_cfg, dst_cfg = PortConfig(src_role), PortConfig(dst_role)
         signature = {"none": None, "right": approval_signature(src_cfg, dst_cfg), "wrong": "data>none"}[sig_kind]
-        conn = Connection(source_interface_id=src_id, destination_interface_id=dst_id, connection_type_id=cable, is_active=active, port_config_approved_signature=signature)
+        conn = Connection(
+            source_interface_id=src_id, destination_interface_id=dst_id, connection_type_id=cable, is_active=active, port_config_approved_signature=signature
+        )
         db_session.add(conn)
         db_session.flush()
         expected[conn.id] = evaluate_port_config(src_cfg, dst_cfg, signature, is_active=active)

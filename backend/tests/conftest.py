@@ -60,7 +60,10 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "sqlite_only: тест зависит от SQLite и пропускается при INFRA_REGISTRY_TEST_DATABASE_URL")
     config.addinivalue_line("markers", "slow: замер времени/нагрузочная проверка; по умолчанию выполняется, исключить можно ключом -m 'not slow'")
     config.addinivalue_line("markers", "postgres_only: тест требует PostgreSQL и выполняется только при INFRA_REGISTRY_TEST_DATABASE_URL")
-    config.addinivalue_line("markers", "real_password_hashing: тест проверяет боевое число итераций PBKDF2 — ускорение хеширования в тестах (см. _fast_password_hashing) отключается")
+    config.addinivalue_line(
+        "markers",
+        "real_password_hashing: тест проверяет боевое число итераций PBKDF2 — ускорение хеширования в тестах (см. _fast_password_hashing) отключается",
+    )
 
 
 def pytest_collection_modifyitems(config, items):

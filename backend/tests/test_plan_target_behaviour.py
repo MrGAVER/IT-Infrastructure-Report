@@ -78,7 +78,14 @@ class TestTargetSelection:
         plan = _plan_with(connection, APPLY_TO_SOURCE, Changes(role=PortRole.DATA, mode="access", vlans=frozenset({10})), {"a": target, "b": other}, None)
         planned = plan.planned
         assert planned is not None
-        assert (planned.connection, planned.rule, planned.role, planned.mode, planned.vlan_ids, planned.all_vlans) == (connection, RULE, PortRole.DATA, "access", ["v10"], False)
+        assert (planned.connection, planned.rule, planned.role, planned.mode, planned.vlan_ids, planned.all_vlans) == (
+            connection,
+            RULE,
+            PortRole.DATA,
+            "access",
+            ["v10"],
+            False,
+        )
         assert planned.description == f"{_role(PortRole.NONE, PortRole.DATA)}; режим trunk → access; VLAN нет → 10"
 
 
@@ -185,7 +192,10 @@ class TestAllVlans:
 
     def test_both_warnings_come_in_a_fixed_order(self):
         plan = _plan(Changes(all_vlans=True), _port("a", allowed=(10, 20)), _port("b", numbers=(10, 30), all_vlans=True))
-        assert plan.warnings == ["Не назначены VLAN, которых нет у устройства порта: 30", "Порту назначаются все VLAN его устройства; у соседнего порта нет VLAN: 20"]
+        assert plan.warnings == [
+            "Не назначены VLAN, которых нет у устройства порта: 30",
+            "Порту назначаются все VLAN его устройства; у соседнего порта нет VLAN: 20",
+        ]
 
     def test_records_missing_from_the_catalog_are_written_but_not_counted_as_numbers(self):
         plan = _plan(Changes(all_vlans=True), _port("a", allowed=(10, "призрак")), _port("b", numbers=(10,), all_vlans=True))
@@ -221,11 +231,16 @@ class TestBlocking:
     def test_access_port_cannot_receive_several_vlans(self):
         message = "В режиме access у порта может быть не более одного VLAN"
         assert _plan(Changes(vlans=frozenset({10, 20})), _port("a", mode="access", allowed=(10, 20)), _port("b", numbers=(10, 20))).blocked == message
-        assert _plan(Changes(mode="access", vlans=frozenset({10, 20})), _port("a", mode="trunk", allowed=(10, 20)), _port("b", numbers=(10, 20))).blocked == message
+        assert (
+            _plan(Changes(mode="access", vlans=frozenset({10, 20})), _port("a", mode="trunk", allowed=(10, 20)), _port("b", numbers=(10, 20))).blocked
+            == message
+        )
 
     def test_access_port_may_receive_one_vlan_and_a_trunk_may_receive_several(self):
         assert _plan(Changes(vlans=frozenset({10})), _port("a", mode="access", allowed=(10, 20)), _port("b", numbers=(10,))).blocked is None
-        assert _plan(Changes(mode="trunk", vlans=frozenset({10, 20})), _port("a", mode="access", allowed=(10, 20)), _port("b", numbers=(10, 20))).blocked is None
+        assert (
+            _plan(Changes(mode="trunk", vlans=frozenset({10, 20})), _port("a", mode="access", allowed=(10, 20)), _port("b", numbers=(10, 20))).blocked is None
+        )
 
     def test_access_check_counts_vlans_left_after_skipping(self):
         plan = _plan(Changes(vlans=frozenset({10, 20})), _port("a", mode="access", allowed=(10,)), _port("b", numbers=(10, 20)))
@@ -244,9 +259,17 @@ class TestBlocking:
         grouped = _port("a", allowed=(10, 20), mode="access", group=_group("Г"))
         assert "Порт входит в группу" in (_plan(Changes(vlans=frozenset({10, 20})), grouped, _port("b", numbers=(10, 20)), claimed={"a"}).blocked or "")
         plain = _port("a", allowed=(10, 20), mode="access")
-        assert _plan(Changes(vlans=frozenset({10, 20})), plain, _port("b", numbers=(10, 20)), claimed={"a"}).blocked == "В режиме access у порта может быть не более одного VLAN"
-        assert _plan(Changes(vlans=frozenset({10})), _port("a", allowed=(10,), numbers=(10,)), _port("b", numbers=(10,)), claimed={"a"}).blocked == "Изменений нет"
-        assert _plan(Changes(vlans=frozenset({20})), _port("a", allowed=(20,)), _port("b", numbers=(20,)), claimed={"a"}).blocked == "Порт уже изменяется другим подключением этого же плана"
+        assert (
+            _plan(Changes(vlans=frozenset({10, 20})), plain, _port("b", numbers=(10, 20)), claimed={"a"}).blocked
+            == "В режиме access у порта может быть не более одного VLAN"
+        )
+        assert (
+            _plan(Changes(vlans=frozenset({10})), _port("a", allowed=(10,), numbers=(10,)), _port("b", numbers=(10,)), claimed={"a"}).blocked == "Изменений нет"
+        )
+        assert (
+            _plan(Changes(vlans=frozenset({20})), _port("a", allowed=(20,)), _port("b", numbers=(20,)), claimed={"a"}).blocked
+            == "Порт уже изменяется другим подключением этого же плана"
+        )
 
 
 class TestChangesView:
@@ -262,7 +285,11 @@ class TestChangesView:
         assert plan.planned is not None and plan.planned.description == "" and plan.planned.vlan_ids is None
 
     def test_description_lists_role_mode_and_vlans_in_that_order(self):
-        plan = _plan(Changes(role=PortRole.DATA, mode="access", vlans=frozenset({10})), _port("a", role=PortRole.NONE, mode="trunk", allowed=(10,)), _port("b", numbers=(10,)))
+        plan = _plan(
+            Changes(role=PortRole.DATA, mode="access", vlans=frozenset({10})),
+            _port("a", role=PortRole.NONE, mode="trunk", allowed=(10,)),
+            _port("b", numbers=(10,)),
+        )
         assert plan.planned is not None
         assert plan.planned.description == f"{_role(PortRole.NONE, PortRole.DATA)}; режим trunk → access; VLAN нет → 10"
 

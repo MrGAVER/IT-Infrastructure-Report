@@ -30,7 +30,14 @@ def _config(**cell_overrides) -> dict:
             {
                 "title": "Лист1",
                 "columns": [column],
-                "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}],
+                "rows": [
+                    {
+                        "height": 18,
+                        "repeat": True,
+                        "data_source": {"root_entity": "information-systems"},
+                        "cells": [{"col": 0, "kind": "field", "path": "name"}],
+                    }
+                ],
             }
         ]
     }

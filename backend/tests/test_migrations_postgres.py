@@ -140,7 +140,10 @@ class TestSchemaMatchesWhatTheAppNeeds:
         missing_tables = {table.name for table in Base.metadata.tables.values()} - tables
         assert not missing_tables
         missing_columns = {
-            f"{table.name}.{column.name}" for table in Base.metadata.tables.values() for column in table.columns if column.name not in {c["name"] for c in inspector.get_columns(table.name)}
+            f"{table.name}.{column.name}"
+            for table in Base.metadata.tables.values()
+            for column in table.columns
+            if column.name not in {c["name"] for c in inspector.get_columns(table.name)}
         }
         assert not missing_columns
 
@@ -159,7 +162,12 @@ class TestSchemaMatchesWhatTheAppNeeds:
     def test_datetime_columns_are_timezone_naive_like_the_models(self, migrated):
         with migrated.engine.connect() as connection:
             aware = (
-                connection.execute(sa.text("SELECT table_name || '.' || column_name FROM information_schema.columns WHERE table_schema = 'public' AND data_type = 'timestamp with time zone'"))
+                connection.execute(
+                    sa.text(
+                        "SELECT table_name || '.' || column_name FROM information_schema.columns WHERE table_schema = 'public' AND "
+                        "data_type = 'timestamp with time zone'"
+                    )
+                )
                 .scalars()
                 .all()
             )
@@ -209,12 +217,18 @@ class TestMigrationsThatMoveData:
             device = insert_row(connection, "physical_devices", management_port=1, management_ip="10.0.0.5")
             near = insert_row(connection, "device_interfaces", physical_device_id=device, name="Gi0/1", interface_type="SFP+", speed="10G")
             far = insert_row(connection, "device_interfaces", physical_device_id=insert_row(connection, "physical_devices"), name="Gi0/2")
-            link = insert_row(connection, "connections", source_interface_id=near, destination_interface_id=far, connection_type="Ethernet", cable_type="Оптическое волокно")
+            link = insert_row(
+                connection, "connections", source_interface_id=near, destination_interface_id=far, connection_type="Ethernet", cable_type="Оптическое волокно"
+            )
         scratch.upgrade(revision)
         with scratch.engine.connect() as connection:
             interface = connection.execute(sa.text("SELECT is_management, interface_type_id FROM device_interfaces WHERE id = :i"), {"i": near}).one()
-            ip = connection.execute(sa.text("SELECT is_management, purpose FROM interface_ips WHERE interface_id = :i AND ip_address = '10.0.0.5'"), {"i": near}).one()
-            link_type = connection.execute(sa.text("SELECT t.name FROM connections c JOIN connection_types t ON t.id = c.connection_type_id WHERE c.id = :c"), {"c": link}).scalar_one()
+            ip = connection.execute(
+                sa.text("SELECT is_management, purpose FROM interface_ips WHERE interface_id = :i AND ip_address = '10.0.0.5'"), {"i": near}
+            ).one()
+            link_type = connection.execute(
+                sa.text("SELECT t.name FROM connections c JOIN connection_types t ON t.id = c.connection_type_id WHERE c.id = :c"), {"c": link}
+            ).scalar_one()
         assert interface.is_management is True and interface.interface_type_id is not None
         assert ip.is_management is True and ip.purpose == "Управление"
         assert link_type == "Оптическое волокно"  # физический носитель (cable_type) важнее прежнего connection_type
@@ -240,7 +254,9 @@ class TestMigrationsThatMoveData:
             source = insert_row(connection, "information_system_sources", ip_address="10.9.9.1, 10.9.9.2,  ")
         scratch.upgrade(revision)
         with scratch.engine.connect() as connection:
-            rows = connection.execute(sa.text("SELECT owner_id, ip_address, is_management FROM ip_addresses WHERE owner_type = 'information_system_source' ORDER BY ip_address")).all()
+            rows = connection.execute(
+                sa.text("SELECT owner_id, ip_address, is_management FROM ip_addresses WHERE owner_type = 'information_system_source' ORDER BY ip_address")
+            ).all()
         assert [(r.owner_id, r.ip_address, r.is_management) for r in rows] == [(source, "10.9.9.1", False), (source, "10.9.9.2", False)]
 
     def test_status_columns_are_dropped_and_templates_lose_references_to_them(self, scratch):
@@ -253,7 +269,11 @@ class TestMigrationsThatMoveData:
                     "rows": [
                         {
                             "repeat": True,
-                            "data_source": {"root_entity": "information-systems", "filters": [{"path": "status", "op": "eq", "value": "active"}], "sort_by": "name"},
+                            "data_source": {
+                                "root_entity": "information-systems",
+                                "filters": [{"path": "status", "op": "eq", "value": "active"}],
+                                "sort_by": "name",
+                            },
                             "cells": [{"col": 0, "kind": "field", "path": "name"}, {"col": 1, "kind": "field", "path": "status"}],
                         }
                     ]
@@ -265,10 +285,20 @@ class TestMigrationsThatMoveData:
             system = insert_row(connection, "information_systems", name="ИС-9", status="planned")
             vm = insert_row(connection, "virtual_machines", name="vm-9", status="stopped")
             template = insert_row(connection, "report_templates", name="С фильтром", format="xlsx", config=json.dumps(config, ensure_ascii=False))
-            version = insert_row(connection, "report_template_versions", report_template_id=template, version_number=1, name="С фильтром", format="xlsx", config=json.dumps(config, ensure_ascii=False))
+            version = insert_row(
+                connection,
+                "report_template_versions",
+                report_template_id=template,
+                version_number=1,
+                name="С фильтром",
+                format="xlsx",
+                config=json.dumps(config, ensure_ascii=False),
+            )
         scratch.upgrade(revision)
         inspector = sa.inspect(scratch.engine)
-        assert not any("status" in {c["name"] for c in inspector.get_columns(table)} for table in ("physical_devices", "information_systems", "virtual_machines"))
+        assert not any(
+            "status" in {c["name"] for c in inspector.get_columns(table)} for table in ("physical_devices", "information_systems", "virtual_machines")
+        )
         with scratch.engine.connect() as connection:
             assert connection.execute(sa.text("SELECT serial_number FROM physical_devices WHERE id = :i"), {"i": device}).scalar_one() == "SN-9"
             assert connection.execute(sa.text("SELECT name FROM information_systems WHERE id = :i"), {"i": system}).scalar_one() == "ИС-9"
@@ -276,7 +306,9 @@ class TestMigrationsThatMoveData:
             for table, row_id in (("report_templates", template), ("report_template_versions", version)):
                 stored = json.loads(connection.execute(sa.text(f"SELECT config FROM {table} WHERE id = :i"), {"i": row_id}).scalar_one())
                 row = stored["sheets"][0]["rows"][0]
-                assert row["data_source"]["filters"] == [] and row["cells"][1] == {"col": 1, "kind": "static", "text": ""} and "status" not in json.dumps(stored)
+                assert (
+                    row["data_source"]["filters"] == [] and row["cells"][1] == {"col": 1, "kind": "static", "text": ""} and "status" not in json.dumps(stored)
+                )
         scratch.downgrade(_down_revision(revision))
         inspector = sa.inspect(scratch.engine)
         assert all("status" in {c["name"] for c in inspector.get_columns(table)} for table in ("physical_devices", "information_systems", "virtual_machines"))
@@ -289,7 +321,9 @@ class TestMigrationsThatMoveData:
         scratch.upgrade(_down_revision(revision))
         with scratch.engine.begin() as connection:
             device = insert_row(connection, "physical_devices")
-            with_ip = insert_row(connection, "interface_groups", physical_device_id=device, name="С IP", ip_address="10.0.0.5", prefix_length=24, ip_purpose="Управление")
+            with_ip = insert_row(
+                connection, "interface_groups", physical_device_id=device, name="С IP", ip_address="10.0.0.5", prefix_length=24, ip_purpose="Управление"
+            )
             without_ip = insert_row(connection, "interface_groups", physical_device_id=device, name="Без IP")
         scratch.upgrade(revision)
         assert not {"ip_address", "prefix_length", "ip_purpose"} & {c["name"] for c in sa.inspect(scratch.engine).get_columns("interface_groups")}
@@ -298,7 +332,15 @@ class TestMigrationsThatMoveData:
         assert [tuple(r) for r in rows] == [(with_ip, "10.0.0.5", 24, "Управление")]  # у группы без IP строк нет
 
         with scratch.engine.begin() as connection:  # второй адрес (позже первого) и каскад
-            insert_row(connection, "interface_group_ips", group_id=with_ip, ip_address="10.0.1.5", prefix_length=24, created_at=datetime(2099, 1, 1), updated_at=datetime(2099, 1, 1))
+            insert_row(
+                connection,
+                "interface_group_ips",
+                group_id=with_ip,
+                ip_address="10.0.1.5",
+                prefix_length=24,
+                created_at=datetime(2099, 1, 1),
+                updated_at=datetime(2099, 1, 1),
+            )
             extra = insert_row(connection, "interface_groups", physical_device_id=device, name="Удаляемая")
             insert_row(connection, "interface_group_ips", group_id=extra, ip_address="10.0.2.5")
             connection.execute(sa.text("DELETE FROM interface_groups WHERE id = :i"), {"i": extra})
@@ -308,7 +350,10 @@ class TestMigrationsThatMoveData:
         scratch.downgrade(_down_revision(revision))
         assert not sa.inspect(scratch.engine).has_table("interface_group_ips")
         with scratch.engine.connect() as connection:
-            restored = {r.id: (r.ip_address, r.prefix_length, r.ip_purpose) for r in connection.execute(sa.text("SELECT id, ip_address, prefix_length, ip_purpose FROM interface_groups"))}
+            restored = {
+                r.id: (r.ip_address, r.prefix_length, r.ip_purpose)
+                for r in connection.execute(sa.text("SELECT id, ip_address, prefix_length, ip_purpose FROM interface_groups"))
+            }
         assert restored[with_ip] == ("10.0.0.5", 24, "Управление") and restored[without_ip] == (None, None, None)
 
     def test_separate_is_relations_become_unified_sources(self, scratch):
@@ -323,10 +368,14 @@ class TestMigrationsThatMoveData:
             insert_row(connection, "information_system_devices", information_system_id=system, physical_device_id=device, role="основной")
             insert_row(connection, "information_system_vms", information_system_id=system, virtual_machine_id=vm, role="приложение")
             insert_row(connection, "information_system_containers", information_system_id=system, container_id=container, role="сервис")
-            insert_row(connection, "information_system_ips", information_system_id=system, ip_address="203.0.113.7", purpose="внешний", external_interaction=True)
+            insert_row(
+                connection, "information_system_ips", information_system_id=system, ip_address="203.0.113.7", purpose="внешний", external_interaction=True
+            )
         scratch.upgrade(revision)
         with scratch.engine.connect() as connection:
-            rows = connection.execute(sa.text("SELECT source_type, role, external_interaction, ip_address FROM information_system_sources ORDER BY source_type, role")).all()
+            rows = connection.execute(
+                sa.text("SELECT source_type, role, external_interaction, ip_address FROM information_system_sources ORDER BY source_type, role")
+            ).all()
         by_kind = {(r.source_type, r.role): (r.external_interaction, r.ip_address) for r in rows}
         assert by_kind[("device", "основной")] == (False, None)
         assert by_kind[("vm", "приложение")] == (False, None)
@@ -338,7 +387,11 @@ class TestMigrationsThatMoveData:
         revision = "944bd490d967"
         scratch.upgrade(_down_revision(revision))
         with scratch.engine.begin() as connection:
-            device, vm, container = (insert_row(connection, "physical_devices"), insert_row(connection, "virtual_machines"), insert_row(connection, "containers"))
+            device, vm, container = (
+                insert_row(connection, "physical_devices"),
+                insert_row(connection, "virtual_machines"),
+                insert_row(connection, "containers"),
+            )
             insert_row(connection, "information_system_sources", source_type="device", physical_device_id=device)
             insert_row(connection, "information_system_sources", source_type="vm", virtual_machine_id=vm)
             insert_row(connection, "information_system_sources", source_type="container", container_id=container)
@@ -361,7 +414,10 @@ class TestMigrationsThatMoveData:
         scratch.upgrade(revision)
         with scratch.engine.connect() as connection:
             rows = connection.execute(
-                sa.text("SELECT p.port, k.protocol_type, k.id AS catalog_id FROM open_ports p JOIN protocol_port_catalogs k ON k.id = p.protocol_catalog_id ORDER BY p.port, k.id")
+                sa.text(
+                    "SELECT p.port, k.protocol_type, k.id AS catalog_id FROM open_ports p JOIN protocol_port_catalogs k ON k.id = "
+                    "p.protocol_catalog_id ORDER BY p.port, k.id"
+                )
             ).all()
         assert [(r.port, r.protocol_type) for r in rows] == [(22, "SSH"), (53, "UDP"), (443, "HTTPS"), (443, "HTTPS"), (444, "HTTPS")]
         assert rows[0].catalog_id == known  # существующая запись не задвоена
@@ -387,7 +443,10 @@ class TestMigrationsThatMoveData:
             vm_row = connection.execute(sa.text("SELECT operating_system_id, hypervisor_os_id FROM virtual_machines WHERE id = :i"), {"i": vm}).one()
             debian_entries = connection.execute(sa.text("SELECT COUNT(*) FROM operating_systems WHERE name = 'Debian'")).scalar_one()
             hypervisor = connection.execute(
-                sa.text("SELECT o.name, o.version FROM operating_systems o JOIN operating_system_categories c ON c.id = o.category_id WHERE o.id = :i AND c.name = 'Гипервизор'"),
+                sa.text(
+                    "SELECT o.name, o.version FROM operating_systems o JOIN operating_system_categories c ON c.id = o.category_id "
+                    "WHERE o.id = :i AND c.name = 'Гипервизор'"
+                ),
                 {"i": vm_row.hypervisor_os_id},
             ).one()
         assert all(devices.values())
@@ -420,7 +479,15 @@ class TestMigrationsThatMoveData:
         with scratch.engine.connect() as connection:
             left = {table: connection.execute(sa.text(f"SELECT COUNT(*) FROM {table}")).scalar_one() for table in tables}
             types = {r.name: r.category_id for r in connection.execute(sa.text("SELECT name, category_id FROM device_types"))}
-        assert left == {"physical_devices": 1, "virtual_machines": 0, "containers": 0, "device_interfaces": 1, "connections": 0, "information_system_sources": 0, "open_ports": 0}
+        assert left == {
+            "physical_devices": 1,
+            "virtual_machines": 0,
+            "containers": 0,
+            "device_interfaces": 1,
+            "connections": 0,
+            "information_system_sources": 0,
+            "open_ports": 0,
+        }
         assert "Сетевое оборудование" not in types and all(types.values())
 
     def test_not_null_type_migration_refuses_rows_without_a_type_and_changes_nothing(self, scratch):

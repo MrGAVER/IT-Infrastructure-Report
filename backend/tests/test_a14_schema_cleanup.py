@@ -160,7 +160,9 @@ class TestNotNullTypeForeignKeys:
         assert after == before
         with database.engine.connect() as connection:
             assert connection.execute(sa.text("SELECT device_type_id FROM device_models WHERE id = :id"), {"id": ids["model"]}).scalar() == ids["device_type"]
-            assert connection.execute(sa.text("SELECT connection_type_id FROM connections WHERE id = :id"), {"id": ids["link"]}).scalar() == ids["connection_type"]
+            assert (
+                connection.execute(sa.text("SELECT connection_type_id FROM connections WHERE id = :id"), {"id": ids["link"]}).scalar() == ids["connection_type"]
+            )
             assert connection.execute(sa.text("SELECT model_id FROM physical_devices WHERE id = :id"), {"id": ids["device"]}).scalar() == ids["model"]
 
     def test_null_is_rejected_after_the_migration_and_downgrade_relaxes_it(self, database):
@@ -237,9 +239,14 @@ class TestDropLegacyOsAndPlatformObjects:
             assert after["unique"] == before[table]["unique"]
             assert after["foreign_keys"] == [fk for fk in before[table]["foreign_keys"] if fk[1] != "virtualization_platforms"]
         with database.engine.connect() as connection:
-            vm = connection.execute(sa.text("SELECT name, physical_device_id, operating_system_id, hypervisor_os_id FROM virtual_machines WHERE id = :id"), {"id": ids["vm"]}).one()
+            vm = connection.execute(
+                sa.text("SELECT name, physical_device_id, operating_system_id, hypervisor_os_id FROM virtual_machines WHERE id = :id"), {"id": ids["vm"]}
+            ).one()
             assert tuple(vm) == ("vm-a14", ids["device"], ids["guest_os"], ids["hypervisor_os"])
-            assert connection.execute(sa.text("SELECT operating_system_id FROM physical_devices WHERE id = :id"), {"id": ids["device"]}).scalar() == ids["guest_os"]
+            assert (
+                connection.execute(sa.text("SELECT operating_system_id FROM physical_devices WHERE id = :id"), {"id": ids["device"]}).scalar()
+                == ids["guest_os"]
+            )
 
     @pytest.mark.parametrize(
         "fixture, expected",
@@ -292,10 +299,18 @@ class TestDropLegacyOsAndPlatformObjects:
         assert "virtualization_platforms" in inspector.get_table_names()
         for table, legacy in LEGACY.items():
             assert legacy <= {c["name"] for c in inspector.get_columns(table)}
-        assert any(fk["referred_table"] == "virtualization_platforms" and fk["constrained_columns"] == ["virtualization_platform_id"] for fk in inspector.get_foreign_keys("virtual_machines"))
+        assert any(
+            fk["referred_table"] == "virtualization_platforms" and fk["constrained_columns"] == ["virtualization_platform_id"]
+            for fk in inspector.get_foreign_keys("virtual_machines")
+        )
         with database.engine.connect() as connection:
             assert connection.execute(sa.text("SELECT COUNT(*) FROM virtualization_platforms")).scalar() == 0
-            assert connection.execute(sa.text("SELECT COUNT(*) FROM virtual_machines WHERE os_name IS NOT NULL OR virtualization_platform_id IS NOT NULL")).scalar() == 0
+            assert (
+                connection.execute(
+                    sa.text("SELECT COUNT(*) FROM virtual_machines WHERE os_name IS NOT NULL OR virtualization_platform_id IS NOT NULL")
+                ).scalar()
+                == 0
+            )
             assert connection.execute(sa.text("SELECT COUNT(*) FROM virtual_machines")).scalar() == 1
 
         database.upgrade(CLEANUP)

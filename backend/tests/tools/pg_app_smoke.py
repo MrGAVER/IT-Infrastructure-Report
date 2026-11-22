@@ -46,7 +46,9 @@ def main() -> int:
         return 2
     subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], check=True)
     log = tempfile.NamedTemporaryFile("w+", suffix=".log", delete=False)
-    server = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(PORT)], stdout=log, stderr=subprocess.STDOUT)
+    server = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(PORT)], stdout=log, stderr=subprocess.STDOUT
+    )
     try:
         for _ in range(60):
             try:
@@ -65,17 +67,27 @@ def main() -> int:
         vlans = [call("POST", "/resources/vlans", {"vlan_id": n, "name": f"VLAN {n}"})["id"] for n in (10, 20)]
         for vlan in vlans:
             call("POST", "/resources/device-type-vlans", {"device_type_id": device_type, "vlan_id": vlan})
-        devices = [call("POST", "/resources/devices", {"device_type_id": device_type, "serial_number": f"SMOKE-{i}", "system_name": f"SW-{i}"})["id"] for i in (1, 2)]
+        devices = [
+            call("POST", "/resources/devices", {"device_type_id": device_type, "serial_number": f"SMOKE-{i}", "system_name": f"SW-{i}"})["id"] for i in (1, 2)
+        ]
         for index, device in enumerate(devices, 1):
             call(
                 "PUT",
                 f"/devices/{device}/interfaces",
-                {"interfaces": [{"name": f"Gi0/{index}", "vlan_mode": "trunk", "vlan_ids": vlans, "ips": [{"ip_address": f"10.0.{index}.1", "prefix_length": 24}]}]},
+                {
+                    "interfaces": [
+                        {"name": f"Gi0/{index}", "vlan_mode": "trunk", "vlan_ids": vlans, "ips": [{"ip_address": f"10.0.{index}.1", "prefix_length": 24}]}
+                    ]
+                },
                 expect=(200,),
             )
         ports = {i["physical_device_id"]: i["id"] for i in call("GET", "/resources/interfaces?limit=100")["items"]}
         link_type = call("POST", "/resources/connection-types", {"name": "Витая пара (смоук)"})["id"]
-        call("POST", "/resources/connections", {"source_interface_id": ports[devices[0]], "destination_interface_id": ports[devices[1]], "connection_type_id": link_type})
+        call(
+            "POST",
+            "/resources/connections",
+            {"source_interface_id": ports[devices[0]], "destination_interface_id": ports[devices[1]], "connection_type_id": link_type},
+        )
 
         report = call("POST", "/reports/inventory", {})
         assert report.get("file_name"), f"отчёт не создан: {report}"

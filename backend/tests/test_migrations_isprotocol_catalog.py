@@ -55,7 +55,8 @@ def _insert_information_system(conn: sqlite3.Connection, *, name: str | None = N
     is_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_systems (id, name, type, status, siem_enabled, crypto_protection_enabled, created_at, updated_at) VALUES (?, ?, 'ИС', 'active', 0, 0, ?, ?)",
+        "INSERT INTO information_systems (id, name, type, status, siem_enabled, crypto_protection_enabled, created_at, "
+        "updated_at) VALUES (?, ?, 'ИС', 'active', 0, 0, ?, ?)",
         (is_id, name or f"ИС {is_id[:8]}", now, now),
     )
     conn.commit()
@@ -135,7 +136,8 @@ def _insert_legacy_is_ip(conn: sqlite3.Connection, is_id: str, ip_address: str) 
 def _insert_information_system_source(conn: sqlite3.Connection, is_id: str, *, source_type: str = "manual", ip_address: str | None = None) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_sources (id, information_system_id, source_type, ip_address, external_interaction, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
+        "INSERT INTO information_system_sources (id, information_system_id, source_type, ip_address, "
+        "external_interaction, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
         (_uid(), is_id, source_type, ip_address, now, now),
     )
     conn.commit()
@@ -147,7 +149,8 @@ def _insert_legacy_is_protocol(conn: sqlite3.Connection, is_id: str, *, protocol
     protocol_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_protocols (id, information_system_id, protocol, port, protocol_catalog_id, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?)",
+        "INSERT INTO information_system_protocols (id, information_system_id, protocol, port, protocol_catalog_id, "
+        "created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?)",
         (protocol_id, is_id, protocol, port, now, now),
     )
     conn.commit()

@@ -369,7 +369,8 @@ def _serialize_graph(export_format: str, serialize, graph: dict, diagram_id: str
             logger.warning("Экспорт диаграммы %s в формате %s прерван по таймауту (%g с)", diagram_id, export_format, VSDX_RENDER_TIMEOUT_SECONDS)
             raise HTTPException(
                 504,
-                f"Формирование .{export_format} заняло больше {VSDX_RENDER_TIMEOUT_SECONDS:g} с и прервано. Скачайте .svg или .drawio либо сузьте фильтр диаграммы.",
+                f"Формирование .{export_format} заняло больше {VSDX_RENDER_TIMEOUT_SECONDS:g} с и прервано. Скачайте .svg или "
+                ".drawio либо сузьте фильтр диаграммы.",
             ) from None
         except Exception:
             # Пункт 7 правки "диаграмма топологии сети": реальная причина 500 в проде оказалась

@@ -219,7 +219,9 @@ def _seed_rich_dataset(session):
     session.flush()
     session.add(OpenPort(owner_type="physical_device", owner_id=dev1.id, transport_protocol="TCP", protocol_catalog_id=ssh_catalog.id))
 
-    isys = InformationSystem(name="ИС Бухгалтерия", description="Учётная система", purpose="Учёт", localization="ЦОД-1", siem_enabled=True, crypto_protection_enabled=True)
+    isys = InformationSystem(
+        name="ИС Бухгалтерия", description="Учётная система", purpose="Учёт", localization="ЦОД-1", siem_enabled=True, crypto_protection_enabled=True
+    )
     session.add(isys)
     session.flush()
     session.add(ISDepartment(information_system_id=isys.id, department_id=dep.id))
@@ -325,7 +327,9 @@ class ExactParityTestCase(unittest.TestCase):
                 tmp_path = Path(tmp)
                 orig_path = build_report(session, tmp_path, structural_unit_ids=[unit.id])
                 wb_orig = openpyxl.load_workbook(orig_path)
-                grid_path = build_xlsx_grid(session, default_registry_template_config(), tmp_path, template_name=TEMPLATE_NAME, params={}, structural_unit_ids=[unit.id])
+                grid_path = build_xlsx_grid(
+                    session, default_registry_template_config(), tmp_path, template_name=TEMPLATE_NAME, params={}, structural_unit_ids=[unit.id]
+                )
                 wb_grid = openpyxl.load_workbook(grid_path)
 
                 for name in wb_orig.sheetnames:

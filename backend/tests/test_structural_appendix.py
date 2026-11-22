@@ -123,7 +123,9 @@ class Registry:
         return iface
 
     def link(self, a, b, *, active=True):
-        conn = Connection(source_interface_id=a.id, destination_interface_id=b.id, connection_type_id=self.conn_type.id, is_active=active, created_at=self._stamp())
+        conn = Connection(
+            source_interface_id=a.id, destination_interface_id=b.id, connection_type_id=self.conn_type.id, is_active=active, created_at=self._stamp()
+        )
         self.session.add(conn)
         self.session.flush()
         return conn
@@ -152,7 +154,12 @@ def seed_sample(session) -> Registry:
     stack = DeviceStack(name="Стек SW-C3750-2")
     session.add(stack)
     session.flush()
-    session.add_all([DeviceStackMember(stack_id=stack.id, physical_device_id=sw1.id, position=1), DeviceStackMember(stack_id=stack.id, physical_device_id=sw2.id, position=2)])
+    session.add_all(
+        [
+            DeviceStackMember(stack_id=stack.id, physical_device_id=sw1.id, position=1),
+            DeviceStackMember(stack_id=stack.id, physical_device_id=sw2.id, position=2),
+        ]
+    )
 
     # Порты управления (IP управления берутся с них; к линиям связи не относятся).
     ilo_205 = r.port(srv205, "ilo", mgmt=True, ips=["192.168.1.205"])

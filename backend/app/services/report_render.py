@@ -48,7 +48,15 @@ def _sheet_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, Any
     return out
 
 
-def build_docx(session: Session, config: dict[str, Any], report_dir: Path, *, template_name: str, params: dict[str, Any] | None = None, structural_unit_ids: list[str] | None = None) -> Path:
+def build_docx(
+    session: Session,
+    config: dict[str, Any],
+    report_dir: Path,
+    *,
+    template_name: str,
+    params: dict[str, Any] | None = None,
+    structural_unit_ids: list[str] | None = None,
+) -> Path:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
@@ -95,7 +103,9 @@ def build_docx(session: Session, config: dict[str, Any], report_dir: Path, *, te
     return path
 
 
-def build_report_from_template(session: Session, template, report_dir: Path, params: dict[str, Any] | None = None, structural_unit_ids: list[str] | None = None) -> Path:
+def build_report_from_template(
+    session: Session, template, report_dir: Path, params: dict[str, Any] | None = None, structural_unit_ids: list[str] | None = None
+) -> Path:
     """template — объект ReportTemplate (или любой с .format/.config/.name).
 
     structural_unit_ids — необязательный runtime-фильтр по структурным единицам размещения

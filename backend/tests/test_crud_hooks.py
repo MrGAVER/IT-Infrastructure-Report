@@ -17,7 +17,20 @@ import pytest
 from sqlalchemy import select
 
 import app.services.crud.generic as generic
-from app.models import AuditLog, Connection, DeviceInterface, DeviceStackMember, InformationSystem, ISProtocol, Manufacturer, OpenPort, PhysicalDevice, VirtualMachine, VLAN, VLANDomainDevice
+from app.models import (
+    AuditLog,
+    Connection,
+    DeviceInterface,
+    DeviceStackMember,
+    InformationSystem,
+    ISProtocol,
+    Manufacturer,
+    OpenPort,
+    PhysicalDevice,
+    VirtualMachine,
+    VLAN,
+    VLANDomainDevice,
+)
 from app.registry import MODEL_MAP
 from app.services.crud.hooks import HOOKS, ResourceHooks, hooks_for
 from app.services.serialization import serialize
@@ -126,7 +139,12 @@ class TestGenericIsModelAgnostic:
         assert not offenders, f"в generic.py появилось ветвление по классу модели (строки {offenders}) — вынесите его в crud/hooks.py"
 
     def test_models_imported_at_most_five(self):
-        imported = [alias.name for node in ast.walk(_generic_tree()) if isinstance(node, ast.ImportFrom) and node.module == "models" and node.level == 3 for alias in node.names]
+        imported = [
+            alias.name
+            for node in ast.walk(_generic_tree())
+            if isinstance(node, ast.ImportFrom) and node.module == "models" and node.level == 3
+            for alias in node.names
+        ]
         assert len(imported) <= 5, f"generic.py импортирует {len(imported)} моделей: {imported}"
 
 

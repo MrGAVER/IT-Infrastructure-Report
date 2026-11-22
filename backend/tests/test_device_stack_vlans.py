@@ -71,7 +71,10 @@ class TestApplySharedSetting:
         a, b, c = (_device(client, f"CL-{n}", system_name=f"fw-{n}") for n in "abc")
         stack = _stack(client, "Кластер МЭ", [a, b, c])
         v10 = _vlan(client, 10)
-        assert _set_device_vlans(client, a["id"], [{"vlan_id": v10["id"], "ip_address": "10.0.10.2", "prefix_length": 24, "description": "mgmt"}]).status_code == 200
+        assert (
+            _set_device_vlans(client, a["id"], [{"vlan_id": v10["id"], "ip_address": "10.0.10.2", "prefix_length": 24, "description": "mgmt"}]).status_code
+            == 200
+        )
 
         r = _apply(client, stack["id"], v10["id"], "10.0.10.1", 24, True)
 
@@ -259,7 +262,9 @@ class TestLockedOnDevice:
 
     def test_removing_the_device_from_the_stack_unlocks_it_keeping_values(self, client):
         a, _, _, stack, v10, _ = self._shared(client)
-        member = next(m for m in client.get("/api/v1/resources/device-stack-members", params={"limit": 100}).json()["items"] if m["physical_device_id"] == a["id"])
+        member = next(
+            m for m in client.get("/api/v1/resources/device-stack-members", params={"limit": 100}).json()["items"] if m["physical_device_id"] == a["id"]
+        )
         assert client.delete(f"/api/v1/resources/device-stack-members/{member['id']}").status_code == 200
         assert _triple(_stored(client, a["id"])[v10["id"]]) == ("10.0.10.1", 24, True)  # значения остались
         assert _set_device_vlans(client, a["id"], [{"vlan_id": v10["id"], "ip_address": "10.0.10.50", "prefix_length": 24}]).status_code == 200
@@ -271,8 +276,18 @@ class TestListing:
         stack = _stack(client, "Состояния", [a, b])
         v10, v20, v30 = (_vlan(client, n) for n in (10, 20, 30))
         same = {"ip_address": "10.0.20.1", "prefix_length": 24}
-        assert _set_device_vlans(client, a["id"], [{"vlan_id": v20["id"], **same}, {"vlan_id": v30["id"], "ip_address": "10.0.30.1", "prefix_length": 24}]).status_code == 200
-        assert _set_device_vlans(client, b["id"], [{"vlan_id": v20["id"], **same}, {"vlan_id": v30["id"], "ip_address": "10.0.30.2", "prefix_length": 24}]).status_code == 200
+        assert (
+            _set_device_vlans(
+                client, a["id"], [{"vlan_id": v20["id"], **same}, {"vlan_id": v30["id"], "ip_address": "10.0.30.1", "prefix_length": 24}]
+            ).status_code
+            == 200
+        )
+        assert (
+            _set_device_vlans(
+                client, b["id"], [{"vlan_id": v20["id"], **same}, {"vlan_id": v30["id"], "ip_address": "10.0.30.2", "prefix_length": 24}]
+            ).status_code
+            == 200
+        )
         assert _apply(client, stack["id"], v10["id"], "10.0.10.1", 24).status_code == 200
 
         data = _state(client, stack["id"])
@@ -407,7 +422,10 @@ class TestAddingAMember:
             _set_device_vlans(
                 client,
                 twin["id"],
-                [{"vlan_id": v10["id"], "ip_address": "10.0.10.1", "prefix_length": 24, "is_management": True}, {"vlan_id": v20["id"], "ip_address": "10.0.20.1", "prefix_length": 24}],
+                [
+                    {"vlan_id": v10["id"], "ip_address": "10.0.10.1", "prefix_length": 24, "is_management": True},
+                    {"vlan_id": v20["id"], "ip_address": "10.0.20.1", "prefix_length": 24},
+                ],
             ).status_code
             == 200
         )

@@ -99,7 +99,9 @@ class TestSavedFile:
         assert "<f>" not in sheet_xml and "<f " not in sheet_xml  # угроза — именно тег формулы
         # openpyxl хранит строки как inlineStr: значение целиком, без апострофа, у опасных ячеек — стиль с quotePrefix
         assert re.search(
-            r'<c r="A1" s="\d+" t="inlineStr"><is><t>=HYPERLINK\(&quot;http://evil&quot;\)</t></is></c>|<c r="A1" s="\d+" t="inlineStr"><is><t>=HYPERLINK\("http://evil"\)</t></is></c>', sheet_xml
+            r'<c r="A1" s="\d+" t="inlineStr"><is><t>=HYPERLINK\(&quot;http://evil&quot;\)</t></is></c>|<c r="A1" s="\d+" '
+            r't="inlineStr"><is><t>=HYPERLINK\("http://evil"\)</t></is></c>',
+            sheet_xml,
         )
         assert "<t>'" not in sheet_xml
         assert re.search(r'<c r="B1" s="\d+" t="inlineStr"><is><t>\+7 495</t></is></c>', sheet_xml)

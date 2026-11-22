@@ -123,8 +123,16 @@ def test_rows_beyond_the_generic_list_limit_are_still_returned(client, db_sessio
     new_port = _ports(client, new_device, ["Gi0/1"])["Gi0/1"]
     base = datetime(2020, 1, 1, tzinfo=timezone.utc)
     db_session.add_all(
-        [IPAddress(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=old_port, ip_address=f"10.9.{i // 250}.{i % 250 + 1}", created_at=base + timedelta(seconds=i)) for i in range(GENERIC_LIMIT)]
-        + [OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=old_port, protocol_catalog_id=https.id, created_at=base + timedelta(seconds=i)) for i in range(GENERIC_LIMIT)]
+        [
+            IPAddress(
+                owner_type=OwnerType.DEVICE_INTERFACE, owner_id=old_port, ip_address=f"10.9.{i // 250}.{i % 250 + 1}", created_at=base + timedelta(seconds=i)
+            )
+            for i in range(GENERIC_LIMIT)
+        ]
+        + [
+            OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=old_port, protocol_catalog_id=https.id, created_at=base + timedelta(seconds=i))
+            for i in range(GENERIC_LIMIT)
+        ]
         + [
             IPAddress(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=new_port, ip_address="10.20.0.1", created_at=base + timedelta(days=1)),
             OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=new_port, protocol_catalog_id=https.id, created_at=base + timedelta(days=1)),

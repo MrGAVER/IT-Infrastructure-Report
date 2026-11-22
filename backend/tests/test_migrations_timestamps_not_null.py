@@ -27,7 +27,8 @@ from alembic.operations import Operations
 from migration_support import BACKEND_DIR, insert_row, migrate
 
 PREVIOUS = "e4b1c7d9a362"
-# Тест проверяет именно эту ревизию («схема не изменилась ничем, кроме NOT NULL»): с миграцией до head любая более поздняя ревизия, меняющая схему, ломала бы его (A-01, этап 2).
+# Тест проверяет именно эту ревизию («схема не изменилась ничем, кроме NOT NULL»): с миграцией до head любая более поздняя ревизия, меняющая
+# схему, ломала бы его (A-01, этап 2).
 TARGET = "a7d3f1c8e925"
 MIGRATION_FILE = BACKEND_DIR / "alembic" / "versions" / "a7d3f1c8e925_timestamps_not_null.py"
 
@@ -61,9 +62,17 @@ def schema_snapshot(engine: sa.engine.Engine) -> dict[str, dict]:
     inspector = sa.inspect(engine)
     snapshot: dict[str, dict] = {}
     for table in sorted(inspector.get_table_names()):
-        columns = [(c["name"], str(c["type"]), None if _relaxed(table, c["name"]) else c["nullable"], str(c.get("default"))) for c in inspector.get_columns(table)]
+        columns = [
+            (c["name"], str(c["type"]), None if _relaxed(table, c["name"]) else c["nullable"], str(c.get("default"))) for c in inspector.get_columns(table)
+        ]
         foreign_keys = sorted(
-            (fk.get("name") or "", tuple(fk["constrained_columns"]), fk["referred_table"], tuple(fk["referred_columns"]), (fk.get("options") or {}).get("ondelete") or "")
+            (
+                fk.get("name") or "",
+                tuple(fk["constrained_columns"]),
+                fk["referred_table"],
+                tuple(fk["referred_columns"]),
+                (fk.get("options") or {}).get("ondelete") or "",
+            )
             for fk in inspector.get_foreign_keys(table)
         )
         indexes = sorted((i["name"], tuple(i["column_names"]), bool(i["unique"])) for i in inspector.get_indexes(table))
@@ -85,7 +94,11 @@ def row_counts(engine: sa.engine.Engine) -> dict[str, int]:
 
 def nullability(engine: sa.engine.Engine) -> dict[tuple[str, str], bool]:
     inspector = sa.inspect(engine)
-    return {(table, column): next(c["nullable"] for c in inspector.get_columns(table) if c["name"] == column) for table, columns in MIGRATION.TIMESTAMP_COLUMNS.items() for column in columns}
+    return {
+        (table, column): next(c["nullable"] for c in inspector.get_columns(table) if c["name"] == column)
+        for table, columns in MIGRATION.TIMESTAMP_COLUMNS.items()
+        for column in columns
+    }
 
 
 def sqlite_triggers(engine: sa.engine.Engine) -> list[str]:
@@ -261,7 +274,12 @@ def test_migration_covers_every_timestamp_column_the_models_require():
     """Список миграции не должен отставать от моделей: колонки-метки времени, которые модель объявляет обязательными, перечислены."""
     from app.models import Base
 
-    required = {(table.name, column.name) for table in Base.metadata.tables.values() for column in table.columns if column.name in ("created_at", "updated_at") and not column.nullable}
+    required = {
+        (table.name, column.name)
+        for table in Base.metadata.tables.values()
+        for column in table.columns
+        if column.name in ("created_at", "updated_at") and not column.nullable
+    }
     listed = {(table, column) for table, columns in MIGRATION.TIMESTAMP_COLUMNS.items() for column in columns}
     # Таблицы, где NOT NULL задан с самого начала (и в миграциях), в списке не нужны, но всё из списка обязано быть в моделях.
     assert listed <= required, sorted(listed - required)

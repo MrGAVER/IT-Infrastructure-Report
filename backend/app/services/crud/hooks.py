@@ -20,7 +20,19 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ...models import AuditLog, Connection, DeviceInterface, DeviceStackMember, InformationSystem, ISProtocol, OpenPort, PhysicalDevice, VirtualMachine, VLAN, VLANDomainDevice
+from ...models import (
+    AuditLog,
+    Connection,
+    DeviceInterface,
+    DeviceStackMember,
+    InformationSystem,
+    ISProtocol,
+    OpenPort,
+    PhysicalDevice,
+    VirtualMachine,
+    VLAN,
+    VLANDomainDevice,
+)
 from ..serialization import enrich_connections, enrich_devices, enrich_information_systems, enrich_interfaces, enrich_open_port, enrich_open_ports, serialize
 from .owned_rows import _validate_is_protocol_number_is_free, _validate_open_port_catalog, _validate_open_port_number_is_free
 from .stack_vlan_settings import apply_stack_settings_to_device
@@ -216,7 +228,9 @@ HOOKS: dict[type, ResourceHooks] = {
     PhysicalDevice: ResourceHooks(enrich_rows=enrich_devices),
     Connection: ResourceHooks(enrich_rows=enrich_connections),
     InformationSystem: ResourceHooks(enrich_rows=enrich_information_systems),
-    OpenPort: ResourceHooks(enrich_rows=enrich_open_ports, validate_create=_validate_new_open_port, validate_update=_validate_changed_open_port, to_dict=enrich_open_port),
+    OpenPort: ResourceHooks(
+        enrich_rows=enrich_open_ports, validate_create=_validate_new_open_port, validate_update=_validate_changed_open_port, to_dict=enrich_open_port
+    ),
     ISProtocol: ResourceHooks(validate_create=_validate_new_is_protocol, validate_update=_validate_changed_is_protocol),
     VirtualMachine: ResourceHooks(prepare=_set_vm_hypervisor_os, apply_derived=_copy_vm_hypervisor_os),
     VLAN: ResourceHooks(after_create=_vlan_after_create, after_update=_vlan_after_update),

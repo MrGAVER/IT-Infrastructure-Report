@@ -100,7 +100,11 @@ class CascadePreviewRequest(RequestBody):
     mode: PortMode = Field(description="Целевой режим порта-инициатора.")
     edited: dict[str, Any] | None = Field(
         default=None,
-        description="Снимок формы устройства с открытой формой: {device_id, ports: {id: {mode, group?, vlan_ids?, name?}}, groups: {ключ: {mode, vlan_ids?, name?}}}. С port не сочетается.",
+        description=(
+            "Снимок формы устройства с открытой формой: "
+            "{device_id, ports: {id: {mode, group?, vlan_ids?, name?}}, groups: {ключ: {mode, vlan_ids?, name?}}}. С port "
+            "не сочетается."
+        ),
     )
     # Содержимое port проверяет сервис — после поиска порта, как и раньше: ошибка в роли/VLAN у несуществующего порта — 404, а не 422.
     port: dict[str, Any] | None = Field(

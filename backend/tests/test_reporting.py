@@ -240,7 +240,9 @@ class Sheet3Connections(ReportingTestCase):
         rows = self.sheet_rows(wb, "Организация подключений")[1:]
         header = self.sheet_rows(wb, "Организация подключений")[0]
         port_idx = header.index("Номер физического или логического порта")
-        purpose_idx = header.index("Сведения о назначении линий связи (передача данных или управление активами информационной системы, средствами защиты информации)")
+        purpose_idx = header.index(
+            "Сведения о назначении линий связи (передача данных или управление активами информационной системы, средствами защиты информации)"
+        )
         by_port = {r[port_idx]: r[purpose_idx] for r in rows}
         self.assertEqual(by_port["eth0"], "Передача данных")
         self.assertEqual(by_port["eth1"], "Управление активами")

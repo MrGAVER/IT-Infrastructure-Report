@@ -110,7 +110,10 @@ def test_downgrade_restores_columns_with_first_ip_of_each_group(alembic_config):
 
     conn = _connect(db_path)
     assert {"ip_address", "prefix_length", "ip_purpose"} <= _columns(conn, "interface_groups")
-    got = {r["name"]: (r["ip_address"], r["prefix_length"], r["ip_purpose"]) for r in conn.execute("SELECT name, ip_address, prefix_length, ip_purpose FROM interface_groups")}
+    got = {
+        r["name"]: (r["ip_address"], r["prefix_length"], r["ip_purpose"])
+        for r in conn.execute("SELECT name, ip_address, prefix_length, ip_purpose FROM interface_groups")
+    }
     assert got == {"С IP": ("10.0.0.5", 24, "Управление"), "Без IP": (None, None, None)}  # второй адрес в старой схеме негде хранить
     assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'interface_group_ips'").fetchone() is None
     conn.close()

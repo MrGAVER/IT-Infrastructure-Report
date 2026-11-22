@@ -422,7 +422,10 @@ class ReportLayoutTestCase(unittest.TestCase):
         C = self.C
         self.table.update(
             {
-                "InformationSystem": [C["InformationSystem"](id="is1", name="ИС-1", crypto_protection_enabled=False), C["InformationSystem"](id="is2", name="ИС-2", crypto_protection_enabled=False)],
+                "InformationSystem": [
+                    C["InformationSystem"](id="is1", name="ИС-1", crypto_protection_enabled=False),
+                    C["InformationSystem"](id="is2", name="ИС-2", crypto_protection_enabled=False),
+                ],
                 "VirtualMachine": [C["VirtualMachine"](id="v1", name="VM-1", purpose=""), C["VirtualMachine"](id="v2", name="VM-2", purpose="")],
             }
         )

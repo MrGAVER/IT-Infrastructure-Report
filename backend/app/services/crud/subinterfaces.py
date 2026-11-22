@@ -128,7 +128,13 @@ def validate_device_subinterfaces(device_id: str, session: Session) -> None:
     подинтерфейса используется один раз и входит в VLAN самого порта."""
     session.flush()
     rows = session.execute(
-        select(DeviceSubinterface.name, DeviceSubinterface.parent_interface_id, DeviceSubinterface.vlan_id, DeviceInterface.name.label("parent_name"), VLAN.vlan_id.label("vlan_number"))
+        select(
+            DeviceSubinterface.name,
+            DeviceSubinterface.parent_interface_id,
+            DeviceSubinterface.vlan_id,
+            DeviceInterface.name.label("parent_name"),
+            VLAN.vlan_id.label("vlan_number"),
+        )
         .join(DeviceInterface, DeviceInterface.id == DeviceSubinterface.parent_interface_id)
         .join(VLAN, VLAN.id == DeviceSubinterface.vlan_id)
         .where(DeviceInterface.physical_device_id == device_id)
@@ -154,7 +160,11 @@ def validate_device_subinterfaces(device_id: str, session: Session) -> None:
     port_vlans = effective_vlan_ids(session, list({r.parent_interface_id for r in rows}))
     for r in rows:
         if r.vlan_id not in port_vlans.get(r.parent_interface_id, set()):
-            raise HTTPException(422, f"VLAN {r.vlan_number} подинтерфейса «{r.name}» не выбран на порту «{r.parent_name}» — выберите другой VLAN подинтерфейса или добавьте этот VLAN порту")
+            raise HTTPException(
+                422,
+                f"VLAN {r.vlan_number} подинтерфейса «{r.name}» не выбран на порту «{r.parent_name}» — выберите другой VLAN "
+                "подинтерфейса или добавьте этот VLAN порту",
+            )
 
 
 def delete_subinterfaces(subinterface_ids: Iterable[str], session: Session) -> None:
@@ -196,7 +206,9 @@ def enrich_subinterfaces(subinterfaces: Sequence[DeviceSubinterface], session: S
         return []
     ids = [s.id for s in subinterfaces]
     ips_by_owner: dict[str, list[dict[str, Any]]] = {}
-    for ip in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE, IPAddress.owner_id.in_(ids)).order_by(IPAddress.ip_address, IPAddress.id)).all():
+    for ip in session.scalars(
+        select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE, IPAddress.owner_id.in_(ids)).order_by(IPAddress.ip_address, IPAddress.id)
+    ).all():
         ips_by_owner.setdefault(ip.owner_id, []).append(serialize(ip))
     ports = session.scalars(
         select(OpenPort)

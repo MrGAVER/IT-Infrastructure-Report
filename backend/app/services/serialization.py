@@ -149,7 +149,13 @@ def _load_device_lookups(devices: Sequence[PhysicalDevice], session: Session) ->
     # «Управление» даёт порт и IP управления устройства так же, как в отчётах (reporting.py). Берём только такие
     # подинтерфейсы — остальные на дашборде устройств не нужны.
     mgmt_subs = _select_in(
-        session, DeviceSubinterface, DeviceSubinterface.parent_interface_id, device_by_interface, DeviceSubinterface.name, DeviceSubinterface.id, extra=(DeviceSubinterface.is_management.is_(True),)
+        session,
+        DeviceSubinterface,
+        DeviceSubinterface.parent_interface_id,
+        device_by_interface,
+        DeviceSubinterface.name,
+        DeviceSubinterface.id,
+        extra=(DeviceSubinterface.is_management.is_(True),),
     )
     vlan_links = _select_in(session, PhysicalDeviceVLAN, PhysicalDeviceVLAN.physical_device_id, device_ids)
     # Устройство состоит максимум в одном стеке (UniqueConstraint на DeviceStackMember.physical_device_id), поэтому
@@ -265,7 +271,10 @@ def enrich_interface_groups(groups: Sequence[InterfaceGroup], session: Session) 
     ports_by_group: dict[str, list[dict[str, Any]]] = {}
     for port in ports:
         ports_by_group.setdefault(port.group_id, []).append(serialize(port))
-    return [{**serialize(g), "vlan_ids": vlans_by_group.get(g.id, []), "ips": ips_by_group.get(g.id, []), "open_ports": ports_by_group.get(g.id, [])} for g in groups]
+    return [
+        {**serialize(g), "vlan_ids": vlans_by_group.get(g.id, []), "ips": ips_by_group.get(g.id, []), "open_ports": ports_by_group.get(g.id, [])}
+        for g in groups
+    ]
 
 
 @dataclass(frozen=True)
@@ -305,7 +314,9 @@ def _port_config_fields(conn: Connection, src_cfg: Any, dst_cfg: Any) -> dict[st
     active = conn.is_active is not False
     return {
         "port_config_diff": [f.value for f in config_differences(src_cfg, dst_cfg)] if paired and active else [],
-        "port_config_status": evaluate_port_config(src_cfg, dst_cfg, conn.port_config_approved_signature, is_active=active).value if paired else PortConfigStatus.OK.value,
+        "port_config_status": evaluate_port_config(src_cfg, dst_cfg, conn.port_config_approved_signature, is_active=active).value
+        if paired
+        else PortConfigStatus.OK.value,
     }
 
 
@@ -370,7 +381,9 @@ def _load_information_systems_links(items: Sequence[InformationSystem], session:
     placements = _select_in(session, ISPlacementAsset, ISPlacementAsset.information_system_id, ids)
     vm_map = _by_id(_select_in(session, VirtualMachine, VirtualMachine.id, _owner_ids(sources, SourceType.VM)))
     return _InformationSystemLinks(
-        support_map=_by_id(_select_in(session, SupportOrganization, SupportOrganization.id, {x.support_organization_id for x in items if x.support_organization_id})),
+        support_map=_by_id(
+            _select_in(session, SupportOrganization, SupportOrganization.id, {x.support_organization_id for x in items if x.support_organization_id})
+        ),
         method_map=_by_id(_select_in(session, SupportMethod, SupportMethod.id, {x.support_method_id for x in items if x.support_method_id})),
         placement_map=_by_id(_select_in(session, PlacementAsset, PlacementAsset.id, {x.placement_asset_id for x in placements})),
         placement_by_is=_group_by(placements, lambda x: x.information_system_id),
@@ -424,14 +437,18 @@ def _enrich_single_information_system(obj: InformationSystem, ln: _InformationSy
         **serialize(obj),
         "support_organization_name": _name_in(ln.support_map, obj.support_organization_id),
         "support_method_name": _name_in(ln.method_map, obj.support_method_id),
-        "placement_assets_summary": _unique_joined(ln.placement_map[x.placement_asset_id].name for x in ln.placement_by_is.get(obj.id, []) if x.placement_asset_id in ln.placement_map),
+        "placement_assets_summary": _unique_joined(
+            ln.placement_map[x.placement_asset_id].name for x in ln.placement_by_is.get(obj.id, []) if x.placement_asset_id in ln.placement_map
+        ),
         "departments_summary": _unique_joined(ln.dep_map[x.department_id].name for x in ln.dep_by_is.get(obj.id, []) if x.department_id in ln.dep_map),
         # Список — для экрана (по строке на адрес), строка — для отчётов и конструктора.
         "ip_addresses": ip_addresses,
         "ip_addresses_summary": "; ".join(ip_addresses),
         # protocol_catalog_id обязателен для ISProtocol (NOT NULL, миграция b7f2c1e5a904): свободного текста без справочника не бывает.
         "protocols_summary": _unique_joined(
-            f"{ln.proto_map[x.protocol_catalog_id].protocol_type}/{ln.proto_map[x.protocol_catalog_id].port}" for x in ln.proto_by_is.get(obj.id, []) if x.protocol_catalog_id in ln.proto_map
+            f"{ln.proto_map[x.protocol_catalog_id].protocol_type}/{ln.proto_map[x.protocol_catalog_id].port}"
+            for x in ln.proto_by_is.get(obj.id, [])
+            if x.protocol_catalog_id in ln.proto_map
         ),
         "physical_devices_summary": _unique_joined(device_label(d, fallback=d.id) for d in devices),
         "vms_summary": _unique_joined(v.name or v.id for v in vms),

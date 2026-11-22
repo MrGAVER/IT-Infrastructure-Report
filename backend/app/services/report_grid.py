@@ -151,7 +151,9 @@ def _validate_vertical_merge(rows: list[Any], ri: int, rowspan: int, col: int, r
             raise ReportBuilderError(f"{where} — объединение по вертикали не может охватывать повторяющуюся строку")
 
 
-def _validate_cell_content(meta: dict[str, dict[str, Any]], cell: dict[str, Any], col: int, repeat: bool, root_entity: str | None, where: str, style_where: str) -> None:
+def _validate_cell_content(
+    meta: dict[str, dict[str, Any]], cell: dict[str, Any], col: int, repeat: bool, root_entity: str | None, where: str, style_where: str
+) -> None:
     """Тип ячейки и то, что для него обязательно (путь поля, формула), плюс стиль.
 
     style_where — префикс сообщений о стиле: у них формат «<лист>, строка N», отличный от where («<лист>: строка N»)."""
@@ -291,7 +293,9 @@ def _physical_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, 
                 # Формулы kind=="formula" — задуманы автором шаблона отчёта и защищаться не должны;
                 # все остальные виды ячеек могут содержать пользовательские данные (например, статичный текст с
                 # параметром {{...}}) и защищаются при записи в .xlsx (guard_text, см. services/excel_safety.py).
-                resolved.append({**_cell_geometry(cell), "value": value, "is_datetime": False, "style": cell.get("style") or {}, "guard_text": kind != "formula"})
+                resolved.append(
+                    {**_cell_geometry(cell), "value": value, "is_datetime": False, "style": cell.get("style") or {}, "guard_text": kind != "formula"}
+                )
             physical.append({"height": height, "cells": resolved})
             continue
 
@@ -328,7 +332,9 @@ def _physical_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, 
                 # См. комментарий в ветке row.get("repeat") is falsy выше — formula не защищаем
                 # намеренно, остальное (в первую очередь kind == "field" — данные из БД, потенциально
                 # пользовательский ввод) защищаем при записи в .xlsx.
-                resolved.append({**_cell_geometry(cell), "value": value, "is_datetime": is_dt, "style": cell.get("style") or {}, "guard_text": kind != "formula"})
+                resolved.append(
+                    {**_cell_geometry(cell), "value": value, "is_datetime": is_dt, "style": cell.get("style") or {}, "guard_text": kind != "formula"}
+                )
             physical.append({"height": height, "cells": resolved})
 
     return physical, totals
@@ -348,7 +354,14 @@ def _apply_style(xl_cell, style: dict[str, Any] | None, *, is_datetime: bool) ->
     # Имя и размер шрифта заданы явно (Calibri 11 — шрифт книги по умолчанию в Excel): Font(bold=True) без
     # имени LibreOffice рисует другим, более широким шрифтом, и оценка высоты строки (_estimate_row_height,
     # рассчитана на Calibri 11) оказывалась заниженной — текст обрезался.
-    xl_cell.font = Font(name="Calibri", size=11, bold=bool(style.get("bold")), italic=bool(style.get("italic")), underline="single" if style.get("underline") else None, color=_hex(style.get("color")))
+    xl_cell.font = Font(
+        name="Calibri",
+        size=11,
+        bold=bool(style.get("bold")),
+        italic=bool(style.get("italic")),
+        underline="single" if style.get("underline") else None,
+        color=_hex(style.get("color")),
+    )
     align_v = {"top": "top", "middle": "center", "bottom": "bottom"}.get(style.get("valign"), "top")
     xl_cell.alignment = Alignment(horizontal=style.get("align") or "left", vertical=align_v, wrap_text=bool(style.get("wrap", True)))
     bg = _hex(style.get("bg"))
@@ -397,7 +410,15 @@ def _estimate_row_height(cells: list[dict[str, Any]], columns: list[dict[str, An
     return max(configured_height, min(estimated, 400))
 
 
-def build_xlsx_grid(session: Session, config: dict[str, Any], report_dir: Path, *, template_name: str, params: dict[str, Any] | None = None, structural_unit_ids: list[str] | None = None) -> Path:
+def build_xlsx_grid(
+    session: Session,
+    config: dict[str, Any],
+    report_dir: Path,
+    *,
+    template_name: str,
+    params: dict[str, Any] | None = None,
+    structural_unit_ids: list[str] | None = None,
+) -> Path:
     params = params or {}
     sheets = config.get("sheets") or []
     if not sheets:

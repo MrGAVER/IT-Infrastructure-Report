@@ -51,7 +51,9 @@ def _finalize_inputs(tmp_path: Path, page1: bytes, pages: bytes = b"<Pages/>") -
 
 
 ICON_RELS = b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'
-ICON_CONTENT_TYPES = b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>'
+ICON_CONTENT_TYPES = (
+    b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>'
+)
 PNG = b"\x89PNG\r\n\x1a\n-test-"
 
 

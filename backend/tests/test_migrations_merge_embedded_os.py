@@ -57,7 +57,8 @@ def _insert_device(conn: sqlite3.Connection, *, serial_number: str, embedded_os_
     device_type_id = conn.execute("SELECT id FROM device_types LIMIT 1").fetchone()["id"]
     device_id = _uid()
     conn.execute(
-        "INSERT INTO physical_devices (id, device_type_id, serial_number, siem_enabled, embedded_os_id, created_at, updated_at) VALUES (?,?,?,0,?,'2026-01-01','2026-01-01')",
+        "INSERT INTO physical_devices (id, device_type_id, serial_number, siem_enabled, embedded_os_id, created_at, "
+        "updated_at) VALUES (?,?,?,0,?,'2026-01-01','2026-01-01')",
         (device_id, device_type_id, serial_number, embedded_os_id),
     )
     return device_id

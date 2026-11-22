@@ -64,11 +64,13 @@ def _seed_port(conn: sqlite3.Connection) -> tuple[str, str, str]:
         (dev_id, device_type_id, dev_id[:12], _now(), _now()),
     )
     conn.execute(
-        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, created_at, updated_at) VALUES (?, ?, 'Gi0/0', 0, 0, 'trunk', ?, ?)",
+        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, "
+        "created_at, updated_at) VALUES (?, ?, 'Gi0/0', 0, 0, 'trunk', ?, ?)",
         (iface_id, dev_id, _now(), _now()),
     )
     conn.execute(
-        "INSERT INTO ip_addresses (id, owner_type, owner_id, ip_address, prefix_length, is_management, created_at, updated_at) VALUES (?, 'device_interface', ?, '192.168.0.1', 24, 0, ?, ?)",
+        "INSERT INTO ip_addresses (id, owner_type, owner_id, ip_address, prefix_length, is_management, created_at, "
+        "updated_at) VALUES (?, 'device_interface', ?, '192.168.0.1', 24, 0, ?, ?)",
         (ip_id, iface_id, _now(), _now()),
     )
     conn.execute("INSERT INTO vlans (id, vlan_id, name, created_at, updated_at) VALUES (?, 10, 'VLAN 10', ?, ?)", (vlan_id, _now(), _now()))
@@ -81,15 +83,18 @@ def _seed_subinterface(conn: sqlite3.Connection, iface_id: str, vlan_id: str) ->
     sub_id, ip_id, port_id = _uid(), _uid(), _uid()
     catalog_id = conn.execute("SELECT id FROM protocol_port_catalogs LIMIT 1").fetchone()[0]
     conn.execute(
-        "INSERT INTO device_subinterfaces (id, parent_interface_id, name, vlan_id, is_management, is_data_transfer, created_at, updated_at) VALUES (?, ?, 'Gi0/0.10', ?, 0, 1, ?, ?)",
+        "INSERT INTO device_subinterfaces (id, parent_interface_id, name, vlan_id, is_management, is_data_transfer, "
+        "created_at, updated_at) VALUES (?, ?, 'Gi0/0.10', ?, 0, 1, ?, ?)",
         (sub_id, iface_id, vlan_id, _now(), _now()),
     )
     conn.execute(
-        "INSERT INTO ip_addresses (id, owner_type, owner_id, ip_address, prefix_length, is_management, created_at, updated_at) VALUES (?, 'device_subinterface', ?, '10.0.10.1', 24, 0, ?, ?)",
+        "INSERT INTO ip_addresses (id, owner_type, owner_id, ip_address, prefix_length, is_management, created_at, "
+        "updated_at) VALUES (?, 'device_subinterface', ?, '10.0.10.1', 24, 0, ?, ?)",
         (ip_id, sub_id, _now(), _now()),
     )
     conn.execute(
-        "INSERT INTO open_ports (id, owner_type, owner_id, protocol_catalog_id, transport_protocol, created_at, updated_at) VALUES (?, 'device_subinterface', ?, ?, 'TCP', ?, ?)",
+        "INSERT INTO open_ports (id, owner_type, owner_id, protocol_catalog_id, transport_protocol, created_at, "
+        "updated_at) VALUES (?, 'device_subinterface', ?, ?, 'TCP', ?, ?)",
         (port_id, sub_id, catalog_id, _now(), _now()),
     )
     conn.commit()

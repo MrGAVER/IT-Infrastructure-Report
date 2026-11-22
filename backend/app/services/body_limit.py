@@ -15,8 +15,8 @@ FastAPI разбирал бы в память. При выключенной а�
 Это возможно потому, что все слои над обработчиком — чистый ASGI (csrf_guard, network_access, security_headers, шлюз доступа
 ``AuthGateMiddleware``): ``receive`` читается в той же задаче, и исключение доходит до FastAPI как есть. Раньше шлюз был функцией под
 ``BaseHTTPMiddleware`` — тот читает ``receive`` внутри группы задач anyio, и исключение приходило обёрнутым в ``ExceptionGroup``
-(то есть не как ``HTTPException``) и превращалось в 400; от этого здесь был обход с подменой любого ответа приложения на 413. Обход убран. Вернёт ли кто-то ``BaseHTTPMiddleware`` в стек — поймает
-tests/test_review_p1_auth_gate_asgi.py.
+(то есть не как ``HTTPException``) и превращалось в 400; от этого здесь был обход с подменой любого ответа приложения на 413. Обход убран.
+Вернёт ли кто-то ``BaseHTTPMiddleware`` в стек — поймает tests/test_review_p1_auth_gate_asgi.py.
 
 Предел — ``INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES`` (config.MAX_REQUEST_BODY_BYTES); 0 отключает проверку. Все тела запросов
 приложения — JSON (загрузок файлов нет). Самый тяжёлый легитимный запрос — SVG-иконка: её длину ограничивает

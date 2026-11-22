@@ -89,10 +89,16 @@ class TestVlanIds:
         assert _rejected(db_session, {"name": "Г", "vlan_ids": ["v10"]}) == "VLAN группы портов можно задать только вместе с режимом порта"
 
     def test_vlan_must_be_allowed_for_the_device_type(self, db_session):
-        assert _rejected(db_session, {"name": "Г", "vlan_mode": "trunk", "vlan_ids": ["v10", "чужой"]}) == "Один или несколько VLAN не разрешены для типа данного устройства"
+        assert (
+            _rejected(db_session, {"name": "Г", "vlan_mode": "trunk", "vlan_ids": ["v10", "чужой"]})
+            == "Один или несколько VLAN не разрешены для типа данного устройства"
+        )
 
     def test_access_allows_at_most_one_distinct_vlan(self, db_session):
-        assert _rejected(db_session, {"name": "Г", "vlan_mode": "access", "vlan_ids": ["v10", "v20"]}) == "В режиме access у группы портов может быть не более одного VLAN"
+        assert (
+            _rejected(db_session, {"name": "Г", "vlan_mode": "access", "vlan_ids": ["v10", "v20"]})
+            == "В режиме access у группы портов может быть не более одного VLAN"
+        )
 
     def test_duplicates_are_removed_keeping_first_occurrence_order(self, db_session):
         assert _normalize(db_session, {"name": "Г", "vlan_mode": "trunk", "vlan_ids": ["v30", "v10", "v30", "v20", "v10"]})["vlan_ids"] == ["v30", "v10", "v20"]
@@ -141,7 +147,9 @@ class TestIps:
         assert self._ips(db_session, {"ip_address": "10.0.0.1", "prefix_length": prefix})[0]["prefix_length"] == expected
 
     def test_address_is_stripped_and_placeholder_rows_are_dropped(self, db_session):
-        assert [ip["ip_address"] for ip in self._ips(db_session, {"ip_address": " 10.0.0.1 "}, {"ip_address": "  "}, {"prefix_length": 24, "purpose": "x"})] == ["10.0.0.1"]
+        assert [
+            ip["ip_address"] for ip in self._ips(db_session, {"ip_address": " 10.0.0.1 "}, {"ip_address": "  "}, {"prefix_length": 24, "purpose": "x"})
+        ] == ["10.0.0.1"]
 
     def test_group_without_addresses_has_an_empty_list(self, db_session):
         assert self._ips(db_session, {"ip_address": "", "prefix_length": 99}) == []  # префикс без адреса — плейсхолдер, не проверяется
@@ -163,7 +171,10 @@ class TestIps:
 
     def test_purpose_is_limited_to_255_characters(self, db_session):
         assert len(self._ips(db_session, {"ip_address": "10.0.0.1", "purpose": "н" * 255})[0]["purpose"]) == 255
-        assert _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1", "purpose": "н" * 256}]}) == "Группа портов «Г»: назначение IP-адреса не должно превышать 255 символов"
+        assert (
+            _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1", "purpose": "н" * 256}]})
+            == "Группа портов «Г»: назначение IP-адреса не должно превышать 255 символов"
+        )
 
     def test_overlong_purpose_is_ignored_without_an_address(self, db_session):
         assert self._ips(db_session, {"purpose": "н" * 300}) == []
@@ -225,7 +236,10 @@ class TestOpenPorts:
 
     def test_repeated_port_number_is_rejected_with_the_group_name(self, client, db_session):
         http, http_proxy = _catalog_entry(client, 80), _catalog_entry(client, 80, "UDP")
-        detail = _rejected(db_session, {"name": "Веб", "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": http["id"]}, {"protocol_catalog_id": http_proxy["id"]}]})
+        detail = _rejected(
+            db_session,
+            {"name": "Веб", "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": http["id"]}, {"protocol_catalog_id": http_proxy["id"]}]},
+        )
         assert detail == "Группа портов «Веб»: номера открытых портов не должны повторяться — 80"
 
 

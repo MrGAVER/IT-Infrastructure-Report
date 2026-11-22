@@ -1,9 +1,11 @@
 """
 A-04 (код-ревью main @ b375f58): заголовки безопасности на ответах, которые формируют внешние слои — 400 по Host, 403 по origin и клиенту, 413 по размеру тела.
 
-Раньше заголовки (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Content-Security-Policy) ставил только шлюз доступа (auth_gate_middleware), добавленный в приложение
-первым, то есть самый внутренний: ответы, которые TrustedHost, SameOriginGuard, ClientAccess и BodySizeLimit отдают сами, до него не доходили. Теперь
-SecurityHeadersMiddleware — самый внешний слой (main.py, после install_http_security) и единственный, кто их ставит: шлюз доступа (AuthGateMiddleware) заголовки не трогает (код-ревью С-5, Н-8).
+Раньше заголовки (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Content-Security-Policy) ставил только шлюз доступа
+(auth_gate_middleware), добавленный в приложение первым, то есть самый внутренний: ответы, которые TrustedHost, SameOriginGuard,
+ClientAccess и BodySizeLimit отдают сами, до него не доходили. Теперь
+SecurityHeadersMiddleware — самый внешний слой (main.py, после install_http_security) и единственный, кто их ставит: шлюз доступа
+(AuthGateMiddleware) заголовки не трогает (код-ревью С-5, Н-8).
 
 Запуск: pytest backend/tests/test_security_headers_outer_layers.py -v
 """
@@ -81,7 +83,8 @@ class TestRealApplication:
 
 
 class TestDocumentationPages:
-    """Swagger UI и ReDoc грузят скрипты с CDN, поэтому CSP на них не ставится; базовые заголовки — как у всех (в настоящем приложении документация по умолчанию выключена)."""
+    """Swagger UI и ReDoc грузят скрипты с CDN, поэтому CSP на них не ставится; базовые заголовки — как у всех (в настоящем приложении
+    документация по умолчанию выключена)."""
 
     def test_openapi_json_gets_the_basic_headers_but_no_csp(self):
         app = FastAPI()

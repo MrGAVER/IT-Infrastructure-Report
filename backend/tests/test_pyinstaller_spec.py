@@ -108,7 +108,9 @@ def test_every_app_module_imported_by_alembic_scripts_is_in_hiddenimports(monkey
     """
     hiddenimports = set(evaluate_spec(monkeypatch)["hiddenimports"])
     missing = {module: sorted(files) for module, files in _app_modules_imported_by_alembic_scripts().items() if module not in hiddenimports}
-    assert not missing, f"модули app импортируются из alembic/env.py или миграций (PyInstaller эти файлы не анализирует) и должны быть в hiddenimports: {missing}"
+    assert not missing, (
+        f"модули app импортируются из alembic/env.py или миграций (PyInstaller эти файлы не анализирует) и должны быть в hiddenimports: {missing}"
+    )
 
 
 def test_hiddenimports_cover_every_app_module_on_disk(monkeypatch):

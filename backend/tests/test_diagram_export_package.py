@@ -69,12 +69,16 @@ def test_dunder_all_lists_only_importable_names_and_all_three_exporters():
     assert {"export_svg", "export_drawio", "export_vsdx"} <= set(diagram_export.__all__)
     for name in diagram_export.__all__:
         assert hasattr(diagram_export, name), name
-    assert len(diagram_export.__all__) == len(set(diagram_export.__all__)) and diagram_export.__all__ == sorted(diagram_export.__all__, key=lambda n: (n[0].islower(), n))
+    assert len(diagram_export.__all__) == len(set(diagram_export.__all__)) and diagram_export.__all__ == sorted(
+        diagram_export.__all__, key=lambda n: (n[0].islower(), n)
+    )
 
 
 @pytest.mark.parametrize("module", MODULES)
 def test_layering_has_only_downward_dependencies(module):
-    assert _sibling_imports(module) <= ALLOWED_SIBLING_IMPORTS[module], f"{module} импортирует лишнее: {_sibling_imports(module) - ALLOWED_SIBLING_IMPORTS[module]}"
+    assert _sibling_imports(module) <= ALLOWED_SIBLING_IMPORTS[module], (
+        f"{module} импортирует лишнее: {_sibling_imports(module) - ALLOWED_SIBLING_IMPORTS[module]}"
+    )
 
 
 @pytest.mark.parametrize("module", MODULES)

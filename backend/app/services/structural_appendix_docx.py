@@ -223,7 +223,9 @@ def _links_table(doc: DocumentObject, data: AppendixData, is_name: str) -> None:
 
 def _vlan_table(doc: DocumentObject, data: AppendixData, is_name: str) -> None:
     widths = _VLAN_WIDTHS
-    table = _new_table(doc, widths, f"Перечень виртуальных локальных вычислительных сетей (VLAN) ИС {is_name}", ("Идентификатор VLAN", "Имя VLAN", "IP-адресация"))
+    table = _new_table(
+        doc, widths, f"Перечень виртуальных локальных вычислительных сетей (VLAN) ИС {is_name}", ("Идентификатор VLAN", "Имя VLAN", "IP-адресация")
+    )
     if not data.vlan_groups:
         _empty_row(table, widths)
         return
@@ -242,7 +244,10 @@ def _vlan_table(doc: DocumentObject, data: AppendixData, is_name: str) -> None:
 def _equipment_table(doc: DocumentObject, data: AppendixData, is_name: str) -> None:
     widths = _EQUIPMENT_WIDTHS
     table = _new_table(
-        doc, widths, f"Перечень телекоммуникационного оборудования ИС {is_name}", ("Наименование оборудования", "Заводской номер", "Системное имя", "IP-адрес управления", "Место размещения")
+        doc,
+        widths,
+        f"Перечень телекоммуникационного оборудования ИС {is_name}",
+        ("Наименование оборудования", "Заводской номер", "Системное имя", "IP-адрес управления", "Место размещения"),
     )
     if not data.equipment:
         _empty_row(table, widths)

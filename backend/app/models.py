@@ -210,7 +210,9 @@ class PhysicalDevice(TimestampMixin, Base):
     # кодом «проверил, потом записал», и два параллельных запроса создали бы два устройства в одном слоте.
     # Индекс частичный: устройства без стойки или без позиции ограничением не затрагиваются (миграция
     # b5d2f8a1c673). Переназначение занятого слота делает services/crud/validators.py:_release_rack_slot.
-    __table_args__ = (Index("uq_device_rack_slot", "rack_id", "rack_position", unique=True, sqlite_where=text(_RACK_SLOT_FILLED), postgresql_where=text(_RACK_SLOT_FILLED)),)
+    __table_args__ = (
+        Index("uq_device_rack_slot", "rack_id", "rack_position", unique=True, sqlite_where=text(_RACK_SLOT_FILLED), postgresql_where=text(_RACK_SLOT_FILLED)),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     device_type_id: Mapped[str] = mapped_column(ForeignKey("device_types.id"), index=True)
     manufacturer_id: Mapped[Optional[str]] = mapped_column(ForeignKey("manufacturers.id"), index=True)
@@ -352,7 +354,9 @@ def _next_interface_sort_order(context) -> int:
     в начале списка. Несколько новых портов одного устройства в одном flush получат одинаковое значение — порядок
     между ними тогда определяют created_at и id (см. сортировку чтения)."""
     device_id = context.get_current_parameters().get("physical_device_id")
-    position = context.connection.execute(select(func.coalesce(func.max(DeviceInterface.sort_order), -1) + 1).where(DeviceInterface.physical_device_id == device_id)).scalar()
+    position = context.connection.execute(
+        select(func.coalesce(func.max(DeviceInterface.sort_order), -1) + 1).where(DeviceInterface.physical_device_id == device_id)
+    ).scalar()
     return int(position or 0)
 
 
@@ -818,7 +822,9 @@ class InformationSystemSource(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
     source_type: Mapped[str] = mapped_column(String(30))  # manual, device, vm, container — также играет роль owner_type
-    owner_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)  # id устройства/ВМ/контейнера по source_type; NULL при source_type='manual'. Не настоящий FK — см. докстринг класса
+    owner_id: Mapped[Optional[str]] = mapped_column(
+        String(36), index=True
+    )  # id устройства/ВМ/контейнера по source_type; NULL при source_type='manual'. Не настоящий FK — см. докстринг класса
     purpose: Mapped[Optional[str]] = mapped_column(String(500))
     role: Mapped[Optional[str]] = mapped_column(String(255))
     external_interaction: Mapped[bool] = mapped_column(Boolean, default=False)

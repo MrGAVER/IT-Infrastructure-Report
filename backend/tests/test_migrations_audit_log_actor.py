@@ -42,7 +42,10 @@ def test_upgrade_adds_nullable_actor_columns_and_keeps_existing_entries(alembic_
     command.upgrade(cfg, PRE_REVISION)
     assert not ACTOR_COLUMNS & _audit_columns(db_path)
     conn = sqlite3.connect(str(db_path))
-    conn.execute("INSERT INTO audit_log (id, entity_type, entity_id, action, details, created_at, updated_at) VALUES ('a', 'devices', 'd', 'CREATE', 'x', '2026-01-01', '2026-01-01')")
+    conn.execute(
+        "INSERT INTO audit_log (id, entity_type, entity_id, action, details, created_at, updated_at) VALUES ('a', "
+        "'devices', 'd', 'CREATE', 'x', '2026-01-01', '2026-01-01')"
+    )
     conn.commit()
     conn.close()
 

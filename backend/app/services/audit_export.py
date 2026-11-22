@@ -22,7 +22,15 @@ from .computed import local_timestamp_suffix
 from .crud import list_resource
 from .excel_safety import guard_text_cell
 
-ACTION_LABELS = {"CREATE": "Создание", "UPDATE": "Изменение", "DELETE": "Удаление", "SYNC": "Синхронизация", "LOGIN": "Вход", "LOGIN_FAILED": "Неудачный вход", "LOGOUT": "Выход"}
+ACTION_LABELS = {
+    "CREATE": "Создание",
+    "UPDATE": "Изменение",
+    "DELETE": "Удаление",
+    "SYNC": "Синхронизация",
+    "LOGIN": "Вход",
+    "LOGIN_FAILED": "Неудачный вход",
+    "LOGOUT": "Выход",
+}
 AUDIT_HEADERS = ["Дата и время", "Пользователь", "IP-адрес", "Раздел", "Идентификатор записи", "Действие", "Подробности"]
 
 # Журнал аудита экспортируется целиком в пределах разумного потолка (а не постранично, как в UI):
@@ -71,7 +79,9 @@ def is_audit_report_name(name: str) -> bool:
     return _comparable(name).startswith(_comparable(AUDIT_REPORT_PREFIX))
 
 
-def build_audit_log_report(session: Session, report_dir: Path, date_from: str | None = None, date_to: str | None = None, entity_type: str | None = None) -> Path:
+def build_audit_log_report(
+    session: Session, report_dir: Path, date_from: str | None = None, date_to: str | None = None, entity_type: str | None = None
+) -> Path:
     """Формирует .xlsx журнала аудита потоковой записью (Workbook(write_only=True)): память не растёт с числом
     записей. Оформление то же, что у остальных отчётов (жирная центрированная шапка, закреплённая первая
     строка, автофильтр), кроме подбора ширины по содержимому — она фиксирована (_COLUMN_WIDTHS).

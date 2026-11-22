@@ -259,7 +259,8 @@ def _warn_if_weak_secrets() -> None:
         )
     if weak_db_password(make_url(DATABASE_URL).password or ""):  # у SQLite пароля нет — пустая строка слабой не считается
         logger.warning(
-            "Пароль базы данных (POSTGRES_PASSWORD или пароль в DATABASE_URL) совпадает с заглушкой из .env.example или короче %d символов. Замените его на свой пароль.",
+            "Пароль базы данных (POSTGRES_PASSWORD или пароль в DATABASE_URL) совпадает с заглушкой из .env.example или "
+            "короче %d символов. Замените его на свой пароль.",
             MIN_DB_PASSWORD_LENGTH,
         )
 

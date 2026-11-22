@@ -55,7 +55,9 @@ def _apply_search(stmt, model, q: str | None):
     text_cols = [c for c in inspect(model).columns if str(c.type).upper().startswith(("VARCHAR", "TEXT", "CHAR"))]
     if not text_cols:
         return stmt
-    return stmt.where(or_(*[func.lower(c).contains(q.lower(), autoescape=True) for c in text_cols]))  # autoescape: «%» и «_» из поиска — обычные символы, а не шаблон LIKE
+    return stmt.where(
+        or_(*[func.lower(c).contains(q.lower(), autoescape=True) for c in text_cols])
+    )  # autoescape: «%» и «_» из поиска — обычные символы, а не шаблон LIKE
 
 
 def _apply_filters(stmt, model, filters: dict[str, str] | None):
@@ -84,7 +86,14 @@ def _enrich_rows(model, rows, session: Session):
 
 
 def list_resource(
-    resource: str, session: Session, q: str | None = None, offset: int = 0, limit: int = 100, filters: dict[str, str] | None = None, date_from: str | None = None, date_to: str | None = None
+    resource: str,
+    session: Session,
+    q: str | None = None,
+    offset: int = 0,
+    limit: int = 100,
+    filters: dict[str, str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ):
     model = model_for(resource)
     stmt = _apply_ordering(select(model), model)
@@ -121,7 +130,13 @@ def create_resource(resource: str, payload: dict[str, Any], session: Session):
     validate_column_types(model, data)
     hooks.prepare(data, session)
     hooks.validate_create(data, session)
-    validate_resource(model, data, session, confirm_duplicate=bool(payload.get("confirm_system_name_duplicate")), confirm_rack_reassign=bool(payload.get("confirm_rack_position_reassign")))
+    validate_resource(
+        model,
+        data,
+        session,
+        confirm_duplicate=bool(payload.get("confirm_system_name_duplicate")),
+        confirm_rack_reassign=bool(payload.get("confirm_rack_position_reassign")),
+    )
     _release_rack_slot(model, data, session)
     obj = model(**data)
     session.add(obj)
@@ -179,7 +194,9 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
     proposed.update(changes)
     hooks.prepare(proposed, session)
     hooks.validate_update(proposed, before, session, item_id)
-    validate_resource(model, proposed, session, item_id, bool(payload.get("confirm_system_name_duplicate")), bool(payload.get("confirm_rack_position_reassign")))
+    validate_resource(
+        model, proposed, session, item_id, bool(payload.get("confirm_system_name_duplicate")), bool(payload.get("confirm_rack_position_reassign"))
+    )
     _release_rack_slot(model, proposed, session, item_id)
     for key, value in payload.items():
         if key in allowed:

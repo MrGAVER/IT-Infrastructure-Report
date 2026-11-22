@@ -48,7 +48,13 @@ def _sample_graph(port_ticks: int = 24) -> dict:
                 "label": "sw-01",
                 "x": 0,
                 "y": 0,
-                "icon": {"mode": "generated", "shape": "switch", "color": "#4f7cff", "glyph": '<rect x="2" y="6" width="20" height="9"/>', "port_ticks": port_ticks},
+                "icon": {
+                    "mode": "generated",
+                    "shape": "switch",
+                    "color": "#4f7cff",
+                    "glyph": '<rect x="2" y="6" width="20" height="9"/>',
+                    "port_ticks": port_ticks,
+                },
             },
             {
                 "id": "dev-server",
@@ -338,8 +344,22 @@ def test_export_vsdx_dedupes_identical_glyph_to_one_image(tmp_path):
     same_glyph = '<rect x="2" y="2" width="20" height="20"/>'
     graph = {
         "nodes": [
-            {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff", "glyph": same_glyph}},
-            {"id": "b", "type": "device", "label": "b", "x": 300, "y": 0, "icon": {"mode": "generated", "shape": "server", "color": "#e67e22", "glyph": same_glyph}},
+            {
+                "id": "a",
+                "type": "device",
+                "label": "a",
+                "x": 0,
+                "y": 0,
+                "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff", "glyph": same_glyph},
+            },
+            {
+                "id": "b",
+                "type": "device",
+                "label": "b",
+                "x": 300,
+                "y": 0,
+                "icon": {"mode": "generated", "shape": "server", "color": "#e67e22", "glyph": same_glyph},
+            },
         ],
         "edges": [],
     }
@@ -618,7 +638,10 @@ CUSTOM_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circl
 
 def _custom_graph(*markups: str, x_step: int = 220) -> dict:
     return {
-        "nodes": [{"id": f"c{i}", "type": "device", "label": f"c{i}", "x": i * x_step, "y": 0, "icon": {"mode": "custom", "svg_markup": markup}} for i, markup in enumerate(markups)],
+        "nodes": [
+            {"id": f"c{i}", "type": "device", "label": f"c{i}", "x": i * x_step, "y": 0, "icon": {"mode": "custom", "svg_markup": markup}}
+            for i, markup in enumerate(markups)
+        ],
         "edges": [],
     }
 
@@ -845,7 +868,10 @@ def test_custom_icon_tile_does_not_read_local_files(tmp_path):
     secret.write_bytes(red_pixel_png)
 
     def markup(path: str) -> str:
-        return f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"><image xlink:href="{path}" width="10" height="10"/></svg>'
+        return (
+            '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"><image '
+            f'xlink:href="{path}" width="10" height="10"/></svg>'
+        )
 
     leaking = markup(str(secret))
     missing = markup(str(tmp_path / "does-not-exist.png"))

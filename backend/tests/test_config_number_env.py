@@ -31,12 +31,20 @@ SETTINGS = [
     ("INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES", "AUTH_LOCKOUT_MINUTES", 15.0, ("2.5", 2.5), "-0.5"),
     ("INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH", "AUTH_MIN_PASSWORD_LENGTH", 8, ("12", 12), "0"),
     ("INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS", "AUTH_KNOWN_CLIENT_DAYS", 30, ("14", 14), "-1"),
-    ("INFRA_REGISTRY_AUDIT_RETENTION_DAYS", "AUDIT_RETENTION_DAYS", 0, ("90", 90), "-1"),  # A-05: срок хранения журнала аудита, 0 — не удалять (services/audit_retention)
+    (
+        "INFRA_REGISTRY_AUDIT_RETENTION_DAYS",
+        "AUDIT_RETENTION_DAYS",
+        0,
+        ("90", 90),
+        "-1",
+    ),  # A-05: срок хранения журнала аудита, 0 — не удалять (services/audit_retention)
 ]
 ALL_ENV_NAMES = [setting[0] for setting in SETTINGS]
 IDS = [setting[1] for setting in SETTINGS]
 
-_PROBE = "import json, sys; sys.path.insert(0, sys.argv[1]); import app.config as config; print(json.dumps({name: getattr(config, name) for name in sys.argv[2:]}))"
+_PROBE = (
+    "import json, sys; sys.path.insert(0, sys.argv[1]); import app.config as config; print(json.dumps({name: getattr(config, name) for name in sys.argv[2:]}))"
+)
 
 
 def _import_config(tmp_path: Path, **env: str) -> subprocess.CompletedProcess:
@@ -85,7 +93,9 @@ def test_non_numeric_value_fails_the_start_naming_the_variable(tmp_path, env_nam
 
 
 @pytest.mark.parametrize(
-    ("env_name", "attr", "default", "valid", "below_minimum"), [setting for setting in SETTINGS if setting[4] is not None], ids=[setting[1] for setting in SETTINGS if setting[4] is not None]
+    ("env_name", "attr", "default", "valid", "below_minimum"),
+    [setting for setting in SETTINGS if setting[4] is not None],
+    ids=[setting[1] for setting in SETTINGS if setting[4] is not None],
 )
 def test_value_below_the_minimum_fails_the_start_naming_the_variable(tmp_path, env_name, attr, default, valid, below_minimum):
     error = _error_line(_import_config(tmp_path, **{env_name: below_minimum}))

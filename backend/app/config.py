@@ -166,7 +166,8 @@ class Settings:
             auth_max_failed_attempts=_number_env("INFRA_REGISTRY_AUTH_MAX_ATTEMPTS", 10, int, minimum=1, env=variables),
             auth_lockout_minutes=_number_env("INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES", 15.0, float, minimum=0, env=variables),
             auth_min_password_length=_number_env("INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH", 8, int, minimum=1, env=variables),
-            auth_lockout_known_client_bypass=variables.get("INFRA_REGISTRY_AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS", "1").strip().lower() not in {"0", "false", "no", "off"},
+            auth_lockout_known_client_bypass=variables.get("INFRA_REGISTRY_AUTH_LOCKOUT_KNOWN_CLIENT_BYPASS", "1").strip().lower()
+            not in {"0", "false", "no", "off"},
             auth_known_client_days=_number_env("INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS", 30, int, minimum=0, env=variables),
             enable_docs=_flag_env("INFRA_REGISTRY_ENABLE_DOCS", env=variables),
         )

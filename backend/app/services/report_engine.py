@@ -180,7 +180,9 @@ def _to_text(raw: Any, separator: str = "; ") -> str:
     return str(raw)
 
 
-def render_field(ctx: ReportContext, entity_key: str, obj: Any, path: str, *, separator: str = "; ", expand_relation: str | None = None, expand_obj: Any = None) -> str:
+def render_field(
+    ctx: ReportContext, entity_key: str, obj: Any, path: str, *, separator: str = "; ", expand_relation: str | None = None, expand_obj: Any = None
+) -> str:
     segments = _split_path(path)
     raw = _resolve(ctx, entity_key, obj, segments, expand_relation, expand_obj)
     return _to_text(raw, separator)
@@ -261,7 +263,13 @@ def _sort_key(raw: Any) -> tuple[int, int, Any]:
 
 
 def iter_report_rows(
-    ctx: ReportContext, root_entity: str, *, expand: str | None = None, include_empty_expand: bool = True, filters: list[dict[str, Any]] | None = None, sort_by: str | None = None
+    ctx: ReportContext,
+    root_entity: str,
+    *,
+    expand: str | None = None,
+    include_empty_expand: bool = True,
+    filters: list[dict[str, Any]] | None = None,
+    sort_by: str | None = None,
 ) -> Iterable[tuple[Any, str | None, Any]]:
     """Возвращает (root_obj, expand_relation, expand_obj) для каждой строки будущего отчёта.
 
@@ -373,7 +381,9 @@ def validate_config(meta: dict[str, dict[str, Any]], fmt: str, config: dict[str,
         raise ReportBuilderError(f"Неизвестный формат отчёта: '{fmt}' (ожидается xlsx или docx)")
 
 
-def column_value(ctx: ReportContext, root_entity: str, row: Any, expand_relation: str | None, expand_obj: Any, column: dict[str, Any], row_index: int, params: dict[str, Any]) -> Any:
+def column_value(
+    ctx: ReportContext, root_entity: str, row: Any, expand_relation: str | None, expand_obj: Any, column: dict[str, Any], row_index: int, params: dict[str, Any]
+) -> Any:
     source = column.get("source", "field")
     if source == "index":
         return row_index

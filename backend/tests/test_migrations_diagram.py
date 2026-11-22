@@ -90,7 +90,9 @@ def test_device_types_category_id_backfilled_and_not_null_in_ddl(alembic_config)
     columns = {r["name"]: r for r in conn.execute("PRAGMA table_info(device_types)").fetchall()}
     assert columns["category_id"]["notnull"] == 1, "category_id должен быть NOT NULL в реальном DDL"
 
-    rows = conn.execute("SELECT dt.name AS type_name, dc.name AS category_name FROM device_types dt JOIN device_categories dc ON dt.category_id = dc.id").fetchall()
+    rows = conn.execute(
+        "SELECT dt.name AS type_name, dc.name AS category_name FROM device_types dt JOIN device_categories dc ON dt.category_id = dc.id"
+    ).fetchall()
     by_type = {r["type_name"]: r["category_name"] for r in rows}
     assert by_type["Сервер"] == "Серверы и СХД"
     assert by_type["Точка доступа Wi-Fi"] == "Сетевая инфраструктура"
@@ -141,7 +143,9 @@ def test_destructive_cleanup_cascades_fully_and_spares_unrelated_device(alembic_
 
     switch, server = _uid(), _uid()
     insert("physical_devices", id=switch, device_type_id=net_type, serial_number="SW-1", system_name="sw-01", siem_enabled=0, created_at=now, updated_at=now)
-    insert("physical_devices", id=server, device_type_id=server_type, serial_number="SRV-1", system_name="srv-01", siem_enabled=0, created_at=now, updated_at=now)
+    insert(
+        "physical_devices", id=server, device_type_id=server_type, serial_number="SRV-1", system_name="srv-01", siem_enabled=0, created_at=now, updated_at=now
+    )
 
     iface_sw, iface_srv = _uid(), _uid()
     insert("device_interfaces", id=iface_sw, physical_device_id=switch, name="Gi0/1", is_management=1, is_data_transfer=0, created_at=now, updated_at=now)
@@ -149,7 +153,16 @@ def test_destructive_cleanup_cascades_fully_and_spares_unrelated_device(alembic_
 
     conn_type = get_or_create_named("connection_types", "Витая пара")
     connection = _uid()
-    insert("connections", id=connection, source_interface_id=iface_sw, destination_interface_id=iface_srv, connection_type_id=conn_type, is_active=1, created_at=now, updated_at=now)
+    insert(
+        "connections",
+        id=connection,
+        source_interface_id=iface_sw,
+        destination_interface_id=iface_srv,
+        connection_type_id=conn_type,
+        is_active=1,
+        created_at=now,
+        updated_at=now,
+    )
 
     vlan_domain = _uid()
     insert("vlan_domains", id=vlan_domain, name="Домен", source_device_id=switch, auto_sync=0, created_at=now, updated_at=now)
@@ -173,12 +186,40 @@ def test_destructive_cleanup_cascades_fully_and_spares_unrelated_device(alembic_
     insert("open_ports", id=_uid(), owner_type="virtual_machine", owner_id=vm, transport_protocol="TCP", port=80, created_at=now, updated_at=now)
 
     isys = _uid()
-    insert("information_systems", id=isys, name="ИС на удаляемом типе", type="ИС", siem_enabled=0, crypto_protection_enabled=0, status="active", created_at=now, updated_at=now)
+    insert(
+        "information_systems",
+        id=isys,
+        name="ИС на удаляемом типе",
+        type="ИС",
+        siem_enabled=0,
+        crypto_protection_enabled=0,
+        status="active",
+        created_at=now,
+        updated_at=now,
+    )
     insert("information_system_devices", id=_uid(), information_system_id=isys, physical_device_id=switch, created_at=now, updated_at=now)
     insert("information_system_vms", id=_uid(), information_system_id=isys, virtual_machine_id=vm, created_at=now, updated_at=now)
     insert("information_system_containers", id=_uid(), information_system_id=isys, container_id=container_on_device, created_at=now, updated_at=now)
-    insert("information_system_sources", id=_uid(), information_system_id=isys, source_type="device", physical_device_id=switch, external_interaction=0, created_at=now, updated_at=now)
-    insert("information_system_ips", id=_uid(), information_system_id=isys, ip_address="10.0.0.1", external_interaction=0, physical_device_id=switch, created_at=now, updated_at=now)
+    insert(
+        "information_system_sources",
+        id=_uid(),
+        information_system_id=isys,
+        source_type="device",
+        physical_device_id=switch,
+        external_interaction=0,
+        created_at=now,
+        updated_at=now,
+    )
+    insert(
+        "information_system_ips",
+        id=_uid(),
+        information_system_id=isys,
+        ip_address="10.0.0.1",
+        external_interaction=0,
+        physical_device_id=switch,
+        created_at=now,
+        updated_at=now,
+    )
     conn.commit()
     conn.close()
 
@@ -272,15 +313,18 @@ def test_saved_diagrams_migration_creates_tables_with_cascade(alembic_config):
     conn.execute("PRAGMA foreign_keys=ON")
     now = "2026-01-01 00:00:00"
     conn.execute(
-        "INSERT INTO saved_diagrams (id, name, scope_filter, group_by, collapse_threshold, created_at, updated_at) VALUES ('d1', 'Диаграмма 1', '{}', 'structural_unit', 20, ?, ?)",
+        "INSERT INTO saved_diagrams (id, name, scope_filter, group_by, collapse_threshold, created_at, updated_at) "
+        "VALUES ('d1', 'Диаграмма 1', '{}', 'structural_unit', 20, ?, ?)",
         (now, now),
     )
     conn.execute(
-        "INSERT INTO diagram_layouts (id, saved_diagram_id, node_positions, auto_layout_algorithm, created_at, updated_at) VALUES ('l1', 'd1', '{}', 'hierarchical', ?, ?)",
+        "INSERT INTO diagram_layouts (id, saved_diagram_id, node_positions, auto_layout_algorithm, created_at, "
+        "updated_at) VALUES ('l1', 'd1', '{}', 'hierarchical', ?, ?)",
         (now, now),
     )
     conn.execute(
-        "INSERT INTO diagram_group_states (id, saved_diagram_id, group_key, is_collapsed, device_count, created_at, updated_at) VALUES ('g1', 'd1', 'structural_unit:1', 1, 25, ?, ?)",
+        "INSERT INTO diagram_group_states (id, saved_diagram_id, group_key, is_collapsed, device_count, created_at, "
+        "updated_at) VALUES ('g1', 'd1', 'structural_unit:1', 1, 25, ?, ?)",
         (now, now),
     )
     conn.commit()

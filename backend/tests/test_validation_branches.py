@@ -1,9 +1,10 @@
 """
 A-06 (код-ревью main @ b375f58): ветки validation.py, которые не вызывал ни один тест — проверки согласованности связей, которые API выполняет до записи.
 
-Тикет называл «ранние 422-ветки validate_connection»; после тестов A-01 они покрыты (test_connection_invariants.py, test_interface_connections.py), поэтому здесь —
-оставшиеся непокрытые проверки: модель устройства, встроенная ОС, ОС, хост ВМ, гипервизор, иерархия «здание → помещение → стойка», способ техподдержки и организация.
-Каждая ветка проверяется по тексту ответа 422: пользователь видит именно его.
+Тикет называл «ранние 422-ветки validate_connection»; после тестов A-01 они покрыты (test_connection_invariants.py,
+test_interface_connections.py), поэтому здесь — оставшиеся непокрытые проверки: модель устройства, встроенная ОС, ОС, хост ВМ, гипервизор,
+иерархия «здание → помещение → стойка», способ
+техподдержки и организация. Каждая ветка проверяется по тексту ответа 422: пользователь видит именно его.
 
 Запуск: pytest backend/tests/test_validation_branches.py -v
 """
@@ -56,7 +57,9 @@ def _add(session, *objects):
 def catalog(db_session):
     """Два производителя и два типа устройств; модель Cisco относится к типу «Коммутатор»."""
     category = _add(db_session, DeviceCategory(name="Оборудование"))
-    switch, server = _add(db_session, DeviceType(name="Коммутатор", category_id=category.id), DeviceType(name="Сервер", category_id=category.id, allows_vm_hosting=True))
+    switch, server = _add(
+        db_session, DeviceType(name="Коммутатор", category_id=category.id), DeviceType(name="Сервер", category_id=category.id, allows_vm_hosting=True)
+    )
     cisco, dell = _add(db_session, Manufacturer(name="Cisco"), Manufacturer(name="Dell"))
     model = _add(db_session, DeviceModel(manufacturer_id=cisco.id, device_type_id=switch.id, model="C9300"))
     return {"switch": switch, "server": server, "cisco": cisco, "dell": dell, "model": model}
@@ -77,7 +80,9 @@ class TestDeviceModelRelation:
         assert _rejected(validate_device_model_relation, data, db_session) == "Выбранная модель не соответствует выбранному типу устройства"
 
     def test_matching_model_passes(self, db_session, catalog):
-        validate_device_model_relation({"model_id": catalog["model"].id, "manufacturer_id": catalog["cisco"].id, "device_type_id": catalog["switch"].id}, db_session)
+        validate_device_model_relation(
+            {"model_id": catalog["model"].id, "manufacturer_id": catalog["cisco"].id, "device_type_id": catalog["switch"].id}, db_session
+        )
 
     def test_model_without_manufacturer_and_type_in_the_request_passes(self, db_session, catalog):
         validate_device_model_relation({"model_id": catalog["model"].id}, db_session)

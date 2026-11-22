@@ -114,7 +114,9 @@ def test_no_endpoint_is_declared_twice():
 @pytest.mark.parametrize("module_name", ["vlan", "device_stacks"])
 def test_thin_controllers_do_not_touch_models_or_sql(module_name):
     tree = ast.parse((API_DIR / f"{module_name}.py").read_text(encoding="utf-8"))
-    imported = {(node.module or "") for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)} | {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+    imported = {(node.module or "") for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)} | {
+        alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
+    }
     assert not any(name == "sqlalchemy" or name.startswith("sqlalchemy.") and name != "sqlalchemy.orm" for name in imported)
     assert "..models" not in imported
     for node in tree.body:

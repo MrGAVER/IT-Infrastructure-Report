@@ -46,7 +46,9 @@ def test_message_names_the_offending_tag():
     assert "circle" in exc_info.value.detail
 
 
-@pytest.mark.parametrize("markup", [PLAIN, '<svg><rect class="style" id="style" data-style="x" fill="#fff" stroke="#000"/></svg>', '<svg><text>style="x"</text></svg>'])
+@pytest.mark.parametrize(
+    "markup", [PLAIN, '<svg><rect class="style" id="style" data-style="x" fill="#fff" stroke="#000"/></svg>', '<svg><text>style="x"</text></svg>']
+)
 def test_validator_still_accepts_icons_that_only_mention_style(markup):
     validate_svg_markup(markup)  # имя «style» — только у самого атрибута; значения и другие атрибуты не затрагиваются
 

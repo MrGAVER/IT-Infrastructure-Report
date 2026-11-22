@@ -62,7 +62,9 @@ def cable(client) -> str:
 
 
 def _connect(client, cable_id: str, a: dict, b: dict, **extra) -> None:
-    r = client.post(f"{API}/resources/connections", json={"source_interface_id": a["id"], "destination_interface_id": b["id"], "connection_type_id": cable_id, **extra})
+    r = client.post(
+        f"{API}/resources/connections", json={"source_interface_id": a["id"], "destination_interface_id": b["id"], "connection_type_id": cable_id, **extra}
+    )
     assert r.status_code == 201, r.text
 
 
@@ -457,7 +459,10 @@ def test_apply_uses_the_same_form_state_as_preview(client, cable):
     assert _modes(client, w["id"]) == {"w1": "access"} and _modes(client, s["id"]) == {"s1": "trunk"}  # устройство формы сервер не пишет
     # другое состояние формы при применении -> другой план -> 409
     stale = _preview(client, pw, "trunk", _edited(s["id"], ports={ps["id"]: "access"})).json()["hash"]
-    r = client.post(f"{API}/interfaces/{pw['id']}/vlan-mode-cascade", json={"mode": "trunk", "edited": _edited(s["id"], ports={ps["id"]: "trunk"}), "plan_hash": stale, "confirm": True})
+    r = client.post(
+        f"{API}/interfaces/{pw['id']}/vlan-mode-cascade",
+        json={"mode": "trunk", "edited": _edited(s["id"], ports={ps["id"]: "trunk"}), "plan_hash": stale, "confirm": True},
+    )
     assert r.status_code == 409
 
 

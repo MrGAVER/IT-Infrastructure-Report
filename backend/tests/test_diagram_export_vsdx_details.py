@@ -46,7 +46,11 @@ def _page_shapes(data: bytes) -> list[dict]:
 
 def _ticks(shapes: list[dict]) -> list[dict]:
     """Фигуры-засечки: размер PORT_TICK_WIDTH x PORT_TICK_HEIGHT (в дюймах) — другого такого размера на странице нет."""
-    return [s for s in shapes if s.get("Width") and abs(float(s["Width"]) - PORT_TICK_WIDTH / SCALE) < 1e-9 and abs(float(s["Height"]) - PORT_TICK_HEIGHT / SCALE) < 1e-9]
+    return [
+        s
+        for s in shapes
+        if s.get("Width") and abs(float(s["Width"]) - PORT_TICK_WIDTH / SCALE) < 1e-9 and abs(float(s["Height"]) - PORT_TICK_HEIGHT / SCALE) < 1e-9
+    ]
 
 
 def _character_size(shape: dict) -> float | None:
@@ -106,7 +110,16 @@ def test_export_vsdx_walks_the_page_a_constant_number_of_times(monkeypatch):
     base = _sample_graph(6)["nodes"][0]
     nodes = [{**copy.deepcopy(base), "id": f"n{i}", "x": (i % 8) * 200, "y": (i // 8) * 100} for i in range(40)]
     edges = [
-        {"id": f"e{i}", "source_node_id": f"n{i}", "target_node_id": f"n{i + 1}", "source_interface": {"port_index": 2}, "target_interface": None, "is_active": True, "vlans": []} for i in range(39)
+        {
+            "id": f"e{i}",
+            "source_node_id": f"n{i}",
+            "target_node_id": f"n{i + 1}",
+            "source_interface": {"port_index": 2},
+            "target_interface": None,
+            "is_active": True,
+            "vlans": [],
+        }
+        for i in range(39)
     ]
     export_vsdx({"nodes": nodes, "edges": edges})
     assert len(calls) <= 2  # шаблон узла и шаблон коннектора; при 40 узлах, 240 засечках и 39 рёбрах

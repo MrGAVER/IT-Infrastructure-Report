@@ -14,7 +14,17 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
-from ...models import DeviceInterface, IPAddress, OpenPort, PhysicalDevice, InterfaceVLAN, InterfaceGroup, InterfaceGroupIP, InterfaceGroupOpenPort, InterfaceGroupVLAN
+from ...models import (
+    DeviceInterface,
+    IPAddress,
+    OpenPort,
+    PhysicalDevice,
+    InterfaceVLAN,
+    InterfaceGroup,
+    InterfaceGroupIP,
+    InterfaceGroupOpenPort,
+    InterfaceGroupVLAN,
+)
 from ...constants import OwnerType
 from ..serialization import enrich_interface_groups
 from ..validation import validate_unique_open_port_numbers
@@ -144,14 +154,18 @@ def _group_open_ports(item: dict[str, Any], group_name: str, session: Session) -
     return manage, open_ports
 
 
-def _group_subinterfaces(item: dict[str, Any], group_name: str, vlans: _GroupVlans, allowed_vlans: set[str], session: Session) -> tuple[bool, list[dict[str, Any]]]:
+def _group_subinterfaces(
+    item: dict[str, Any], group_name: str, vlans: _GroupVlans, allowed_vlans: set[str], session: Session
+) -> tuple[bool, list[dict[str, Any]]]:
     """(управляет ли группа подинтерфейсами, их нормализованный список). Как и открытые порты, подинтерфейсы
     хранятся только пока группа ими управляет. Допустимые VLAN подинтерфейса — те, что группа записывает
     портам (при «Все VLAN» — все VLAN устройства)."""
     if not item.get("manage_subinterfaces"):
         return False, []
     group_vlans = set(allowed_vlans) if vlans.all_vlans else set(vlans.vlan_ids)
-    return True, normalize_group_subinterfaces(item.get("subinterfaces") or [], group_name=group_name, vlan_mode=vlans.mode, group_vlans=group_vlans, session=session)
+    return True, normalize_group_subinterfaces(
+        item.get("subinterfaces") or [], group_name=group_name, vlan_mode=vlans.mode, group_vlans=group_vlans, session=session
+    )
 
 
 def _normalize_group_item(item: Any, allowed_vlans: set[str], session: Session) -> dict[str, Any]:
@@ -327,7 +341,9 @@ def _apply_group_ips(iface: DeviceInterface, group_ips: list[dict[str, Any]], se
     остаётся как есть, лишние строки порта переиспользуются под ещё не размещённые адреса группы (id и дата создания
     сохраняются), остаток удаляется. Назначение — часть общего IP: группа записывает его безусловно (пустое очищает
     назначение порта). is_management наследуется от порта, как у IP, заданных вручную."""
-    current = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).order_by(IPAddress.created_at, IPAddress.id)).all()
+    current = session.scalars(
+        select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).order_by(IPAddress.created_at, IPAddress.id)
+    ).all()
     wanted = with_reused_ids([(ip.id, (ip.ip_address, ip.prefix_length)) for ip in current], group_ips, lambda d: (d["ip_address"], d["prefix_length"]))
     sync_owner_ip_addresses(
         OwnerType.DEVICE_INTERFACE,
@@ -345,7 +361,9 @@ def _apply_group_open_ports(iface: DeviceInterface, group_ports: list[dict[str, 
     оставшиеся лишние строки порта переиспользуются под ещё не размещённые порты группы — меняется
     запись справочника/транспорт, id и дата создания сохраняются (как при правке порта вручную и у ВМ);
     удаляются только строки, которым не хватило пары, создаются только порты группы без пары."""
-    rows = session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == iface.id).order_by(OpenPort.created_at, OpenPort.id)).all()
+    rows = session.scalars(
+        select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == iface.id).order_by(OpenPort.created_at, OpenPort.id)
+    ).all()
     wanted = {(p["protocol_catalog_id"], p["transport_protocol"]): p for p in group_ports}
     kept: set[tuple[str, str]] = set()
     spare: list[OpenPort] = []

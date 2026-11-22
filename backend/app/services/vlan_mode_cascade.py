@@ -243,7 +243,9 @@ class _Loader:
             for port_id in chunk:
                 self.active[port_id] = []
                 self.inactive[port_id] = []
-            connections = self.session.scalars(select(Connection).where(or_(Connection.source_interface_id.in_(chunk), Connection.destination_interface_id.in_(chunk)))).all()
+            connections = self.session.scalars(
+                select(Connection).where(or_(Connection.source_interface_id.in_(chunk), Connection.destination_interface_id.in_(chunk)))
+            ).all()
             for conn in connections:
                 bucket = self.active if conn.is_active else self.inactive
                 for here, there in ((conn.source_interface_id, conn.destination_interface_id), (conn.destination_interface_id, conn.source_interface_id)):
@@ -286,7 +288,9 @@ def _collect_area(loader: _Loader, edited: _Edited, start_id: str, target: str) 
             break
         done.update(batch)
         if len(done) > MAX_CASCADE_PORTS:
-            raise HTTPException(422, f"Область изменения превышает {MAX_CASCADE_PORTS} портов — смените режим по частям: в самой группе или у отдельных устройств")
+            raise HTTPException(
+                422, f"Область изменения превышает {MAX_CASCADE_PORTS} портов — смените режим по частям: в самой группе или у отдельных устройств"
+            )
         loader.load_ports(batch)
         loader.load_groups(key for p in batch if (key := edited.port_group_key(loader.ports[p])))
         new_groups: list[str] = []
@@ -537,7 +541,11 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
         )
     if plan["groups"]:
         listed = _short_list([f"«{g['name']}» ({len(g['ports'])} портов, {g['device_name']})" for g in plan["groups"]])
-        result.append(_warning("groups", "warning", f"Режим порта задаётся группами, поэтому он изменится у всех портов группы, а не только у связанного порта: {listed}."))
+        result.append(
+            _warning(
+                "groups", "warning", f"Режим порта задаётся группами, поэтому он изменится у всех портов группы, а не только у связанного порта: {listed}."
+            )
+        )
     start_group = change.group_of_port.get(change.start_id)
     start_scope = {change.start_id} | (set(change.loader.members[start_group]) if start_group else set())
     beyond = [p for p in change.changed_ports if p not in start_scope]
@@ -545,7 +553,10 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
         beyond_devices = {change.loader.ports[p].physical_device_id for p in beyond}
         result.append(
             _warning(
-                "cascade", "warning", f"Чтобы на портах соседей не осталось расхождений, режим меняется и у связанных с ними портов: ещё {len(beyond)} портов на {len(beyond_devices)} устройствах."
+                "cascade",
+                "warning",
+                "Чтобы на портах соседей не осталось расхождений, режим меняется и у связанных с ними портов: ещё "
+                f"{len(beyond)} портов на {len(beyond_devices)} устройствах.",
             )
         )
     dropped = [(g["name"], g, v) for g in plan["groups"] + plan["ports"] for v in g["dropped_vlans"]]
@@ -560,9 +571,22 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
             )
         )
     if target == "trunk":
-        result.append(_warning("trunk", "info", "В режиме trunk остаются только уже назначенные VLAN — «все VLAN» автоматически не добавляются. При необходимости добавьте VLAN в группе или у порта."))
+        result.append(
+            _warning(
+                "trunk",
+                "info",
+                "В режиме trunk остаются только уже назначенные VLAN — «все VLAN» автоматически не добавляются. При "
+                "необходимости добавьте VLAN в группе или у порта.",
+            )
+        )
     if change.inactive_ports:
-        result.append(_warning("inactive", "info", f"Неактивные подключения не учитываются: у {len(change.inactive_ports)} изменяемых портов они ведут к портам с другим режимом."))
+        result.append(
+            _warning(
+                "inactive",
+                "info",
+                f"Неактивные подключения не учитываются: у {len(change.inactive_ports)} изменяемых портов они ведут к портам с другим режимом.",
+            )
+        )
     if totals["ports"] > LARGE_CASCADE_PORTS:
         result.append(_warning("large", "warning", f"Область изменения большая — {totals['ports']} портов. Проверьте список перед применением."))
     return result

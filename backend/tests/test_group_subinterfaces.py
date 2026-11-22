@@ -115,14 +115,21 @@ def test_repeated_sync_keeps_ids_and_template_edit_updates_in_place(client):
     dev = _device(client, vlans=(v10, v20))
     ssh = _catalog_entry(client, 22, "SSH")
     first = _sync(
-        client, dev["id"], [_port("Gi0/0")], [_group([v10, v20], [_tpl(v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}])])]
+        client,
+        dev["id"],
+        [_port("Gi0/0")],
+        [_group([v10, v20], [_tpl(v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}])])],
     ).json()
     sub = _subs(first, "Gi0/0")["Gi0/0.10"]
     stored_group = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"][0]
 
     # Повторное сохранение: порт и группа приходят с id, шаблон меняет адрес и описание.
     tpl = stored_group["subinterfaces"][0]
-    edited = {**stored_group, "key": stored_group["id"], "subinterfaces": [{**tpl, "description": "новое", "ips": [{**tpl["ips"][0], "ip_address": "10.0.10.2"}]}]}
+    edited = {
+        **stored_group,
+        "key": stored_group["id"],
+        "subinterfaces": [{**tpl, "description": "новое", "ips": [{**tpl["ips"][0], "ip_address": "10.0.10.2"}]}],
+    }
     port_id = first["items"][0]["id"]
     second = _sync(client, dev["id"], [_port("Gi0/0", group_key=stored_group["id"], id=port_id)], [edited])
 
@@ -161,11 +168,15 @@ def test_group_without_manage_subinterfaces_leaves_port_subinterfaces_alone(clie
 def test_removing_a_template_removes_its_subinterface_from_ports(client):
     v10, v20 = _vlan(client, 10), _vlan(client, 20)
     dev = _device(client, vlans=(v10, v20))
-    first = _sync(client, dev["id"], [_port("Gi0/0")], [_group([v10, v20], [_tpl(v10), _tpl(v20, ips=[{"ip_address": "10.0.20.1", "prefix_length": 24}])])]).json()
+    first = _sync(
+        client, dev["id"], [_port("Gi0/0")], [_group([v10, v20], [_tpl(v10), _tpl(v20, ips=[{"ip_address": "10.0.20.1", "prefix_length": 24}])])]
+    ).json()
     stored = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"][0]
     keep = next(t for t in stored["subinterfaces"] if t["vlan_id"] == v10["id"])
 
-    r = _sync(client, dev["id"], [_port("Gi0/0", group_key=stored["id"], id=first["items"][0]["id"])], [{**stored, "key": stored["id"], "subinterfaces": [keep]}])
+    r = _sync(
+        client, dev["id"], [_port("Gi0/0", group_key=stored["id"], id=first["items"][0]["id"])], [{**stored, "key": stored["id"], "subinterfaces": [keep]}]
+    )
 
     assert set(_subs(r.json(), "Gi0/0")) == {"Gi0/0.10"}
     assert client.get(f"{API}/resources/ip-addresses", params={"owner_type": "device_subinterface", "limit": 1000}).json()["items"] == []
@@ -213,7 +224,12 @@ def test_templates_are_dropped_when_group_stops_managing_subinterfaces(client):
     first = _sync(client, dev["id"], [_port("Gi0/0")], [_group([v10], [_tpl(v10)])]).json()
     stored = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"][0]
 
-    r = _sync(client, dev["id"], [_port("Gi0/0", group_key=stored["id"], id=first["items"][0]["id"])], [{**stored, "key": stored["id"], "manage_subinterfaces": False}])
+    r = _sync(
+        client,
+        dev["id"],
+        [_port("Gi0/0", group_key=stored["id"], id=first["items"][0]["id"])],
+        [{**stored, "key": stored["id"], "manage_subinterfaces": False}],
+    )
 
     assert r.status_code == 200, r.text
     (after,) = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"]
@@ -227,7 +243,12 @@ def test_deleting_group_removes_templates_but_keeps_port_subinterfaces(client, d
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
     ssh = _catalog_entry(client, 22, "SSH")
-    first = _sync(client, dev["id"], [_port("Gi0/0")], [_group([v10], [_tpl(v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}])])]).json()
+    first = _sync(
+        client,
+        dev["id"],
+        [_port("Gi0/0")],
+        [_group([v10], [_tpl(v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}])])],
+    ).json()
 
     # порт, покинувший группу, — обычный порт со своими VLAN (форма присылает их вместе с портом)
     r = _sync(client, dev["id"], [_port("Gi0/0", group_key=None, id=first["items"][0]["id"], vlan_mode="trunk", vlan_ids=[v10["id"]])], [])

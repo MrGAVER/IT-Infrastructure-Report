@@ -42,7 +42,13 @@ def _probe(tmp_path: Path, enable_docs: str | None) -> dict:
     if enable_docs is not None:
         env["INFRA_REGISTRY_ENABLE_DOCS"] = enable_docs
     result = subprocess.run(
-        [sys.executable, "-I", "-c", "import sys; sys.path.insert(0, %r); exec(sys.stdin.read())" % str(BACKEND_DIR)], input=_PROBE, capture_output=True, text=True, env=env, cwd=tmp_path, timeout=120
+        [sys.executable, "-I", "-c", "import sys; sys.path.insert(0, %r); exec(sys.stdin.read())" % str(BACKEND_DIR)],
+        input=_PROBE,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        timeout=120,
     )
     assert result.returncode == 0, result.stderr[-2000:]
     line = next(line for line in result.stdout.splitlines() if line.startswith("PROBE"))

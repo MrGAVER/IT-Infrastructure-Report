@@ -272,7 +272,10 @@ class TestSubinterfaces:
         from app.models import DeviceSubinterface
 
         registry.add_all(
-            [DeviceSubinterface(id="s-d", parent_interface_id="p5", name="Gi1/0/5.dup-b", vlan_id="v10"), DeviceSubinterface(id="s-e", parent_interface_id="p5", name="gi1/0/5.dup-a", vlan_id="v10")]
+            [
+                DeviceSubinterface(id="s-d", parent_interface_id="p5", name="Gi1/0/5.dup-b", vlan_id="v10"),
+                DeviceSubinterface(id="s-e", parent_interface_id="p5", name="gi1/0/5.dup-a", vlan_id="v10"),
+            ]
         )
         registry.commit()
         d = _load(registry)

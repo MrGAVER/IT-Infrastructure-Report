@@ -15,7 +15,9 @@ from app.models import AuditLog
 BASE = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
-def _entry(index: int, *, action: str = "UPDATE", entity_type: str = "devices", details: str | None = None, entity_id: str | None = None, minutes: int | None = None) -> AuditLog:
+def _entry(
+    index: int, *, action: str = "UPDATE", entity_type: str = "devices", details: str | None = None, entity_id: str | None = None, minutes: int | None = None
+) -> AuditLog:
     return AuditLog(
         id=f"id-{index:05d}",
         entity_type=entity_type,

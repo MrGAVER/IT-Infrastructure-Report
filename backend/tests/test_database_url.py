@@ -52,7 +52,14 @@ class TestParts:
     def test_defaults_match_docker_compose(self, monkeypatch):
         _server(monkeypatch, POSTGRES_PASSWORD="secret")
         url = make_url(_database_url())
-        assert (url.drivername, url.username, url.password, url.host, url.port, url.database) == ("postgresql+psycopg", "infra", "secret", "db", 5432, "infra_registry")
+        assert (url.drivername, url.username, url.password, url.host, url.port, url.database) == (
+            "postgresql+psycopg",
+            "infra",
+            "secret",
+            "db",
+            5432,
+            "infra_registry",
+        )
 
     def test_every_part_can_be_overridden(self, monkeypatch):
         _server(monkeypatch, POSTGRES_USER="reestr", POSTGRES_PASSWORD="x", POSTGRES_DB="inventory", INFRA_REGISTRY_DB_PORT="6543")

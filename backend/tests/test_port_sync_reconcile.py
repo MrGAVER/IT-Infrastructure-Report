@@ -37,7 +37,9 @@ class World:
 
     def device(self, serial: str, port_names: list[str], *, allowed: tuple[int, ...] = ()) -> list[str]:
         """Устройство с портами (роль «передача данных», trunk, без VLAN); allowed — VLAN устройства."""
-        device = self.client.post("/api/v1/resources/devices", json={"device_type_id": self.device_type, "serial_number": serial, "system_name": serial.lower()}).json()
+        device = self.client.post(
+            "/api/v1/resources/devices", json={"device_type_id": self.device_type, "serial_number": serial, "system_name": serial.lower()}
+        ).json()
         self.devices[serial] = device["id"]
         for number in allowed:
             self.db.add(PhysicalDeviceVLAN(physical_device_id=device["id"], vlan_id=self.vlan(number).id))
@@ -48,7 +50,15 @@ class World:
         by_name = {i["name"]: i["id"] for i in response.json()["items"]}
         return [by_name[n] for n in port_names]
 
-    def configure(self, interface_id: str, *, mode: str | None = None, vlans: tuple[int, ...] | None = None, role: tuple[bool, bool] | None = None, all_vlans: bool = False) -> None:
+    def configure(
+        self,
+        interface_id: str,
+        *,
+        mode: str | None = None,
+        vlans: tuple[int, ...] | None = None,
+        role: tuple[bool, bool] | None = None,
+        all_vlans: bool = False,
+    ) -> None:
         """all_vlans=True — порту ставится «Все VLAN»: хранится только признак (связей нет), набор — VLAN его устройства."""
         iface = self.db.get(DeviceInterface, interface_id)
         if mode is not None:
@@ -294,7 +304,15 @@ def test_copying_several_vlans_into_an_access_port_is_blocked(world):
     world.configure(b, mode="access", vlans=(10,))
     world.configure(b, mode="trunk", vlans=(10, 20))
     rule = world.client.post(
-        RULES, json={"name": "Копировать VLAN в любой порт", "action": "auto", "priority": 1, "target": {"vlans": "none"}, "source": {"vlans": "set"}, "apply": {"vlans": "copy"}}
+        RULES,
+        json={
+            "name": "Копировать VLAN в любой порт",
+            "action": "auto",
+            "priority": 1,
+            "target": {"vlans": "none"},
+            "source": {"vlans": "set"},
+            "apply": {"vlans": "copy"},
+        },
     ).json()
     world.connect(a, b)
 
@@ -399,7 +417,9 @@ def test_unknown_connection_id_is_404_and_changes_nothing(world):
     assert response.status_code == 404 and world.port(a)["vlans"] == []
 
 
-@pytest.mark.parametrize("body", [{"connection_ids": []}, {"connection_ids": "x"}, {"connection_ids": [1]}, {"connection_ids": ["x"] * 501}, {"rule_id": ""}, {"rule_id": 5}])
+@pytest.mark.parametrize(
+    "body", [{"connection_ids": []}, {"connection_ids": "x"}, {"connection_ids": [1]}, {"connection_ids": ["x"] * 501}, {"rule_id": ""}, {"rule_id": 5}]
+)
 def test_preview_rejects_malformed_scope(world, body):
     assert world.client.post(PREVIEW, json=body).status_code == 422
 
@@ -450,7 +470,9 @@ def test_a_user_rule_can_copy_the_role_and_mirrors_it_to_the_ports_ip_addresses(
     world.db.add(IPAddress(owner_type="device_interface", owner_id=a, ip_address="10.0.0.5", prefix_length=24, is_management=False))
     world.db.commit()
     connection = world.connect(a, b)
-    world.client.post(RULES, json={"name": "Порт без роли берёт роль соседа", "action": "auto", "priority": 1, "target": {"role": "none"}, "apply": {"role": True}})
+    world.client.post(
+        RULES, json={"name": "Порт без роли берёт роль соседа", "action": "auto", "priority": 1, "target": {"role": "none"}, "apply": {"role": True}}
+    )
 
     plan = world.preview()
     world.apply(plan)
@@ -470,7 +492,15 @@ def test_mode_rule_adapts_vlans_when_the_target_becomes_access(world):
     connection = world.connect(a, b)
     assert world.status(connection) == "mismatch"
     world.client.post(
-        RULES, json={"name": "Trunk берёт access соседа", "action": "auto", "priority": 1, "target": {"mode": "trunk"}, "source": {"mode": "access"}, "apply": {"mode": True, "vlans": "adapt"}}
+        RULES,
+        json={
+            "name": "Trunk берёт access соседа",
+            "action": "auto",
+            "priority": 1,
+            "target": {"mode": "trunk"},
+            "source": {"mode": "access"},
+            "apply": {"mode": True, "vlans": "adapt"},
+        },
     )
 
     world.apply()
@@ -536,7 +566,10 @@ def test_the_plan_hash_is_stable_between_identical_previews(world):
 def test_a_change_to_the_rules_changes_the_plan_hash(world):
     _empty_trunk_pair(world)
     first = world.preview()["plan_hash"]
-    world.client.post(RULES, json={"name": "Раньше всех", "action": "auto", "priority": 1, "target": {"vlans": "none"}, "source": {"vlans": "set"}, "apply": {"vlans": "copy"}})
+    world.client.post(
+        RULES,
+        json={"name": "Раньше всех", "action": "auto", "priority": 1, "target": {"vlans": "none"}, "source": {"vlans": "set"}, "apply": {"vlans": "copy"}},
+    )
 
     assert world.preview()["plan_hash"] != first  # то же изменение данных, но другое правило — другой план
 

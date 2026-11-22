@@ -29,7 +29,14 @@ REPORT_CONFIG = {
         {
             "title": "Лист1",
             "columns": [{"width": 25}],
-            "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems", "limit": 5}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}],
+            "rows": [
+                {
+                    "height": 18,
+                    "repeat": True,
+                    "data_source": {"root_entity": "information-systems", "limit": 5},
+                    "cells": [{"col": 0, "kind": "field", "path": "name"}],
+                }
+            ],
         }
     ]
 }

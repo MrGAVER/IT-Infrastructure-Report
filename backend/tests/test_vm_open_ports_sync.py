@@ -49,7 +49,9 @@ def _stored(client, vm_id: str) -> list[dict]:
 
 
 def _audit_details(db_session, vm_id: str) -> list[str]:
-    rows = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == "vms", AuditLog.entity_id == vm_id, AuditLog.details.like("Открытые порты:%"))).all()
+    rows = db_session.scalars(
+        select(AuditLog).where(AuditLog.entity_type == "vms", AuditLog.entity_id == vm_id, AuditLog.details.like("Открытые порты:%"))
+    ).all()
     return [r.details for r in rows]
 
 

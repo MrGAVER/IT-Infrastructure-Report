@@ -128,7 +128,11 @@ class TestWeakSetupToken:
 
     def test_the_denial_explains_why_but_never_echoes_the_token(self, client_factory, monkeypatch):
         monkeypatch.setattr(guards_module, "SETUP_TOKEN", "change_me_long_random_string")
-        message = client_factory("203.0.113.7").post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": "change_me_long_random_string"}).json()["detail"]["message"]
+        message = (
+            client_factory("203.0.113.7")
+            .post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": "change_me_long_random_string"})
+            .json()["detail"]["message"]
+        )
         assert "слишком слаб" in message and "заглушк" in message and "openssl rand -hex 24" in message
         assert "change_me_long_random_string" not in message
 

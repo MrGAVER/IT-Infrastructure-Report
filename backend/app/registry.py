@@ -121,7 +121,8 @@ DISPLAY_NAMES = {
     "manufacturers": "Производители",
     "device-models": "Каталог оборудования (Производитель → Тип → Модель)",
     "diagram-icons": "Пользовательские иконки диаграммы",
-    "diagrams": "Диаграммы топологии сети",  # нет в MODEL_MAP, но это entity_type записей аудита api/diagrams.py — подпись нужна журналу (test_registry_display_names.py)
+    # «diagrams» нет в MODEL_MAP, но это entity_type записей аудита api/diagrams.py — подпись нужна журналу (test_registry_display_names.py)
+    "diagrams": "Диаграммы топологии сети",
     "os-categories": "Категории ОС",
     "operating-systems": "ОС и гипервизоры",
     "embedded-os": "Встроенные ОС",

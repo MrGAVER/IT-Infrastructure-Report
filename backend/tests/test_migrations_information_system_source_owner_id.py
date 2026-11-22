@@ -84,7 +84,8 @@ def _insert_information_system(conn: sqlite3.Connection) -> str:
     is_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_systems (id, name, type, status, siem_enabled, crypto_protection_enabled, created_at, updated_at) VALUES (?, ?, 'ИС', 'active', 0, 0, ?, ?)",
+        "INSERT INTO information_systems (id, name, type, status, siem_enabled, crypto_protection_enabled, created_at, "
+        "updated_at) VALUES (?, ?, 'ИС', 'active', 0, 0, ?, ?)",
         (is_id, f"ИС {is_id[:8]}", now, now),
     )
     conn.commit()

@@ -235,7 +235,13 @@ class BuildXlsxGridTestCase(unittest.TestCase):
                     "title": "Лист1",
                     "columns": [{"width": 8}, {"width": 25}, {"width": 15}],
                     "rows": [
-                        _static_row([_cell(0, text="№", style={"bold": True}), _cell(1, text="Наименование", style={"bold": True}), _cell(2, text="Статус", style={"bold": True})]),
+                        _static_row(
+                            [
+                                _cell(0, text="№", style={"bold": True}),
+                                _cell(1, text="Наименование", style={"bold": True}),
+                                _cell(2, text="Статус", style={"bold": True}),
+                            ]
+                        ),
                         _repeat_row(
                             [_cell(0, "index"), _cell(1, "field", path="name"), _cell(2, "field", path="description", **(extra_row_kwargs or {}))],
                             {"root_entity": "information-systems", "sort_by": "name"},
@@ -293,7 +299,9 @@ class BuildXlsxGridTestCase(unittest.TestCase):
                     "columns": [{"width": 15}, {"width": 15}, {"width": 15}],
                     "rows": [
                         _static_row([_cell(0, text="Заголовок отчёта", colspan=3, style={"align": "center"})]),
-                        _repeat_row([_cell(0, "index"), _cell(1, "field", path="name"), _cell(2, "field", path="description")], {"root_entity": "information-systems"}),
+                        _repeat_row(
+                            [_cell(0, "index"), _cell(1, "field", path="name"), _cell(2, "field", path="description")], {"root_entity": "information-systems"}
+                        ),
                     ],
                 }
             ]

@@ -22,7 +22,17 @@ from app import reporting  # noqa: E402
 from app.models import Connection, DeviceInterface, DeviceStack, DeviceStackMember, EmbeddedOperatingSystem, InformationSystem, PhysicalDevice  # noqa: E402
 from app.services.serialization import enrich_connections, enrich_devices, enrich_information_systems, enrich_interfaces  # noqa: E402
 
-DEVICE_FIELDS = ("management_interface", "management_ips", "interface_count", "embedded_os_name", "embedded_os_version", "vlan_summary", "stack_id", "stack_name", "stack_position")
+DEVICE_FIELDS = (
+    "management_interface",
+    "management_ips",
+    "interface_count",
+    "embedded_os_name",
+    "embedded_os_version",
+    "vlan_summary",
+    "stack_id",
+    "stack_name",
+    "stack_position",
+)
 CONNECTION_FIELDS = (
     "source_device_name",
     "source_interface_name",
@@ -57,7 +67,12 @@ def registry(db_session):
     seed_registry(db_session)
     db_session.add(DeviceStack(id="stk1", name="Стек SW"))
     db_session.flush()
-    db_session.add_all([DeviceStackMember(id="stm1", stack_id="stk1", physical_device_id="sw1", position=1), DeviceStackMember(id="stm2", stack_id="stk1", physical_device_id="sw2", position=2)])
+    db_session.add_all(
+        [
+            DeviceStackMember(id="stm1", stack_id="stk1", physical_device_id="sw1", position=1),
+            DeviceStackMember(id="stm2", stack_id="stk1", physical_device_id="sw2", position=2),
+        ]
+    )
     db_session.get(EmbeddedOperatingSystem, "eos1").version = "17.9"
     alpha = db_session.get(InformationSystem, "is1")
     alpha.crypto_protection_enabled, alpha.crypto_protection_description_id, alpha.siem_enabled = True, "cp1", True

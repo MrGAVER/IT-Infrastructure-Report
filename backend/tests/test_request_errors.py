@@ -59,7 +59,9 @@ def test_an_unknown_error_type_keeps_the_field_and_the_pydantic_text():
     assert describe_error(_error("url_scheme", ("body", "site"), msg="URL scheme should be 'http'")) == "Поле «site»: URL scheme should be 'http'"
 
 
-@pytest.mark.parametrize(("count", "word"), [(1, "символ"), (2, "символа"), (4, "символа"), (5, "символов"), (11, "символов"), (12, "символов"), (21, "символ"), (22, "символа")])
+@pytest.mark.parametrize(
+    ("count", "word"), [(1, "символ"), (2, "символа"), (4, "символа"), (5, "символов"), (11, "символов"), (12, "символов"), (21, "символ"), (22, "символа")]
+)
 def test_character_count_uses_the_right_word_form(count, word):
     assert describe_error(_error("string_too_long", ("body", "f"), max_length=count)).endswith(f"{count} {word}")
 

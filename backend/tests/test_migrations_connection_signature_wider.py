@@ -60,7 +60,8 @@ def _insert_interface(conn: sqlite3.Connection) -> str:
         (device_id, device_type_id, device_id[:12], _now(), _now()),
     )
     conn.execute(
-        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, created_at, updated_at) VALUES (?, ?, 'p1', 0, 1, 'trunk', ?, ?)",
+        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, "
+        "created_at, updated_at) VALUES (?, ?, 'p1', 0, 1, 'trunk', ?, ?)",
         (iface_id, device_id, _now(), _now()),
     )
     return iface_id

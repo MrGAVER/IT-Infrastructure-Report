@@ -51,7 +51,10 @@ class TestInterfacesSync:
     def test_missing_groups_key_leaves_groups_untouched_while_empty_list_removes_them(self, client):
         device = _device(client)
         group = {"key": "g1", "name": "Группа 1", "vlan_mode": None, "vlan_ids": []}
-        assert client.put(f"/api/v1/devices/{device['id']}/interfaces", json={"groups": [group], "interfaces": [{"name": "eth0", "group_key": "g1"}]}).status_code == 200
+        assert (
+            client.put(f"/api/v1/devices/{device['id']}/interfaces", json={"groups": [group], "interfaces": [{"name": "eth0", "group_key": "g1"}]}).status_code
+            == 200
+        )
         groups = lambda: client.get(f"/api/v1/devices/{device['id']}/interface-groups").json()["items"]  # noqa: E731
         assert len(groups()) == 1
         assert _put_interfaces(client, device["id"], ["eth0"]).status_code == 200  # без ключа groups

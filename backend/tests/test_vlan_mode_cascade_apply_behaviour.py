@@ -51,7 +51,9 @@ def cable(client) -> str:
 
 
 def _connect(client, cable_id: str, a: dict, b: dict) -> None:
-    response = client.post(f"{API}/resources/connections", json={"source_interface_id": a["id"], "destination_interface_id": b["id"], "connection_type_id": cable_id})
+    response = client.post(
+        f"{API}/resources/connections", json={"source_interface_id": a["id"], "destination_interface_id": b["id"], "connection_type_id": cable_id}
+    )
     assert response.status_code == 201, response.text
 
 
@@ -199,7 +201,12 @@ class TestGroupWithAllVlans:
         v10, v20 = _vlan(client, 10), _vlan(client, 20)
         a, b = _device(client, "APL-VA", (v10, v20)), _device(client, "APL-VB", (v10, v20))
         _sync(client, a["id"], [{"name": "a1", "vlan_mode": "trunk", "vlan_ids": [v10["id"], v20["id"]]}])
-        _sync(client, b["id"], [{"name": "b1", "group_key": "g"}, {"name": "b2", "group_key": "g"}], [{"key": "g", "name": "Все", "vlan_mode": "trunk", "all_vlans": True}])
+        _sync(
+            client,
+            b["id"],
+            [{"name": "b1", "group_key": "g"}, {"name": "b2", "group_key": "g"}],
+            [{"key": "g", "name": "Все", "vlan_mode": "trunk", "all_vlans": True}],
+        )
         pa, pb = _ports(client, a["id"]), _ports(client, b["id"])
         _connect(client, cable, pa["a1"], pb["b1"])
         return a, b, pa, pb, (v10, v20)

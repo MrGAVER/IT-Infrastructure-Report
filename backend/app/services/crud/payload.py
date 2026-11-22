@@ -26,8 +26,8 @@ def ensure_writable(resource: str) -> None:
 
 def validate_payload_schema(resource: str, payload: dict[str, Any], *, is_update: bool) -> dict[str, Any]:
     """Валидирует и приводит типы payload по Pydantic-схеме, если она зарегистрирована для
-    этого ресурса (см. schemas.RESOURCE_SCHEMAS: пока только devices/information-systems/vlans). Для остальных ресурсов возвращает payload без изменений — они по-прежнему
-    проходят через generic CRUD как сырой dict, это осознанное инкрементальное покрытие.
+    этого ресурса (см. schemas.RESOURCE_SCHEMAS: пока только devices/information-systems/vlans). Для остальных ресурсов возвращает payload
+    без изменений — они по-прежнему проходят через generic CRUD как сырой dict, это осознанное инкрементальное покрытие.
 
     Возвращает НОВЫЙ dict — исходный payload с наложенными сверху провалидированными полями,
     а не просто dump схемы: так ключи вне схемы (confirm_system_name_duplicate,

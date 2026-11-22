@@ -48,7 +48,9 @@ def parse_client_networks(entries: Iterable[str]) -> list[IPNetwork]:
         try:
             networks.append(ipaddress.ip_network(entry.strip(), strict=False))
         except ValueError as exc:
-            raise ValueError(f"Некорректный IP-адрес или подсеть: {entry!r}. Ожидается адрес (192.168.1.15) или подсеть в формате CIDR (192.168.1.0/24).") from exc
+            raise ValueError(
+                f"Некорректный IP-адрес или подсеть: {entry!r}. Ожидается адрес (192.168.1.15) или подсеть в формате CIDR (192.168.1.0/24)."
+            ) from exc
     return networks
 
 

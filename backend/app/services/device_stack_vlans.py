@@ -138,7 +138,9 @@ def stack_vlans(session: Session, stack_id: str) -> dict[str, Any]:
     if members:
         members_by_domain = domain_members(session, member_ids)
         result["available"] = [
-            _candidate(v, members, links_by_vlan.get(v.id, {})) for v in catalog if v.id not in settings and v.id in links_by_vlan and not outside_domain(v, members, members_by_domain)
+            _candidate(v, members, links_by_vlan.get(v.id, {}))
+            for v in catalog
+            if v.id not in settings and v.id in links_by_vlan and not outside_domain(v, members, members_by_domain)
         ]
     return result
 
@@ -153,7 +155,9 @@ def _validated_values(ip_address: str | None, prefix_length: int | None, is_mana
     return ip, prefix_length, bool(is_management)
 
 
-def apply_stack_vlan(session: Session, stack_id: str, vlan_id: str, ip_address: str | None, prefix_length: int | None, is_management: bool = False) -> dict[str, Any]:
+def apply_stack_vlan(
+    session: Session, stack_id: str, vlan_id: str, ip_address: str | None, prefix_length: int | None, is_management: bool = False
+) -> dict[str, Any]:
     """Задаёт (или меняет) общую настройку VLAN стека и записывает её всем участникам; возвращает stack_vlans().
 
     Недостающие назначения VLAN создаются, существующие обновляются на месте (IP, префикс и «Управление»; описание не
@@ -170,7 +174,11 @@ def apply_stack_vlan(session: Session, stack_id: str, vlan_id: str, ip_address: 
     outside = outside_domain(vlan, members, domain_members(session, [d.id for d in members]))
     if outside:
         names = ", ".join(device_label(d) for d in outside)
-        raise HTTPException(422, f"VLAN {vlan.vlan_id} «{vlan.name}» принадлежит домену, в который не входят устройства стека: {names}. Включите их в домен или выберите другой VLAN")
+        raise HTTPException(
+            422,
+            f"VLAN {vlan.vlan_id} «{vlan.name}» принадлежит домену, в который не входят устройства стека: {names}. Включите "
+            "их в домен или выберите другой VLAN",
+        )
 
     setting = session.scalar(select(DeviceStackVLAN).where(DeviceStackVLAN.stack_id == stack.id, DeviceStackVLAN.vlan_id == vlan.id))
     if setting is None:
@@ -179,7 +187,9 @@ def apply_stack_vlan(session: Session, stack_id: str, vlan_id: str, ip_address: 
     setting.ip_address, setting.prefix_length, setting.is_management = values
     links = {
         l.physical_device_id: l
-        for l in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_([d.id for d in members]))).all()
+        for l in session.scalars(
+            select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_([d.id for d in members]))
+        ).all()
     }
     outcomes = Counter(write_link(session, d.id, vlan, links.get(d.id), values) for d in members)
     address = f"{values[0]}/{values[1]}" if values[0] else "адрес не задан"
@@ -243,7 +253,9 @@ def remove_stack_vlan(session: Session, stack_id: str, vlan_id: str, remove_from
                 f"VLAN {label} нельзя убрать с устройств стека: он используется на портах, в группах портов или подинтерфейсах "
                 f"({listing}). Сначала снимите VLAN с них или снимите настройку без удаления VLAN с устройств",
             )
-        for link in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan_id, PhysicalDeviceVLAN.physical_device_id.in_(list(names)))).all():
+        for link in session.scalars(
+            select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan_id, PhysicalDeviceVLAN.physical_device_id.in_(list(names)))
+        ).all():
             session.delete(link)
             removed += 1
     session.delete(setting)

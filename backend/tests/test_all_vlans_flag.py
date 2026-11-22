@@ -221,7 +221,11 @@ def test_group_with_an_explicit_set_clears_the_flag_of_its_ports(lab):
     (group,) = saved["groups"]
     (port,) = saved["items"]
 
-    again = lab.save(device, [_trunk("Gi0/1", id=port["id"], group_key=group["id"])], [{"key": group["id"], "id": group["id"], "name": "Г", "vlan_mode": "trunk", "vlan_ids": lab.ids(10)}])
+    again = lab.save(
+        device,
+        [_trunk("Gi0/1", id=port["id"], group_key=group["id"])],
+        [{"key": group["id"], "id": group["id"], "name": "Г", "vlan_mode": "trunk", "vlan_ids": lab.ids(10)}],
+    )
 
     assert again["groups"][0]["all_vlans"] is False and again["items"][0]["all_vlans"] is False
     assert lab.form(device)[port["id"]]["vlan_ids"] == lab.ids(10)

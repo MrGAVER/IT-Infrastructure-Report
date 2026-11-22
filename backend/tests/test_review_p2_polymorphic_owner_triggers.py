@@ -36,7 +36,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 REVISION = "7c3d9a5e1b24"
 PREVIOUS_REVISION = "d6c1a8f3e594"
 CHILD_TABLES = ("open_ports", "deployed_software", "ip_addresses")
-EXPECTED_TRIGGERS = {f"trg_owner_cleanup_{table}" for table in ("physical_devices", "virtual_machines", "device_interfaces", "device_subinterfaces", "information_system_sources")}
+EXPECTED_TRIGGERS = {
+    f"trg_owner_cleanup_{table}"
+    for table in ("physical_devices", "virtual_machines", "device_interfaces", "device_subinterfaces", "information_system_sources")
+}
 OWNER_TYPES = sorted(value for name, value in vars(OwnerType).items() if not name.startswith("_") and isinstance(value, str))
 BACKENDS = [pytest.param("sqlite", marks=pytest.mark.sqlite_only), pytest.param("postgres", marks=pytest.mark.postgres_only)]
 
@@ -67,7 +70,11 @@ class ScratchDatabase:
         migrate(self.url, revision, downgrade=True)
 
     def triggers(self) -> set[str]:
-        query = "SELECT name FROM sqlite_master WHERE type = 'trigger'" if self.engine.dialect.name == "sqlite" else "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal"
+        query = (
+            "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            if self.engine.dialect.name == "sqlite"
+            else "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal"
+        )
         with self.engine.connect() as connection:
             return {row[0] for row in connection.execute(sa.text(query))}
 
@@ -121,7 +128,9 @@ def test_owner_type_values_are_found():
 def test_migration_covers_exactly_the_owner_types_and_tables_of_the_application():
     """Список в миграции заморожен: новый OwnerType (или другая таблица владельца) требует НОВОЙ миграции с триггером."""
     migration = _migration_module()
-    assert dict((owner_type, table) for table, owner_type in migration._OWNERS) == {owner_type: model.__tablename__ for owner_type, model in _OWNER_MODEL_BY_TYPE.items()}
+    assert dict((owner_type, table) for table, owner_type in migration._OWNERS) == {
+        owner_type: model.__tablename__ for owner_type, model in _OWNER_MODEL_BY_TYPE.items()
+    }
     assert {owner_type for _, owner_type in migration._OWNERS} == set(OWNER_TYPES)
     assert [table for table, _ in migration._CHILDREN] == list(CHILD_TABLES)
 
@@ -162,7 +171,9 @@ def test_raw_delete_of_an_owner_removes_its_children_and_only_its_own(head_datab
 
         connection.execute(sa.text(f"DELETE FROM {owner_table} WHERE id = :id"), {"id": owner_id})
 
-        assert _children_of(connection, owner_type, owner_id) == 0, f"у {owner_type} после удаления владельца остались потомки: триггер не создан или не срабатывает"
+        assert _children_of(connection, owner_type, owner_id) == 0, (
+            f"у {owner_type} после удаления владельца остались потомки: триггер не создан или не срабатывает"
+        )
         assert _children_of(connection, other_type, owner_id) == 3, "триггер удалил чужих потомков (тот же id, другой owner_type)"
 
 
@@ -179,7 +190,9 @@ def test_foreign_key_cascade_from_the_interface_cleans_the_subinterface_children
         connection.execute(sa.text("DELETE FROM device_interfaces WHERE id = :id"), {"id": interface_id})
 
         assert _count(connection, "device_subinterfaces", id=subinterface_id) == 0, "каскад должен был удалить подинтерфейс"
-        assert {owner_type: _children_of(connection, owner_type, owner_id) for owner_type, owner_id in owners.items()} == {owner_type: 0 for owner_type in owners}
+        assert {owner_type: _children_of(connection, owner_type, owner_id) for owner_type, owner_id in owners.items()} == {
+            owner_type: 0 for owner_type in owners
+        }
 
 
 def test_deleting_the_owner_through_the_orm_works_with_the_triggers(head_database):
@@ -235,10 +248,19 @@ def migration_run(request, tmp_path_factory):
                 for table in tables
                 if _row_in(connection, table, row_id)
             }
-            audit = connection.execute(sa.text("SELECT entity_type, action, details FROM audit_log WHERE entity_id = :revision ORDER BY entity_type"), {"revision": REVISION}).all()
+            audit = connection.execute(
+                sa.text("SELECT entity_type, action, details FROM audit_log WHERE entity_id = :revision ORDER BY entity_type"), {"revision": REVISION}
+            ).all()
         triggers_at_head = database.triggers()
         database.downgrade(PREVIOUS_REVISION)
-        yield {"kept": set(kept), "orphans": set(orphans), "present": set(present), "audit": audit, "triggers_at_head": triggers_at_head, "triggers_after_downgrade": database.triggers()}
+        yield {
+            "kept": set(kept),
+            "orphans": set(orphans),
+            "present": set(present),
+            "audit": audit,
+            "triggers_at_head": triggers_at_head,
+            "triggers_after_downgrade": database.triggers(),
+        }
     finally:
         database.close()
 
@@ -254,7 +276,11 @@ def test_migration_removes_orphans_and_keeps_everything_else(migration_run):
 def test_migration_logs_what_it_removed_in_the_audit_log(migration_run):
     by_resource = {entity_type: details for entity_type, action, details in migration_run["audit"] if action == "DELETE"}
     assert set(by_resource) == {"open-ports", "deployed-software", "ip-addresses"}
-    assert "удалены записи без владельца — 2" in by_resource["open-ports"] and "device_interface: 1" in by_resource["open-ports"] and "physical_device: 1" in by_resource["open-ports"]
+    assert (
+        "удалены записи без владельца — 2" in by_resource["open-ports"]
+        and "device_interface: 1" in by_resource["open-ports"]
+        and "physical_device: 1" in by_resource["open-ports"]
+    )
     assert "— 1 (virtual_machine: 1)" in by_resource["deployed-software"]
     assert "— 2" in by_resource["ip-addresses"] and REVISION in by_resource["ip-addresses"]
 

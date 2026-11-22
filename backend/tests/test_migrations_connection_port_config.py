@@ -54,7 +54,8 @@ def _insert_interface(conn: sqlite3.Connection, *, management: int, data: int) -
         (device_id, device_type_id, device_id[:12], _now(), _now()),
     )
     conn.execute(
-        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, created_at, updated_at) VALUES (?, ?, 'p1', ?, ?, 'trunk', ?, ?)",
+        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, "
+        "created_at, updated_at) VALUES (?, ?, 'p1', ?, ?, 'trunk', ?, ?)",
         (iface_id, device_id, management, data, _now(), _now()),
     )
     return iface_id
@@ -64,7 +65,8 @@ def _insert_connection(conn: sqlite3.Connection, *, src: str, dst: str, purpose:
     conn_id = _uid()
     cable_id = conn.execute("SELECT id FROM connection_types LIMIT 1").fetchone()[0]
     conn.execute(
-        "INSERT INTO connections (id, source_interface_id, destination_interface_id, connection_type_id, purpose, is_active, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)",
+        "INSERT INTO connections (id, source_interface_id, destination_interface_id, connection_type_id, purpose, "
+        "is_active, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)",
         (conn_id, src, dst, cable_id, purpose, description, _now(), _now()),
     )
     return conn_id
@@ -74,11 +76,19 @@ def _seed_pre_migration(db_path: Path) -> dict[str, str]:
     conn = _connect(db_path)
     conn.execute("INSERT INTO connection_types (id, name, created_at, updated_at) VALUES (?, 'Кабель', ?, ?)", (_uid(), _now(), _now()))
     ids = {
-        "preset": _insert_connection(conn, src=_insert_interface(conn, management=0, data=1), dst=_insert_interface(conn, management=0, data=1), purpose="Передача данных"),
-        "custom": _insert_connection(
-            conn, src=_insert_interface(conn, management=0, data=1), dst=_insert_interface(conn, management=0, data=1), purpose="Резервный канал репликации СХД", description="Кабель 3 м"
+        "preset": _insert_connection(
+            conn, src=_insert_interface(conn, management=0, data=1), dst=_insert_interface(conn, management=0, data=1), purpose="Передача данных"
         ),
-        "custom_no_description": _insert_connection(conn, src=_insert_interface(conn, management=0, data=1), dst=_insert_interface(conn, management=0, data=1), purpose="Резерв"),
+        "custom": _insert_connection(
+            conn,
+            src=_insert_interface(conn, management=0, data=1),
+            dst=_insert_interface(conn, management=0, data=1),
+            purpose="Резервный канал репликации СХД",
+            description="Кабель 3 м",
+        ),
+        "custom_no_description": _insert_connection(
+            conn, src=_insert_interface(conn, management=0, data=1), dst=_insert_interface(conn, management=0, data=1), purpose="Резерв"
+        ),
         "empty": _insert_connection(conn, src=_insert_interface(conn, management=0, data=1), dst=_insert_interface(conn, management=0, data=1), purpose=None),
     }
     conn.commit()
@@ -148,7 +158,8 @@ def _insert_connection_post(conn: sqlite3.Connection, src_flags: tuple[int, int]
     conn_id = _uid()
     cable_id = conn.execute("SELECT id FROM connection_types LIMIT 1").fetchone()[0]
     conn.execute(
-        "INSERT INTO connections (id, source_interface_id, destination_interface_id, connection_type_id, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
+        "INSERT INTO connections (id, source_interface_id, destination_interface_id, connection_type_id, is_active, "
+        "created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
         (conn_id, src, dst, cable_id, _now(), _now()),
     )
     return conn_id

@@ -37,7 +37,9 @@ class Lab:
         ).json()["id"]
 
     def _port(self, device_type: str, serial: str) -> str:
-        device = self.client.post("/api/v1/resources/devices", json={"device_type_id": device_type, "serial_number": serial, "system_name": serial.lower()}).json()
+        device = self.client.post(
+            "/api/v1/resources/devices", json={"device_type_id": device_type, "serial_number": serial, "system_name": serial.lower()}
+        ).json()
         response = self.client.put(
             f"/api/v1/devices/{device['id']}/interfaces",
             json={"interfaces": [{"name": "p1", "is_management": False, "is_data_transfer": True}]},

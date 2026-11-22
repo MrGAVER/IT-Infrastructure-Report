@@ -56,7 +56,12 @@ _INDEX_STYLE = {"wrap": True, "valign": "top", "align": "center"}
 
 
 def _header_row(headers: list[str]) -> dict[str, Any]:
-    return {"height": 46, "repeat": False, "data_source": None, "cells": [{"col": i, "kind": "static", "text": h, "style": _HEADER_STYLE} for i, h in enumerate(headers)]}
+    return {
+        "height": 46,
+        "repeat": False,
+        "data_source": None,
+        "cells": [{"col": i, "kind": "static", "text": h, "style": _HEADER_STYLE} for i, h in enumerate(headers)],
+    }
 
 
 def _sheet(title: str, entity_key: str, headers: list[str], widths: list[int]) -> dict[str, Any]:

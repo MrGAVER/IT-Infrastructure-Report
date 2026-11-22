@@ -368,7 +368,9 @@ def apply_grouping(session: Session, saved_diagram: SavedDiagram, group_counts: 
         threshold = saved_diagram.collapse_threshold
         if device_count >= threshold:
             # Только внешний ключ, без relationship: иначе backref-каскад добавил бы объект в сессию даже при persist=False.
-            state = DiagramGroupState(id=str(uuid.uuid4()), saved_diagram_id=saved_diagram.id, group_key=group_key, is_collapsed=True, device_count=device_count)
+            state = DiagramGroupState(
+                id=str(uuid.uuid4()), saved_diagram_id=saved_diagram.id, group_key=group_key, is_collapsed=True, device_count=device_count
+            )
             created.append(state)
             result[group_key] = state
     if persist and created:
@@ -376,7 +378,11 @@ def apply_grouping(session: Session, saved_diagram: SavedDiagram, group_counts: 
         _insert_missing_group_states(session, created)
         stored = {
             s.group_key: s
-            for s in session.scalars(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == saved_diagram.id, DiagramGroupState.group_key.in_([s.group_key for s in created]))).all()
+            for s in session.scalars(
+                select(DiagramGroupState).where(
+                    DiagramGroupState.saved_diagram_id == saved_diagram.id, DiagramGroupState.group_key.in_([s.group_key for s in created])
+                )
+            ).all()
         }
         for state in created:
             result[state.group_key] = stored.get(state.group_key, state)  # победитель гонки, если вставила другая транзакция

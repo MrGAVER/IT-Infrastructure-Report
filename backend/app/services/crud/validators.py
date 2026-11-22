@@ -52,14 +52,19 @@ def _validate_physical_device(data: dict[str, Any], session: Session, item_id: s
     validate_embedded_os(data, session)
     validate_device_location_hierarchy(data, session)
     if data.get("system_name") and duplicate_system_name(session, data["system_name"], item_id) and not confirm_duplicate:
-        raise HTTPException(409, detail={"code": ErrorCode.DUPLICATE_SYSTEM_NAME, "message": "Системное имя уже используется другим устройством. Сохранить дубликат?"})
+        raise HTTPException(
+            409, detail={"code": ErrorCode.DUPLICATE_SYSTEM_NAME, "message": "Системное имя уже используется другим устройством. Сохранить дубликат?"}
+        )
     occupant = _find_rack_slot_occupant(data, session, item_id)
     if occupant and not confirm_rack_reassign:
         raise HTTPException(
             409,
             detail={
                 "code": ErrorCode.RACK_POSITION_OCCUPIED,
-                "message": f'Позиция "{data.get("rack_position")}" в этой стойке уже занята устройством "{device_label(occupant)}". Переназначить позицию на текущее устройство?',
+                "message": (
+                    f'Позиция "{data.get("rack_position")}" в этой стойке уже занята устройством "{device_label(occupant)}". '
+                    "Переназначить позицию на текущее устройство?"
+                ),
             },
         )
 
@@ -102,7 +107,9 @@ def _validate_physical_device_vlan(data: dict[str, Any], session: Session) -> No
     # The old device-type VLAN catalog remains compatible, but is no longer
     # required for a newly created device-local VLAN.
     if vlan.domain_id:
-        member = session.scalar(select(VLANDomainDevice.id).where(VLANDomainDevice.domain_id == vlan.domain_id, VLANDomainDevice.physical_device_id == device.id))
+        member = session.scalar(
+            select(VLANDomainDevice.id).where(VLANDomainDevice.domain_id == vlan.domain_id, VLANDomainDevice.physical_device_id == device.id)
+        )
         if not member:
             raise HTTPException(422, "Устройство не включено в домен этого VLAN")
 
@@ -111,7 +118,9 @@ def _validate_device_model(data: dict[str, Any], session: Session, item_id: str 
     if not data.get("manufacturer_id") or not data.get("device_type_id"):
         raise HTTPException(422, "Для модели необходимо указать производителя и тип устройства")
     if data.get("model"):
-        stmt = select(DeviceModel).where(DeviceModel.manufacturer_id == data["manufacturer_id"], DeviceModel.device_type_id == data["device_type_id"], DeviceModel.model == data["model"])
+        stmt = select(DeviceModel).where(
+            DeviceModel.manufacturer_id == data["manufacturer_id"], DeviceModel.device_type_id == data["device_type_id"], DeviceModel.model == data["model"]
+        )
         if item_id:
             stmt = stmt.where(DeviceModel.id != item_id)
         if session.scalar(stmt):
@@ -128,7 +137,9 @@ def _validate_container_entry(data: dict[str, Any], session: Session, item_id: s
     validate_container_host(data)
 
 
-def _validate_physical_device_vlan_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+def _validate_physical_device_vlan_entry(
+    data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool
+) -> None:
     _validate_physical_device_vlan(data, session)
     # Значения VLAN, заданные общей настройкой стека, не меняются и этим путём (data — запись целиком, в том числе при правке).
     device_id, vlan_id = data.get("physical_device_id"), data.get("vlan_id")
@@ -200,7 +211,9 @@ def _validate_device_interface_entry(data: dict[str, Any], session: Session, ite
     if (mode or DEFAULT_VLAN_MODE) != VLAN_MODE_TRUNK:
         raise HTTPException(422, "«Все VLAN» возможно только в режиме trunk: снимите all_vlans, если порт переводится в access")
     if item_id and session.scalar(select(InterfaceVLAN.id).where(InterfaceVLAN.interface_id == item_id).limit(1)) is not None:
-        raise HTTPException(422, "У порта есть выбранные VLAN: «Все VLAN» хранится без них — задайте признак через форму устройства (PUT /devices/{id}/interfaces)")
+        raise HTTPException(
+            422, "У порта есть выбранные VLAN: «Все VLAN» хранится без них — задайте признак через форму устройства (PUT /devices/{id}/interfaces)"
+        )
 
 
 def _validate_interface_vlan_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
@@ -208,7 +221,9 @@ def _validate_interface_vlan_entry(data: dict[str, Any], session: Session, item_
     устройства (см. _validate_device_interface_entry), поэтому добавить такому порту связь нельзя."""
     port = session.get(DeviceInterface, data["interface_id"]) if data.get("interface_id") else None
     if port is not None and port.all_vlans:
-        raise HTTPException(422, "У порта включено «Все VLAN»: его набор берётся из VLAN устройства и в связях не хранится — снимите признак, чтобы выбрать VLAN вручную")
+        raise HTTPException(
+            422, "У порта включено «Все VLAN»: его набор берётся из VLAN устройства и в связях не хранится — снимите признак, чтобы выбрать VLAN вручную"
+        )
 
 
 def _validate_ip_address_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
@@ -222,7 +237,9 @@ def _validate_ip_address_entry(data: dict[str, Any], session: Session, item_id: 
     validate_prefix_length_field(data.get("prefix_length"), "Префикс IP-адреса")
 
 
-def _validate_information_system_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+def _validate_information_system_entry(
+    data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool
+) -> None:
     validate_support_method_organization(data, session)
 
 
@@ -234,7 +251,9 @@ def _validate_information_system_entry(data: dict[str, Any], session: Session, i
 # значения — вызываемые с единой сигнатурой (data, session, item_id, confirm_duplicate,
 # confirm_rack_reassign) — там, где исходный валидатор её не использует, параметры просто
 # игнорируются тонкой обёрткой-адаптером выше.
-def _validate_device_stack_member_entry(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:
+def _validate_device_stack_member_entry(
+    data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool
+) -> None:
     """Пункт 5 правки "создание физического устройства": устройство может состоять максимум в
     ОДНОМ стеке одновременно (см. UniqueConstraint('physical_device_id') на DeviceStackMember) —
     без этой проверки повторная попытка добавить уже состоящее в другом стеке устройство падала
@@ -265,7 +284,9 @@ _RESOURCE_VALIDATORS: dict[type, Callable[[dict[str, Any], Session, str | None, 
 }
 
 
-def validate_resource(model, data: dict[str, Any], session: Session, item_id: str | None = None, confirm_duplicate: bool = False, confirm_rack_reassign: bool = False) -> None:
+def validate_resource(
+    model, data: dict[str, Any], session: Session, item_id: str | None = None, confirm_duplicate: bool = False, confirm_rack_reassign: bool = False
+) -> None:
     """Диспетчеризация по типу модели на per-модель валидаторы в _RESOURCE_VALIDATORS.
     Модели без зарегистрированного валидатора (большинство ~40 ресурсов реестра) проходят без
     дополнительных проверок — как и раньше, это не бага, а осознанный дизайн: не для каждого

@@ -106,7 +106,10 @@ class DefaultRegistryTemplateConfigTestCase(unittest.TestCase):
         """Заданная вручную ширина — минимум под данные: подгонка под заголовки только расширяет колонки."""
         from app.services.excel_layout import MAX_COLUMN_WIDTH
 
-        manual = {"Перечень ИС": [5, 26, 32, 26, 24, 18, 42, 30, 30, 16, 12, 24, 20, 30, 30, 24, 26, 26], "Организация управления ВМ": [22, 20, 20, 24, 20, 28, 22, 32, 20, 32]}
+        manual = {
+            "Перечень ИС": [5, 26, 32, 26, 24, 18, 42, 30, 30, 16, 12, 24, 20, 30, 30, 24, 26, 26],
+            "Организация управления ВМ": [22, 20, 20, 24, 20, 28, 22, 32, 20, 32],
+        }
         for sheet in default_registry_template_config()["sheets"]:
             if sheet["title"] in manual:
                 for column, minimum in zip(sheet["columns"], manual[sheet["title"]]):

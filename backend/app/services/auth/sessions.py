@@ -58,7 +58,9 @@ def _trim_user_sessions(session: Session, user_id: str, *, keep: int) -> int:
 
     Порядок — по времени создания, при равенстве по id, чтобы результат был детерминированным. Без коммита: его делает вызывающий
     create_session вместе с добавлением новой строки, и обрезка с входом либо проходят обе, либо ни одна."""
-    surplus = session.scalars(select(AuthSession.id).where(AuthSession.user_id == user_id).order_by(AuthSession.created_at.desc(), AuthSession.id.desc()).offset(max(keep, 0))).all()
+    surplus = session.scalars(
+        select(AuthSession.id).where(AuthSession.user_id == user_id).order_by(AuthSession.created_at.desc(), AuthSession.id.desc()).offset(max(keep, 0))
+    ).all()
     if not surplus:
         return 0
     session.execute(delete(AuthSession).where(AuthSession.id.in_(surplus)))
@@ -124,7 +126,11 @@ def revoke_session_by_id(session: Session, user_id: str, session_id: str) -> boo
 
 
 def list_active_sessions(session: Session, user_id: str) -> list[AuthSession]:
-    return list(session.scalars(select(AuthSession).where(AuthSession.user_id == user_id, AuthSession.expires_at >= naive_utc_now()).order_by(AuthSession.created_at.desc())).all())
+    return list(
+        session.scalars(
+            select(AuthSession).where(AuthSession.user_id == user_id, AuthSession.expires_at >= naive_utc_now()).order_by(AuthSession.created_at.desc())
+        ).all()
+    )
 
 
 def serialize_session(row: AuthSession, *, current_token: Optional[str] = None) -> dict:

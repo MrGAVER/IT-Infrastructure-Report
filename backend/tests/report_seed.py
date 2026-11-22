@@ -79,13 +79,26 @@ def seed_registry(session: Session) -> None:
     )
     session.flush()
     add([Room(id="rm1", building_id="b1", name="101")])
-    add([DeviceType(id="dt-sw", name="Коммутатор", category_id="cat1"), DeviceType(id="dt-rt", name="Маршрутизатор", category_id="cat1"), DeviceType(id="dt-srv", name="Сервер", category_id="cat1")])
+    add(
+        [
+            DeviceType(id="dt-sw", name="Коммутатор", category_id="cat1"),
+            DeviceType(id="dt-rt", name="Маршрутизатор", category_id="cat1"),
+            DeviceType(id="dt-srv", name="Сервер", category_id="cat1"),
+        ]
+    )
     add([Manufacturer(id="m1", name="Cisco")])
     session.flush()
     add([DeviceModel(id="mod1", manufacturer_id="m1", device_type_id="dt-sw", model="C3750X")])
     add([OperatingSystem(id="os1", category_id="osc1", name="Debian", version="12"), EmbeddedOperatingSystem(id="eos1", name="IOS XE")])
     add([InterfaceType(id="it1", name="GigabitEthernet")])
-    add([VLAN(id="v10", vlan_id=10, name="Данные"), VLAN(id="v20", vlan_id=20, name="Управление"), VLAN(id="a30", vlan_id=30, name="Гости"), VLAN(id="v40", vlan_id=40, name="Лишний")])
+    add(
+        [
+            VLAN(id="v10", vlan_id=10, name="Данные"),
+            VLAN(id="v20", vlan_id=20, name="Управление"),
+            VLAN(id="a30", vlan_id=30, name="Гости"),
+            VLAN(id="v40", vlan_id=40, name="Лишний"),
+        ]
+    )
     add(
         [
             SupportOrganization(id="so1", name="Интегратор"),
@@ -134,8 +147,12 @@ def seed_registry(session: Session) -> None:
     )
     add(
         [
-            DeviceInterface(id="p1", physical_device_id="sw1", name="Gi1/0/1", is_management=True, is_data_transfer=True, vlan_mode="trunk", interface_type_id="it1"),
-            DeviceInterface(id="p2", physical_device_id="sw1", name="Gi1/0/2", is_data_transfer=True, vlan_mode="trunk", all_vlans=True, interface_type_id="it1"),
+            DeviceInterface(
+                id="p1", physical_device_id="sw1", name="Gi1/0/1", is_management=True, is_data_transfer=True, vlan_mode="trunk", interface_type_id="it1"
+            ),
+            DeviceInterface(
+                id="p2", physical_device_id="sw1", name="Gi1/0/2", is_data_transfer=True, vlan_mode="trunk", all_vlans=True, interface_type_id="it1"
+            ),
             DeviceInterface(id="p3", physical_device_id="sw1", name="Gi1/0/3", is_data_transfer=True, interface_type_id="it1"),
             DeviceInterface(id="p4", physical_device_id="sw1", name="Gi1/0/4", is_data_transfer=True),
             DeviceInterface(id="p5", physical_device_id="sw1", name="Gi1/0/5", is_data_transfer=True),
@@ -160,7 +177,9 @@ def seed_registry(session: Session) -> None:
             InterfaceVLAN(id="iv1", interface_id="p1", vlan_id="v10", mode="trunk"),
             InterfaceVLAN(id="iv2", interface_id="p1", vlan_id="v20", mode="trunk"),
             InterfaceVLAN(id="iv3", interface_id="p2", vlan_id="v40", mode="trunk"),  # у порта «Все VLAN» связи игнорируются (VLAN 40 нет у устройства)
-            InterfaceVLAN(id="iv6", interface_id="p3", vlan_id="v10", mode="access"),  # у порта n1 (сервер) своих VLAN нет — в строке сервера берутся VLAN соседа
+            InterfaceVLAN(
+                id="iv6", interface_id="p3", vlan_id="v10", mode="access"
+            ),  # у порта n1 (сервер) своих VLAN нет — в строке сервера берутся VLAN соседа
             InterfaceVLAN(id="iv4", interface_id="r1", vlan_id="v10", mode="trunk"),
             InterfaceVLAN(id="iv5", interface_id="q1", vlan_id="v20", mode="access"),
         ]
@@ -169,7 +188,14 @@ def seed_registry(session: Session) -> None:
         [
             Connection(id="c1", source_interface_id="p1", destination_interface_id="q1", connection_type_id="ct1", created_at=T0),
             Connection(id="c2", source_interface_id="p2", destination_interface_id="r1", connection_type_id="ct1", created_at=T0 + timedelta(minutes=1)),
-            Connection(id="c3", source_interface_id="p3", destination_interface_id="n1", connection_type_id="ct1", is_active=False, created_at=T0 + timedelta(minutes=2)),
+            Connection(
+                id="c3",
+                source_interface_id="p3",
+                destination_interface_id="n1",
+                connection_type_id="ct1",
+                is_active=False,
+                created_at=T0 + timedelta(minutes=2),
+            ),
         ]
     )
     add(
@@ -191,7 +217,9 @@ def seed_registry(session: Session) -> None:
             OpenPort(id="op1", owner_type="device_interface", owner_id="p1", protocol_catalog_id="cat-22", transport_protocol="TCP"),
             OpenPort(id="op2", owner_type="device_subinterface", owner_id="s-a", protocol_catalog_id="cat-443", transport_protocol="TCP"),
             OpenPort(id="op3", owner_type="virtual_machine", owner_id="vm1", protocol_catalog_id="cat-80", transport_protocol="TCP"),
-            OpenPort(id="op4", owner_type="physical_device", owner_id="sw1", protocol_catalog_id="cat-80", transport_protocol="TCP"),  # устаревшая запись: в строки портов не попадает
+            OpenPort(
+                id="op4", owner_type="physical_device", owner_id="sw1", protocol_catalog_id="cat-80", transport_protocol="TCP"
+            ),  # устаревшая запись: в строки портов не попадает
         ]
     )
     add(
@@ -231,7 +259,9 @@ def seed_registry(session: Session) -> None:
             InformationSystemSource(id="src-ct2", information_system_id="is2", source_type="container", owner_id="ct-a"),  # контейнер на ВМ → хост ВМ
             InformationSystemSource(id="src-lost", information_system_id="is3", source_type="vm", owner_id="vm2"),  # ВМ без хоста
             InformationSystemSource(id="src-dup", information_system_id="is1", source_type="device", owner_id="sw1"),  # повтор — в связях один раз
-            InformationSystemSource(id="src-ct3", information_system_id="is5", source_type="container", owner_id="ct-d"),  # контейнер на ВМ, хост ВМ — в выбранной единице
+            InformationSystemSource(
+                id="src-ct3", information_system_id="is5", source_type="container", owner_id="ct-d"
+            ),  # контейнер на ВМ, хост ВМ — в выбранной единице
             InformationSystemSource(id="src-ct4", information_system_id="is6", source_type="container", owner_id="ct-e"),  # контейнер прямо на устройстве
             InformationSystemSource(id="src-vm3", information_system_id="is7", source_type="vm", owner_id="vm3"),  # ВМ на устройстве из выбранной единицы
             InformationSystemSource(id="src-gone", information_system_id="is1", source_type="device", owner_id="нет-такого"),

@@ -166,7 +166,14 @@ def test_report_template_and_versions_carry_the_offset(client):
             {
                 "title": "Лист1",
                 "columns": [{"width": 25}],
-                "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}],
+                "rows": [
+                    {
+                        "height": 18,
+                        "repeat": True,
+                        "data_source": {"root_entity": "information-systems"},
+                        "cells": [{"col": 0, "kind": "field", "path": "name"}],
+                    }
+                ],
             }
         ]
     }

@@ -53,7 +53,12 @@ class TestAuditSubdirectory:
     def test_audit_reports_count_toward_the_quota_together_with_the_root_files(self, tmp_path):
         (tmp_path / "audit").mkdir()
         now = time.time()
-        for age, directory, name in [(50, tmp_path, "root_old.xlsx"), (40, tmp_path / "audit", "audit_old.xlsx"), (30, tmp_path, "root_new.xlsx"), (20, tmp_path / "audit", "audit_new.xlsx")]:
+        for age, directory, name in [
+            (50, tmp_path, "root_old.xlsx"),
+            (40, tmp_path / "audit", "audit_old.xlsx"),
+            (30, tmp_path, "root_new.xlsx"),
+            (20, tmp_path / "audit", "audit_new.xlsx"),
+        ]:
             path = directory / name
             path.write_bytes(b"x")
             os.utime(path, (now - age, now - age))
@@ -300,7 +305,14 @@ class TestEndpointsKeepTheQuota:
                 {
                     "title": "Лист1",
                     "columns": [{"width": 25}],
-                    "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}],
+                    "rows": [
+                        {
+                            "height": 18,
+                            "repeat": True,
+                            "data_source": {"root_entity": "information-systems"},
+                            "cells": [{"col": 0, "kind": "field", "path": "name"}],
+                        }
+                    ],
                 }
             ]
         }
@@ -329,7 +341,9 @@ class TestConfig:
         env.pop("INFRA_REGISTRY_REPORT_MAX_FILES", None)
         if value is not None:
             env["INFRA_REGISTRY_REPORT_MAX_FILES"] = value
-        return subprocess.run([sys.executable, "-c", "import app.config as c; print(c.REPORT_MAX_FILES)"], env=env, capture_output=True, text=True, cwd=tmp_path, timeout=120)
+        return subprocess.run(
+            [sys.executable, "-c", "import app.config as c; print(c.REPORT_MAX_FILES)"], env=env, capture_output=True, text=True, cwd=tmp_path, timeout=120
+        )
 
     @pytest.mark.parametrize(("value", "expected"), [(None, "200"), ("", "200"), ("   ", "200"), ("50", "50"), ("0", "0")])
     def test_values(self, tmp_path, value, expected):

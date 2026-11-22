@@ -192,7 +192,9 @@ def _switch_off_moving(plans: Sequence[_Plan], session: Session) -> list[Connect
     индекс не видит; ``_switch_on`` включает их, когда все стоят на новых местах. Всё происходит в одной транзакции — другие запросы
     промежуточного состояния не видят,
     а при ошибке откат вернёт подключения как были. Подключения, у которых меняются только тип линии или описание, не трогаются."""
-    moving = [plan.target for plan in plans if plan.target is not None and _new_ends(plan) != (plan.target.source_interface_id, plan.target.destination_interface_id)]
+    moving = [
+        plan.target for plan in plans if plan.target is not None and _new_ends(plan) != (plan.target.source_interface_id, plan.target.destination_interface_id)
+    ]
     for connection in moving:
         connection.is_active = False
     if moving:
@@ -272,14 +274,22 @@ def _assert_plans_consistent(plans: Sequence[_Plan]) -> None:
         for port in (plan.iface, plan.peer):
             other = claimed.get(port.id)
             if other is not None and other.pair != plan.pair:
-                raise HTTPException(409, f"Порт «{port.name}» указан в нескольких подключениях одного запроса — порт может участвовать только в одном подключении.")
+                raise HTTPException(
+                    409, f"Порт «{port.name}» указан в нескольких подключениях одного запроса — порт может участвовать только в одном подключении."
+                )
             claimed[port.id] = plan
 
 
 def _apply_plan(plan: _Plan, moved_ids: set[str], session: Session) -> int:
     iface, peer, spec, target = plan.iface, plan.peer, plan.spec, plan.target
     if target is None:
-        data = {"source_interface_id": iface.id, "destination_interface_id": peer.id, "connection_type_id": spec.connection_type_id, "is_active": True, "description": spec.description}
+        data = {
+            "source_interface_id": iface.id,
+            "destination_interface_id": peer.id,
+            "connection_type_id": spec.connection_type_id,
+            "is_active": True,
+            "description": spec.description,
+        }
         validate_connection(data, session, ignore_connection_ids=moved_ids)
         created = Connection(**data)
         session.add(created)
@@ -290,7 +300,13 @@ def _apply_plan(plan: _Plan, moved_ids: set[str], session: Session) -> int:
     # Направление (источник/назначение) существующего подключения не переворачиваем: порт остаётся
     # на той стороне, на которой стоял, меняется только соседний.
     source_id, destination_id = _new_ends(plan)
-    candidate = {"source_interface_id": source_id, "destination_interface_id": destination_id, "connection_type_id": spec.connection_type_id, "is_active": True, "description": spec.description}
+    candidate = {
+        "source_interface_id": source_id,
+        "destination_interface_id": destination_id,
+        "connection_type_id": spec.connection_type_id,
+        "is_active": True,
+        "description": spec.description,
+    }
     validate_connection(candidate, session, current_connection_id=target.id, ignore_connection_ids=moved_ids)
 
     changes: list[str] = []
@@ -325,7 +341,9 @@ def assert_interfaces_not_connected(interfaces: Sequence[DeviceInterface], sessi
     if not interfaces:
         return
     by_id = {i.id: i for i in interfaces}
-    connected = {iid for c in connections_of(list(by_id), session, active_only=False) for iid in (c.source_interface_id, c.destination_interface_id) if iid in by_id}
+    connected = {
+        iid for c in connections_of(list(by_id), session, active_only=False) for iid in (c.source_interface_id, c.destination_interface_id) if iid in by_id
+    }
     if connected:
         names = ", ".join(f"«{by_id[i].name}»" for i in sorted(connected, key=lambda x: by_id[x].name))
         raise HTTPException(

@@ -46,7 +46,9 @@ def stack_detail(session: Session, stack_id: str) -> dict[str, Any]:
     if device_ids:
         interface_ids = session.scalars(select(DeviceInterface.id).where(DeviceInterface.physical_device_id.in_(device_ids))).all()
         if interface_ids:
-            connections = session.scalars(select(Connection).where(Connection.source_interface_id.in_(interface_ids), Connection.destination_interface_id.in_(interface_ids))).all()
+            connections = session.scalars(
+                select(Connection).where(Connection.source_interface_id.in_(interface_ids), Connection.destination_interface_id.in_(interface_ids))
+            ).all()
 
     return {"stack": serialize(stack), "members": members, "connections": enrich_connections(connections, session)}
 

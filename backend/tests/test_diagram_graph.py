@@ -163,7 +163,9 @@ def test_device_node_ip_addresses_merge_interface_and_vlan_ips_without_duplicate
     server_type, _ = _seed_base_catalogs(db_session)
     device = _make_device(db_session, server_type.id, "SN-IP")
     iface = _make_interface(db_session, device.id, "eth0")
-    db_session.add(IPAddress(owner_type="device_interface", owner_id=iface.id, ip_address="10.0.0.1", prefix_length=24, purpose="управление", is_management=True))
+    db_session.add(
+        IPAddress(owner_type="device_interface", owner_id=iface.id, ip_address="10.0.0.1", prefix_length=24, purpose="управление", is_management=True)
+    )
     domain = VLANDomain(name="Домен")
     db_session.add(domain)
     db_session.flush()
@@ -366,7 +368,9 @@ def _router_with_subinterfaces(db_session):
     sub20 = DeviceSubinterface(parent_interface_id=router_port.id, name="Gi0/0.20", vlan_id=vlan20.id)
     db_session.add_all([sub10, sub20])
     db_session.flush()
-    db_session.add(IPAddress(owner_type="device_subinterface", owner_id=sub10.id, ip_address="10.0.10.1", prefix_length=24, purpose="Шлюз", is_management=False))
+    db_session.add(
+        IPAddress(owner_type="device_subinterface", owner_id=sub10.id, ip_address="10.0.10.1", prefix_length=24, purpose="Шлюз", is_management=False)
+    )
     db_session.add(IPAddress(owner_type="device_subinterface", owner_id=sub20.id, ip_address="10.0.20.1", prefix_length=24, is_management=True))
     return router, switch, connection
 

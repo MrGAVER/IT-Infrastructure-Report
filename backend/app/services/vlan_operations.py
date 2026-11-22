@@ -45,7 +45,12 @@ def build_vlan_dashboard(session: Session) -> dict[str, Any]:
     by_vlan = {}
     for a in assignments:
         by_vlan.setdefault(a.vlan_id, []).append(
-            {"device_id": a.physical_device_id, "device_name": device_names.get(a.physical_device_id, a.physical_device_id), "ip_address": a.ip_address, "is_management": a.is_management}
+            {
+                "device_id": a.physical_device_id,
+                "device_name": device_names.get(a.physical_device_id, a.physical_device_id),
+                "ip_address": a.ip_address,
+                "is_management": a.is_management,
+            }
         )
     for defs in grouped.values():
         for item in defs:
@@ -117,7 +122,14 @@ def _existing_vlan_ids_by_device(session: Session, device_ids: list[str]) -> dic
 
 
 def _sync_member_device(
-    session: Session, device_id: str, existing_ids: set[str], source_vlans: list[VLAN], target_by_source_id: dict[str, VLAN], domain_vlan_ids: set[str], keep_ids: set[str], replace: bool
+    session: Session,
+    device_id: str,
+    existing_ids: set[str],
+    source_vlans: list[VLAN],
+    target_by_source_id: dict[str, VLAN],
+    domain_vlan_ids: set[str],
+    keep_ids: set[str],
+    replace: bool,
 ) -> tuple[int, int]:
     """Назначает участнику недостающие VLAN источника; при replace убирает VLAN этого домена, которых у источника нет.
 
@@ -154,7 +166,9 @@ def sync_domain(session: Session, domain_id: str, replace: bool) -> dict[str, An
     for device_id in member_ids:
         if device_id == domain.source_device_id:
             continue
-        assigned, stale_removed = _sync_member_device(session, device_id, existing_by_device.get(device_id, set()), source_vlans, target_by_source_id, domain_vlan_ids, keep_ids, replace)
+        assigned, stale_removed = _sync_member_device(
+            session, device_id, existing_by_device.get(device_id, set()), source_vlans, target_by_source_id, domain_vlan_ids, keep_ids, replace
+        )
         updated += assigned
         removed += stale_removed
     detail = f"Синхронизация VLAN-домена: создано определений {created}, назначено {updated}"
@@ -179,7 +193,10 @@ def copy_device_vlans(session: Session, device_id: str, source_device_id: str | 
     # Идемпотентность: VLAN с тем же номером и именем, что уже назначен целевому устройству, второй раз не
     # создаётся — повторный вызов раньше плодил дубли определений VLAN и назначений.
     already_on_target = {
-        (v.vlan_id, v.name) for v in session.scalars(select(VLAN).join(PhysicalDeviceVLAN, PhysicalDeviceVLAN.vlan_id == VLAN.id).where(PhysicalDeviceVLAN.physical_device_id == target.id))
+        (v.vlan_id, v.name)
+        for v in session.scalars(
+            select(VLAN).join(PhysicalDeviceVLAN, PhysicalDeviceVLAN.vlan_id == VLAN.id).where(PhysicalDeviceVLAN.physical_device_id == target.id)
+        )
     }
     created = 0
     assigned = 0
@@ -197,14 +214,17 @@ def copy_device_vlans(session: Session, device_id: str, source_device_id: str | 
         session.add(v)
         session.flush()
         created += 1
-        session.add(PhysicalDeviceVLAN(physical_device_id=target.id, vlan_id=v.id, ip_address=None, prefix_length=None, is_management=False, description=sv.description))
+        session.add(
+            PhysicalDeviceVLAN(physical_device_id=target.id, vlan_id=v.id, ip_address=None, prefix_length=None, is_management=False, description=sv.description)
+        )
         assigned += 1
     audit(
         session,
         "devices",
         target.id,
         AuditAction.SYNC,
-        f"Скопированы VLAN с устройства «{device_label(source)}»: определений {created}, назначено {assigned}" + (f", уже были на устройстве {skipped}" if skipped else ""),
+        f"Скопированы VLAN с устройства «{device_label(source)}»: определений {created}, назначено {assigned}"
+        + (f", уже были на устройстве {skipped}" if skipped else ""),
     )
     session.commit()
     return {"status": "ok", "created_definitions": created, "assigned": assigned}
@@ -218,7 +238,9 @@ def bulk_assign_vlan(session: Session, device_ids: list[str], vlan_id: str | Non
         raise HTTPException(422, "Укажите хотя бы одно устройство")
     if not vlan_id or not session.get(VLAN, vlan_id):
         raise HTTPException(404, "VLAN не найден")
-    found_ids = set(session.scalars(select(PhysicalDevice.id).where(PhysicalDevice.id.in_(device_ids))).all())  # одним запросом, а не session.get на каждое устройство
+    found_ids = set(
+        session.scalars(select(PhysicalDevice.id).where(PhysicalDevice.id.in_(device_ids))).all()
+    )  # одним запросом, а не session.get на каждое устройство
     missing = [d for d in device_ids if d not in found_ids]
     if missing:
         raise HTTPException(404, f"Устройства не найдены: {', '.join(missing)}")

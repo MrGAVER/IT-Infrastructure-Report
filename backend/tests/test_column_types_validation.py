@@ -193,7 +193,9 @@ class TestSchemaResources:
     def test_device_with_valid_date_is_accepted_after_pydantic_conversion(self, client):
         category = client.get(f"{API}/device-categories").json()["items"][0]
         device_type = client.post(f"{API}/device-types", json={"name": "Тип А-09 дата", "category_id": category["id"]}).json()
-        created = client.post(f"{API}/devices", json={"device_type_id": device_type["id"], "serial_number": "A09-D1", "oac_certificate_registry_date": "2026-10-19"})
+        created = client.post(
+            f"{API}/devices", json={"device_type_id": device_type["id"], "serial_number": "A09-D1", "oac_certificate_registry_date": "2026-10-19"}
+        )
         assert created.status_code == 201, created.text
         assert created.json()["oac_certificate_registry_date"] == "2026-10-19"
 

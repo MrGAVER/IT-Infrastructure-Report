@@ -62,7 +62,8 @@ def _insert_group_with_ip(conn: sqlite3.Connection) -> str:
         (dev_id, device_type_id, dev_id[:12], _now(), _now()),
     )
     conn.execute(
-        "INSERT INTO interface_groups (id, physical_device_id, name, ip_address, prefix_length, manage_open_ports, created_at, updated_at) VALUES (?, ?, 'Серверные', '10.0.0.5', 24, 0, ?, ?)",
+        "INSERT INTO interface_groups (id, physical_device_id, name, ip_address, prefix_length, manage_open_ports, "
+        "created_at, updated_at) VALUES (?, ?, 'Серверные', '10.0.0.5', 24, 0, ?, ?)",
         (group_id, dev_id, _now(), _now()),
     )
     conn.commit()
@@ -120,7 +121,8 @@ def _insert_device(conn: sqlite3.Connection) -> str:
 def _insert_group(conn: sqlite3.Connection, dev_id: str, name: str, ip_address: str | None) -> str:
     group_id = _uid()
     conn.execute(
-        "INSERT INTO interface_groups (id, physical_device_id, name, ip_address, prefix_length, manage_open_ports, created_at, updated_at) VALUES (?, ?, ?, ?, 24, 0, ?, ?)",
+        "INSERT INTO interface_groups (id, physical_device_id, name, ip_address, prefix_length, manage_open_ports, "
+        "created_at, updated_at) VALUES (?, ?, ?, ?, 24, 0, ?, ?)",
         (group_id, dev_id, name, ip_address, _now(), _now()),
     )
     return group_id
@@ -129,12 +131,14 @@ def _insert_group(conn: sqlite3.Connection, dev_id: str, name: str, ip_address: 
 def _insert_port(conn: sqlite3.Connection, dev_id: str, group_id: str, name: str, ip_address: str | None, purpose: str | None) -> None:
     iface_id = _uid()
     conn.execute(
-        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, group_id, created_at, updated_at) VALUES (?, ?, ?, 0, 0, 'access', ?, ?, ?)",
+        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, "
+        "group_id, created_at, updated_at) VALUES (?, ?, ?, 0, 0, 'access', ?, ?, ?)",
         (iface_id, dev_id, name, group_id, _now(), _now()),
     )
     if ip_address:
         conn.execute(
-            "INSERT INTO ip_addresses (id, owner_type, owner_id, ip_address, prefix_length, purpose, is_management, created_at, updated_at) VALUES (?, 'device_interface', ?, ?, 24, ?, 0, ?, ?)",
+            "INSERT INTO ip_addresses (id, owner_type, owner_id, ip_address, prefix_length, purpose, is_management, "
+            "created_at, updated_at) VALUES (?, 'device_interface', ?, ?, 24, ?, 0, ?, ?)",
             (_uid(), iface_id, ip_address, purpose, _now(), _now()),
         )
 

@@ -118,7 +118,11 @@ def test_submodules_do_not_depend_on_each_other_in_a_cycle():
     graph: dict[str, set[str]] = {}
     for name in _submodule_names():
         tree = ast.parse((PACKAGE_DIR / f"{name}.py").read_text(encoding="utf-8"))
-        graph[name] = {node.module.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.level == 1 and node.module and node.module.split(".")[0] in _submodule_names()}
+        graph[name] = {
+            node.module.split(".")[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.level == 1 and node.module and node.module.split(".")[0] in _submodule_names()
+        }
     resolved: set[str] = set()
     while len(resolved) < len(graph):
         ready = [name for name, deps in graph.items() if name not in resolved and deps <= resolved]

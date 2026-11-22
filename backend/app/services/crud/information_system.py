@@ -9,7 +9,17 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import Session
-from ...models import Container, IPAddress, InformationSystem, ISDepartment, ISProtocol, InformationSystemSource, ISPlacementAsset, ProtocolPortCatalog, VirtualMachine
+from ...models import (
+    Container,
+    IPAddress,
+    InformationSystem,
+    ISDepartment,
+    ISProtocol,
+    InformationSystemSource,
+    ISPlacementAsset,
+    ProtocolPortCatalog,
+    VirtualMachine,
+)
 from ...constants import AuditAction, SourceType, OwnerType
 from ..serialization import serialize
 from ..integrity import integrity_error_response
@@ -39,7 +49,11 @@ def get_information_system_details(system_id: str, session: Session) -> dict[str
     ips_by_source: dict[str, list[Any]] = {}
     if sources:
         source_ids = [s.id for s in sources]
-        for ip in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE, IPAddress.owner_id.in_(source_ids)).order_by(IPAddress.ip_address)).all():
+        for ip in session.scalars(
+            select(IPAddress)
+            .where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE, IPAddress.owner_id.in_(source_ids))
+            .order_by(IPAddress.ip_address)
+        ).all():
             ips_by_source.setdefault(ip.owner_id, []).append(serialize(ip))
     return {
         "departments": [serialize(x) for x in session.scalars(select(ISDepartment).where(ISDepartment.information_system_id == system_id)).all()],

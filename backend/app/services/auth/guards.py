@@ -57,7 +57,10 @@ def _effective_setup_token() -> str:
 
 
 def _setup_denied_message() -> str:
-    message = "Первичная настройка аутентификации доступна только с localhost или по токену установки (заголовок X-Setup-Token, переменная INFRA_REGISTRY_SETUP_TOKEN)."
+    message = (
+        "Первичная настройка аутентификации доступна только с localhost или по токену установки (заголовок "
+        "X-Setup-Token, переменная INFRA_REGISTRY_SETUP_TOKEN)."
+    )
     if weak_setup_token(SETUP_TOKEN):
         # Само значение не называем — только причину: администратор по сообщению поймёт, почему верный на вид токен не принят.
         message += (

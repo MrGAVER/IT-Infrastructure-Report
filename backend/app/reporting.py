@@ -321,7 +321,9 @@ def _load_device_catalogs(session: Session, d: SimpleNamespace) -> None:
     справочники ИС (способ поддержки, СКЗИ, размещение) и типы интерфейсов."""
     # Устройства без системного имени — первыми: NULL в SQLite сортируется первым, в PostgreSQL последним, а порядок листов
     # должен быть одинаковым на обоих (отсюда явное «IS NULL DESC», а не полагание на умолчание СУБД).
-    d.devices = session.scalars(select(PhysicalDevice).order_by(PhysicalDevice.system_name.is_(None).desc(), PhysicalDevice.system_name, PhysicalDevice.serial_number)).all()
+    d.devices = session.scalars(
+        select(PhysicalDevice).order_by(PhysicalDevice.system_name.is_(None).desc(), PhysicalDevice.system_name, PhysicalDevice.serial_number)
+    ).all()
     d.device_map = _by_id(d.devices)
     d.device_types = _by_id(session.scalars(select(DeviceType)).all())
     d.manufacturers = _by_id(session.scalars(select(Manufacturer)).all())
@@ -350,7 +352,10 @@ def _load_interfaces_and_addresses(session: Session, d: SimpleNamespace) -> None
     # Подинтерфейсы портов (models.DeviceSubinterface) и их IP (owner_type='device_subinterface'); открытые порты
     # подинтерфейсов лежат в общем d.open_ports_by_owner под ключом ('device_subinterface', id).
     d.subinterfaces = session.scalars(select(DeviceSubinterface).order_by(DeviceSubinterface.name)).all()
-    d.ips_by_sub = _group_by(session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE).order_by(IPAddress.ip_address)).all(), lambda x: x.owner_id)
+    d.ips_by_sub = _group_by(
+        session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE).order_by(IPAddress.ip_address)).all(),
+        lambda x: x.owner_id,
+    )
     d.vmips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.VIRTUAL_MACHINE).order_by(IPAddress.ip_address)).all()
     d.vmips_by_vm = _group_by(d.vmips, lambda x: x.owner_id)
     d.source_ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE)).all()
@@ -652,9 +657,13 @@ class _ConnectionRows:
         ports = [p for iid in iface_ids for p in d.open_ports_by_owner.get(("device_interface", iid), [])]
         # Подинтерфейсы порта выводятся внутри строки порта: открытые порты подинтерфейса — с его именем
         # («Gi0/0.10: TCP/443 HTTPS»), чтобы было видно, на каком логическом интерфейсе порт открыт.
-        sub_ports = [(sub, p) for iid in iface_ids for sub in d.subs_by_iface.get(iid, []) for p in d.open_ports_by_owner.get(("device_subinterface", sub.id), [])]
+        sub_ports = [
+            (sub, p) for iid in iface_ids for sub in d.subs_by_iface.get(iid, []) for p in d.open_ports_by_owner.get(("device_subinterface", sub.id), [])
+        ]
         open_text = join_values([_open_port_label(p, d) for p in ports] + [f"{sub.name}: {_open_port_label(p, d)}" for sub, p in sub_ports])
-        proto_text = join_values([d.protocol_catalog[p.protocol_catalog_id].protocol_type for p in ports + [p for _, p in sub_ports] if p.protocol_catalog_id in d.protocol_catalog])
+        proto_text = join_values(
+            [d.protocol_catalog[p.protocol_catalog_id].protocol_type for p in ports + [p for _, p in sub_ports] if p.protocol_catalog_id in d.protocol_catalog]
+        )
         self._open_info_cache[key] = (open_text, proto_text)
         return open_text, proto_text
 
@@ -664,7 +673,9 @@ class _ConnectionRows:
         mgmt_ifaces = [i for i in d.ifaces_by_device.get(device.id, []) if i.is_management]
         mgmt_vlan = [x for x in d.device_vlan_by_device.get(device.id, []) if x.is_management]
         mgmt_subs = [x for x in d.subs_by_device.get(device.id, []) if x.is_management]
-        _, ip_values = device_management_ports_and_ips(mgmt_ifaces, d.ips_by_iface, mgmt_vlan, d.vlan_map, management_subinterfaces=mgmt_subs, ips_by_subinterface=d.ips_by_sub)
+        _, ip_values = device_management_ports_and_ips(
+            mgmt_ifaces, d.ips_by_iface, mgmt_vlan, d.vlan_map, management_subinterfaces=mgmt_subs, ips_by_subinterface=d.ips_by_sub
+        )
         return ip_values
 
     def port_label(self, iface):
@@ -700,7 +711,9 @@ class _ConnectionRows:
 
     def purpose_text(self, iface):
         """Назначение порта; роли его подинтерфейсов — с именем подинтерфейса («Gi0/0.99: Управление активами»)."""
-        parts = [self.link_purpose_label(iface)] + [f"{sub.name}: {self.link_purpose_label(sub)}" for sub in self.d.subs_by_iface.get(iface.id, []) if self.link_purpose_label(sub) != "-"]
+        parts = [self.link_purpose_label(iface)] + [
+            f"{sub.name}: {self.link_purpose_label(sub)}" for sub in self.d.subs_by_iface.get(iface.id, []) if self.link_purpose_label(sub) != "-"
+        ]
         return join_values([x for x in parts if x != "-"]) or "-"
 
     # --- ячейки строки -----------------------------------------------------------------------------------------
@@ -708,7 +721,12 @@ class _ConnectionRows:
     def device_cells(self, device) -> list:
         """Вид, серийный номер, системное имя и ОС устройства — одинаково для владельца строки и для соседа."""
         device_type = self.d.device_types.get(device.device_type_id)
-        return [device_type.name if device_type else "", device.serial_number, device.system_name or "", os_label(self.d.embedded_os.get(device.embedded_os_id))]
+        return [
+            device_type.name if device_type else "",
+            device.serial_number,
+            device.system_name or "",
+            os_label(self.d.embedded_os.get(device.embedded_os_id)),
+        ]
 
     def connected_row(self, own_iface, own_device, neighbor_iface, neighbor_device, connection_type) -> list:
         own_ips = join_values(self.port_ip_values(own_iface))

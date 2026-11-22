@@ -191,7 +191,8 @@ class TestRackSlotMigration:
 
     def _insert_device(self, conn, device_id: str, created: str, rack: str | None, position: str | None) -> None:
         conn.execute(
-            "INSERT INTO physical_devices (id, device_type_id, serial_number, rack_id, rack_position, siem_enabled, created_at, updated_at) VALUES (?, 'dt', ?, ?, ?, 0, ?, ?)",
+            "INSERT INTO physical_devices (id, device_type_id, serial_number, rack_id, rack_position, siem_enabled, "
+            "created_at, updated_at) VALUES (?, 'dt', ?, ?, ?, 0, ?, ?)",
             (device_id, f"SN-{device_id}", rack, position, created, created),
         )
 
@@ -263,7 +264,9 @@ TEMPLATE_CONFIG = {
         {
             "title": "Лист1",
             "columns": [{"width": 25}],
-            "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}],
+            "rows": [
+                {"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}
+            ],
         }
     ]
 }
@@ -376,15 +379,22 @@ class TestVlanBulkOperations:
         source_small, target_small, source_big, target_big = self._devices(client, 4)
         self._assign_vlans(client, source_small, [101])
         self._assign_vlans(client, source_big, list(range(201, 213)))
-        small = self._count_selects(db_session, lambda: client.post(f"/api/v1/devices/{target_small['id']}/vlan-copy", json={"source_device_id": source_small["id"]}))
+        small = self._count_selects(
+            db_session, lambda: client.post(f"/api/v1/devices/{target_small['id']}/vlan-copy", json={"source_device_id": source_small["id"]})
+        )
         big = self._count_selects(db_session, lambda: client.post(f"/api/v1/devices/{target_big['id']}/vlan-copy", json={"source_device_id": source_big["id"]}))
         assert big == small
 
     def test_bulk_assign_query_count_does_not_grow_with_the_number_of_devices(self, client, db_session):
         devices = self._devices(client, 12)
         vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 77, "name": "bulk"}).json()
-        few = self._count_selects(db_session, lambda: client.post("/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": [d["id"] for d in devices[:2]], "vlan_id": vlan["id"]}))
-        many = self._count_selects(db_session, lambda: client.post("/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": [d["id"] for d in devices], "vlan_id": vlan["id"]}))
+        few = self._count_selects(
+            db_session,
+            lambda: client.post("/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": [d["id"] for d in devices[:2]], "vlan_id": vlan["id"]}),
+        )
+        many = self._count_selects(
+            db_session, lambda: client.post("/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": [d["id"] for d in devices], "vlan_id": vlan["id"]})
+        )
         assert many == few
 
     def test_bulk_assign_still_reports_missing_devices(self, client):

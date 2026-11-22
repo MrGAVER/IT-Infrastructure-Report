@@ -137,7 +137,12 @@ def test_resync_updates_in_place_adds_and_removes_without_orphans(client):
                 "Gi0/0",
                 id=first["id"],
                 subinterfaces=[
-                    {**_sub("Gi0/0.100", v10), "id": keep["id"], "ips": [{"id": keep["ips"][0]["id"], "ip_address": "10.0.10.254", "prefix_length": 24}], "open_ports": []},
+                    {
+                        **_sub("Gi0/0.100", v10),
+                        "id": keep["id"],
+                        "ips": [{"id": keep["ips"][0]["id"], "ip_address": "10.0.10.254", "prefix_length": 24}],
+                        "open_ports": [],
+                    },
                     _sub("Gi0/0.30", v30),
                 ],
             )
@@ -158,7 +163,9 @@ def test_resync_updates_in_place_adds_and_removes_without_orphans(client):
 def test_missing_subinterfaces_key_leaves_them_untouched_and_empty_list_removes_all(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
-    port = _sync(client, dev["id"], [_port("Gi0/0", subinterfaces=[_sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}])])]).json()["items"][0]
+    port = _sync(client, dev["id"], [_port("Gi0/0", subinterfaces=[_sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}])])]).json()[
+        "items"
+    ][0]
 
     # ключа subinterfaces нет, а VLAN порта сохранены: PUT порта — полное состояние, без VLAN подинтерфейс остался бы без VLAN порта
     kept = _sync(client, dev["id"], [_port("Gi0/0", id=port["id"], description="uplink", vlan_mode="trunk", all_vlans=True)]).json()["items"][0]
@@ -267,7 +274,9 @@ def test_removing_a_port_removes_its_subinterfaces_ips_and_open_ports(client):
 def test_generic_delete_of_a_port_removes_its_subinterfaces(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
-    port = _sync(client, dev["id"], [_port("Gi0/0", subinterfaces=[_sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}])])]).json()["items"][0]
+    port = _sync(client, dev["id"], [_port("Gi0/0", subinterfaces=[_sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}])])]).json()[
+        "items"
+    ][0]
 
     r = client.delete(f"{API}/resources/interfaces/{port['id']}")
 
@@ -301,7 +310,12 @@ def test_subinterface_has_no_incoming_foreign_keys():
     FK — удаление должно пойти через crud.assert_deletable(), а не напрямую."""
     from app.models import Base
 
-    referencing = sorted(f"{table.name}.{fk.parent.name}" for table in Base.metadata.tables.values() for fk in table.foreign_keys if fk.column.table.name == "device_subinterfaces")
+    referencing = sorted(
+        f"{table.name}.{fk.parent.name}"
+        for table in Base.metadata.tables.values()
+        for fk in table.foreign_keys
+        if fk.column.table.name == "device_subinterfaces"
+    )
     assert referencing == []
 
 
@@ -364,7 +378,9 @@ def test_subinterface_on_one_of_the_selected_port_vlans_is_saved(client):
     v10, v20 = _vlan(client, 10), _vlan(client, 20)
     dev = _device(client, vlans=(v10, v20))
 
-    r = _sync(client, dev["id"], [_port("Gi0/0", vlan_mode="trunk", vlan_ids=_vlan_ids_of((v10, v20)), subinterfaces=[_sub("Gi0/0.10", v10), _sub("Gi0/0.20", v20)])])
+    r = _sync(
+        client, dev["id"], [_port("Gi0/0", vlan_mode="trunk", vlan_ids=_vlan_ids_of((v10, v20)), subinterfaces=[_sub("Gi0/0.10", v10), _sub("Gi0/0.20", v20)])]
+    )
 
     assert r.status_code == 200, r.text
     assert {s["name"] for s in r.json()["items"][0]["subinterfaces"]} == {"Gi0/0.10", "Gi0/0.20"}
@@ -394,7 +410,9 @@ def test_all_vlans_port_follows_the_device_vlans(client):
 def test_removing_the_vlan_from_the_port_while_its_subinterface_stays_is_rejected(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
-    port = _sync(client, dev["id"], [_port("Gi0/0", vlan_mode="trunk", vlan_ids=_vlan_ids_of((v10,)), subinterfaces=[_sub("Gi0/0.10", v10)])]).json()["items"][0]
+    port = _sync(client, dev["id"], [_port("Gi0/0", vlan_mode="trunk", vlan_ids=_vlan_ids_of((v10,)), subinterfaces=[_sub("Gi0/0.10", v10)])]).json()["items"][
+        0
+    ]
 
     # VLAN с порта убран, подинтерфейс (ключ subinterfaces не прислан) остался на нём
     r = _sync(client, dev["id"], [_port("Gi0/0", id=port["id"], vlan_mode="trunk", vlan_ids=[])])

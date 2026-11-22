@@ -7,7 +7,13 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Connection, Container, InformationSystem, PhysicalDevice, SoftwareAsset, VLAN, VirtualMachine
 from ..services.catalogs import seed_defaults
-from ..services.integrity import find_duplicate_open_port_numbers, find_off_port_subinterfaces, find_orphaned_owner_references, find_stale_group_subinterfaces, find_stale_subinterfaces
+from ..services.integrity import (
+    find_duplicate_open_port_numbers,
+    find_off_port_subinterfaces,
+    find_orphaned_owner_references,
+    find_stale_group_subinterfaces,
+    find_stale_subinterfaces,
+)
 
 router = APIRouter(tags=["System"])
 
@@ -47,7 +53,8 @@ def stale_subinterfaces_report(session: Session = Depends(get_db)):
     другой VLAN, вернуть VLAN порту/группе или удалить подинтерфейс. Только чтение. ok=True и пустые списки — исправлять
     нечего; total — число записей в обоих списках."""
     ports = sorted(
-        [{**item, "reason": "device"} for item in find_stale_subinterfaces(session)] + [{**item, "reason": "port"} for item in find_off_port_subinterfaces(session)],
+        [{**item, "reason": "device"} for item in find_stale_subinterfaces(session)]
+        + [{**item, "reason": "port"} for item in find_off_port_subinterfaces(session)],
         key=lambda d: (d["device_name"], d["port_name"], d["subinterface_name"]),
     )
     groups = find_stale_group_subinterfaces(session)

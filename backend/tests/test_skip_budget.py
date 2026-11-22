@@ -87,7 +87,22 @@ def _run_nested(tmp_path: Path, budget: str | None, *extra: str) -> subprocess.C
     env["PYTHONPATH"] = str(TESTS_DIR)
     if budget is not None:
         env[skip_budget.ENV_VAR] = budget
-    command = [sys.executable, "-m", "pytest", "-q", "-rs", "-p", "no:cacheprovider", "-p", "skip_budget", "--rootdir", str(tmp_path), "-c", "/dev/null", *extra]
+    command = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "-q",
+        "-rs",
+        "-p",
+        "no:cacheprovider",
+        "-p",
+        "skip_budget",
+        "--rootdir",
+        str(tmp_path),
+        "-c",
+        "/dev/null",
+        *extra,
+    ]
     return subprocess.run(command, cwd=tmp_path, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120)
 
 

@@ -62,7 +62,8 @@ def _insert_interface(conn: sqlite3.Connection, device_id: str) -> str:
     iface_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, created_at, updated_at) VALUES (?, ?, 'eth0', 0, 1, ?, ?)",
+        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, created_at, "
+        "updated_at) VALUES (?, ?, 'eth0', 0, 1, ?, ?)",
         (iface_id, device_id, now, now),
     )
     conn.commit()
@@ -84,7 +85,8 @@ def _insert_information_system(conn: sqlite3.Connection) -> str:
     is_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_systems (id, name, type, status, siem_enabled, crypto_protection_enabled, created_at, updated_at) VALUES (?, ?, 'ИС', 'active', 0, 0, ?, ?)",
+        "INSERT INTO information_systems (id, name, type, status, siem_enabled, crypto_protection_enabled, created_at, "
+        "updated_at) VALUES (?, ?, 'ИС', 'active', 0, 0, ?, ?)",
         (is_id, f"ИС {is_id[:8]}", now, now),
     )
     conn.commit()
@@ -95,7 +97,8 @@ def _insert_source(conn: sqlite3.Connection, is_id: str, *, ip_address: str | No
     source_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_sources (id, information_system_id, source_type, ip_address, external_interaction, created_at, updated_at) VALUES (?, ?, 'manual', ?, 0, ?, ?)",
+        "INSERT INTO information_system_sources (id, information_system_id, source_type, ip_address, "
+        "external_interaction, created_at, updated_at) VALUES (?, ?, 'manual', ?, 0, ?, ?)",
         (source_id, is_id, ip_address, now, now),
     )
     conn.commit()
@@ -111,7 +114,8 @@ def test_interface_ip_migrated_with_device_interface_owner_type(alembic_config):
     ip_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO interface_ips (id, interface_id, ip_address, prefix_length, purpose, is_management, created_at, updated_at) VALUES (?, ?, '10.0.0.1', 24, 'управление', 1, ?, ?)",
+        "INSERT INTO interface_ips (id, interface_id, ip_address, prefix_length, purpose, is_management, created_at, "
+        "updated_at) VALUES (?, ?, '10.0.0.1', 24, 'управление', 1, ?, ?)",
         (ip_id, iface_id, now, now),
     )
     conn.commit()

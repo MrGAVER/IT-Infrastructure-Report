@@ -56,7 +56,9 @@ class SubinterfaceReportCase(unittest.TestCase):
                     C["PhysicalDevice"](id="s1", device_type_id="dt2", serial_number="S-1", system_name="sw"),
                 ],
                 "DeviceInterface": [
-                    C["DeviceInterface"](id="r-if", physical_device_id="r1", name="Gi0/0", is_management=router_port_flags[0], is_data_transfer=router_port_flags[1]),
+                    C["DeviceInterface"](
+                        id="r-if", physical_device_id="r1", name="Gi0/0", is_management=router_port_flags[0], is_data_transfer=router_port_flags[1]
+                    ),
                     C["DeviceInterface"](id="s-if", physical_device_id="s1", name="Gi1/0/1", is_management=False, is_data_transfer=True),
                 ],
                 "ConnectionType": [C["ConnectionType"](id="ct1", name="Ethernet")],
@@ -64,7 +66,9 @@ class SubinterfaceReportCase(unittest.TestCase):
                 "VLAN": [C["VLAN"](id="v10", vlan_id=10, name="Серверы"), C["VLAN"](id="v20", vlan_id=20, name="Гости")],
                 # порядок в таблице нарочно «неправильный»: в отчёте подинтерфейсы идут по номеру VLAN
                 "DeviceSubinterface": [
-                    C["DeviceSubinterface"](id="sub20", parent_interface_id="r-if", name="Gi0/0.20", vlan_id="v20", is_management=False, is_data_transfer=False),
+                    C["DeviceSubinterface"](
+                        id="sub20", parent_interface_id="r-if", name="Gi0/0.20", vlan_id="v20", is_management=False, is_data_transfer=False
+                    ),
                     C["DeviceSubinterface"](id="sub10", parent_interface_id="r-if", name="Gi0/0.10", vlan_id="v10", is_management=False, is_data_transfer=True),
                 ],
                 "IPAddress": [
@@ -120,7 +124,10 @@ class Sheet3SubinterfacesInsidePort(SubinterfaceReportCase):
         self.seed_router_and_switch()
         self.table.update(
             {
-                "ProtocolPortCatalog": [C["ProtocolPortCatalog"](id="cat-ssh", port=22, protocol_type="SSH"), C["ProtocolPortCatalog"](id="cat-https", port=443, protocol_type="HTTPS")],
+                "ProtocolPortCatalog": [
+                    C["ProtocolPortCatalog"](id="cat-ssh", port=22, protocol_type="SSH"),
+                    C["ProtocolPortCatalog"](id="cat-https", port=443, protocol_type="HTTPS"),
+                ],
                 "OpenPort": [
                     C["OpenPort"](id="op1", owner_type="device_interface", owner_id="r-if", protocol_catalog_id="cat-ssh", transport_protocol="TCP"),
                     C["OpenPort"](id="op2", owner_type="device_subinterface", owner_id="sub10", protocol_catalog_id="cat-https", transport_protocol="TCP"),
