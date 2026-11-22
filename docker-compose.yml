@@ -137,7 +137,7 @@ services:
       INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES: ${INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES:-2097152}
       INFRA_REGISTRY_ENABLE_DOCS: ${INFRA_REGISTRY_ENABLE_DOCS:-}
       # Сессии и блокировка входа (действуют, когда аутентификация включена). Значения по умолчанию совпадают с config.py; пустым
-      # числовое значение не оставляйте — до исправления A-03 приложение на нём не запускалось, поэтому явные умолчания, а не `:-`.
+      # числовое значение не оставляйте — в старых версиях приложение на нём не запускалось, поэтому явные умолчания, а не `:-`.
       INFRA_REGISTRY_SESSION_TTL_HOURS: ${INFRA_REGISTRY_SESSION_TTL_HOURS:-12}
       INFRA_REGISTRY_AUTH_MAX_ATTEMPTS: ${INFRA_REGISTRY_AUTH_MAX_ATTEMPTS:-10}
       INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES: ${INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES:-15}

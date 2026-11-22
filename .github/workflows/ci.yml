@@ -119,7 +119,7 @@ jobs:
         # Тесты с меткой slow (test_report_layout_performance.py) проверяют время работы и на 2-ядерном раннере в паре со вторым
         # процессом и измерением покрытия выходят за лимит (3,8–4,0 с при лимите 3,0 с), поэтому идут отдельным шагом без -n,
         # а покрытие дописывается (--cov-append). Порог покрытия проверяет только второй шаг — по сумме обоих.
-        # Бюджет «неожиданных» пропусков (ИА-08 код-ревью r3, backend/tests/skip_budget.py): отбор по базе SQLite/PostgreSQL не считается, остальное —
+        # Бюджет «неожиданных» пропусков (backend/tests/skip_budget.py): отбор по базе SQLite/PostgreSQL не считается, остальное —
         # да. Сейчас их не больше двух: test_pyinstaller_spec.py (PyInstaller нет в requirements-dev.lock) и дымовой тест LibreOffice (`soffice` может
         # отсутствовать на раннере). Новый пропуск роняет сборку: поднимать число можно только осознанно, объяснив в коммите, зачем тест пропускается.
         # `-rs` печатает причины всех пропусков в сводке.
@@ -190,7 +190,7 @@ jobs:
           python -m pip install --require-hashes -r backend/requirements-build.lock
 
       - name: Тесты, зависящие от платформы (резервная копия, спецификация PyInstaller, сборка .bat)
-        # Бюджет «неожиданных» пропусков (ИА-08, backend/tests/skip_budget.py) — 0: PyInstaller здесь установлен, spec-тест обязан выполняться.
+        # Бюджет «неожиданных» пропусков (backend/tests/skip_budget.py) — 0: PyInstaller здесь установлен, spec-тест обязан выполняться.
         env:
           INFRA_REGISTRY_MAX_UNEXPECTED_SKIPS: "0"
         run: pytest backend/tests/test_launcher_backup.py backend/tests/test_review_p2_db_backup_cli.py backend/tests/test_pyinstaller_spec.py backend/tests/test_build_windows_bat.py -v -rs -p no:cacheprovider
