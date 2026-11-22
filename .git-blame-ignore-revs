@@ -20,6 +20,8 @@ fa1745f523bf0e33fa2fe08a5ceb628b9f25d4bb # пачка 10
 166efbb5b7218c678fad44c72116ab3dc8856e9e # пачка 12
 a83899413dde09d98066aa52750327c25d64f478 # пачка 13
 9a56638e1bbe6105bd43b83cf4cd3b51fe4165e7 # пачка 14
-c84fda0b6e671533a223c52a25a1265709676b31 # line-length: ступень 1 из 3 (400 → 300 → 240 → 200)
-f3a8122d0fbf91e43db9a4d483ee6d05ec030c4d # line-length: ступень 2 из 3 (400 → 300 → 240 → 200)
-157275ccb5561498a1dfff446fee9ff8eab00d9e # line-length: ступень 3 из 3 (400 → 300 → 240 → 200)
+c84fda0b6e671533a223c52a25a1265709676b31 # line-length: ступень 1 из 5 (400 → 300)
+f3a8122d0fbf91e43db9a4d483ee6d05ec030c4d # line-length: ступень 2 из 5 (300 → 240)
+157275ccb5561498a1dfff446fee9ff8eab00d9e # line-length: ступень 3 из 5 (240 → 200)
+ec5c90bb66b6558b5eb451846d0b21cd79a6bac5 # line-length: ступень 4 из 5 (200 → 160)
+971b8ee6f5a6c6be8d40a534c245083597962e29 # line-length: ступень 5 из 5 (160 → 140)
