@@ -7,9 +7,11 @@ import { useVMsStore } from '../../stores/vms'
 import { useStaleRecordConflict, type StaleRecordChoice } from '../useStaleRecordConflict'
 
 const updateResource = vi.fn()
+const getResource = vi.fn()
 vi.mock('../../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api/client')>()),
   updateResource: (...args: unknown[]) => updateResource(...args),
+  getResource: (...args: unknown[]) => getResource(...args),
 }))
 
 const { ApiError, ErrorCode } = await import('../../api/client')
@@ -17,6 +19,7 @@ const { useStaleRecordGuard } = await import('../useStaleRecordGuard')
 
 const T1 = '2026-11-01T10:00:00.000Z'
 const T2 = '2026-11-01T10:05:00.000Z'
+const T3 = '2026-11-01T10:10:00.000Z'
 const staleError = () => new ApiError(409, 'Запись изменена другим пользователем', ErrorCode.STALE_RECORD)
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -41,6 +44,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   useStaleRecordConflict().resolve('stay')
   updateResource.mockImplementation(async (_resource: string, id: string) => ({ id, updated_at: T2 }))
+  getResource.mockImplementation(async (_resource: string, id: string) => ({ id, updated_at: T3 }))
 })
 
 describe('передача токена серверу', () => {
@@ -65,12 +69,13 @@ describe('передача токена серверу', () => {
     expect(updateResource).toHaveBeenNthCalledWith(2, 'vms', 'vm-1', { name: 'b' })
   })
 
-  it('токен читается при первой отправке, а не при создании guard: запись формы могла прийти позже', async () => {
+  it('токен фиксируется при создании guard: подмена записи после открытия формы его не меняет', async () => {
+    // Родитель перечитал список после чужой правки и подменил объект записи: форма всё ещё держит устаревший снимок и должна получить конфликт.
     let record: { updated_at: string } = { updated_at: T1 }
     const guard = useStaleRecordGuard({ resource: 'vms', record: () => record, close: vi.fn() })
     record = { updated_at: T2 }
     await guard.update('vm-1', {})
-    expect(updateResource).toHaveBeenCalledWith('vms', 'vm-1', {}, T2)
+    expect(updateResource).toHaveBeenCalledWith('vms', 'vm-1', {}, T1)
   })
 
   it('remember: токен созданной записи используется при следующем сохранении той же формы', async () => {
@@ -78,6 +83,81 @@ describe('передача токена серверу', () => {
     guard.remember({ updated_at: T1 })
     await guard.update('vm-new', {})
     expect(updateResource).toHaveBeenCalledWith('vms', 'vm-new', {}, T1)
+  })
+})
+
+describe('refresh: версия записи после вложенных шагов', () => {
+  it('токен берётся у сервера: следующее сохранение сверяется со свежей версией, а не с ответом основной записи', async () => {
+    const { guard } = setup()
+    await guard.update('vm-1', { name: 'a' }) // токен теперь T2 (ответ основной записи)
+    await guard.refresh('vm-1') // вложенные шаги сдвинули версию: сервер отвечает T3
+    await guard.update('vm-1', { name: 'b' })
+
+    expect(getResource).toHaveBeenCalledWith('vms', 'vm-1')
+    expect(updateResource).toHaveBeenLastCalledWith('vms', 'vm-1', { name: 'b' }, T3)
+  })
+
+  it('сбой чтения не бросается и не меняет токен: исходная ошибка сохранения не маскируется', async () => {
+    const { guard } = setup()
+    getResource.mockRejectedValueOnce(new Error('сеть'))
+    await expect(guard.refresh('vm-1')).resolves.toBeUndefined()
+    await guard.update('vm-1', {})
+    expect(updateResource).toHaveBeenCalledWith('vms', 'vm-1', {}, T1)
+  })
+
+  it('у записи на сервере нет updated_at: дальше без проверки версии, как у записи без отметки времени', async () => {
+    const { guard } = setup()
+    getResource.mockResolvedValueOnce({ id: 'vm-1' })
+    await guard.refresh('vm-1')
+    await guard.update('vm-1', {})
+    expect(updateResource).toHaveBeenCalledWith('vms', 'vm-1', {})
+  })
+})
+
+describe('afterSave: вложенные шаги после записи основной записи', () => {
+  it('шаги выполняются по порядку с id записи; при успехе версия у сервера не запрашивается', async () => {
+    const { guard } = setup()
+    const order: string[] = []
+    await guard.afterSave(
+      'vm-1',
+      async (id) => void order.push(`ips:${id}`),
+      async (id) => void order.push(`ports:${id}`),
+    )
+
+    expect(order).toEqual(['ips:vm-1', 'ports:vm-1'])
+    expect(getResource).not.toHaveBeenCalled()
+  })
+
+  it('сбой шага: следующие не выполняются, версия перечитана, исходная ошибка пробрасывается как есть', async () => {
+    const { guard } = setup()
+    const failure = new Error('IP-адрес занят')
+    const next = vi.fn()
+    await guard.update('vm-1', { name: 'a' }) // токен T2 — ответ основной записи
+    await expect(
+      guard.afterSave(
+        'vm-1',
+        async () => {
+          throw failure
+        },
+        next,
+      ),
+    ).rejects.toBe(failure)
+
+    expect(next).not.toHaveBeenCalled()
+    expect(getResource).toHaveBeenCalledWith('vms', 'vm-1')
+    await guard.update('vm-1', { name: 'b' })
+    expect(updateResource).toHaveBeenLastCalledWith('vms', 'vm-1', { name: 'b' }, T3)
+  })
+
+  it('сбой чтения версии не подменяет исходную ошибку шага', async () => {
+    const { guard } = setup()
+    const failure = new Error('порт занят')
+    getResource.mockRejectedValueOnce(new Error('сеть'))
+    await expect(
+      guard.afterSave('vm-1', async () => {
+        throw failure
+      }),
+    ).rejects.toBe(failure)
   })
 })
 
@@ -128,6 +208,15 @@ describe('конфликт версий (409 STALE_RECORD)', () => {
     expect(saved).toBeNull()
     expect(order).toEqual(['reload', 'close'])
     expect(updateResource).toHaveBeenCalledTimes(1)
+  })
+
+  it('сбой перечитывания списка: форма всё равно закрывается, а ошибка не теряется', async () => {
+    const { guard, close } = setup()
+    vi.spyOn(useVMsStore(), 'reload').mockRejectedValue(new Error('список недоступен'))
+    const [outcome] = await Promise.allSettled([guard.update('vm-1', {}), answerConflict('reload')])
+
+    expect(outcome).toMatchObject({ status: 'rejected', reason: expect.objectContaining({ message: 'список недоступен' }) })
+    expect(close).toHaveBeenCalledTimes(1)
   })
 
   it('токен после отказа не меняется: повторное сохранение снова сверяется с исходной версией', async () => {

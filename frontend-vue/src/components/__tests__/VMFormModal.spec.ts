@@ -357,6 +357,74 @@ describe('VMFormModal.vue', () => {
     })
   })
 
+  describe('версия записи после вложенных шагов (F-03)', () => {
+    const OPENED = '2026-11-01T10:00:00.000Z'
+    const SAVED = '2026-11-01T10:05:00.000Z'
+    const REFRESHED = '2026-11-01T10:07:00.000Z'
+    const vm: VirtualMachine = {
+      id: 'vm-1',
+      name: 'app-server-01',
+      operating_system_id: null,
+      physical_device_id: null,
+      hypervisor_os_id: null,
+      purpose: null,
+      description: null,
+      updated_at: OPENED,
+    }
+
+    function stubApi(failIpSyncTimes: number) {
+      const calls: { url: string; method: string; body: Record<string, unknown> | undefined }[] = []
+      let ipFailures = failIpSyncTimes
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ url, method, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          if (method === 'PUT' && url.endsWith('/vms/vm-1/ip-addresses')) {
+            return ipFailures-- > 0 ? jsonResponse({ detail: 'IP-адрес занят' }, 422) : jsonResponse({ items: [] })
+          }
+          if (method === 'PUT' && url.endsWith('/vms/vm-1/open-ports')) return jsonResponse({ items: [] })
+          if (method === 'PUT' && url.endsWith('/vms/vm-1/deployed-software')) return jsonResponse({ items: [] })
+          if (method === 'PUT' && url.endsWith('/resources/vms/vm-1')) return jsonResponse({ ...vm, updated_at: SAVED })
+          // версия записи после вложенных шагов: сервер сдвинул её при сохранении списка IP
+          if (method === 'GET' && url.endsWith('/resources/vms/vm-1')) return jsonResponse({ ...vm, updated_at: REFRESHED })
+          return jsonResponse(EMPTY_PAGE)
+        }),
+      )
+      return calls
+    }
+    const vmPuts = (calls: ReturnType<typeof stubApi>) => calls.filter((c) => c.method === 'PUT' && c.url.endsWith('/resources/vms/vm-1'))
+
+    it('сбой сохранения IP после записи ВМ: токен перечитан, повторное «Сохранить» не конфликтует с самой формой', async () => {
+      const calls = stubApi(1)
+      const wrapper = mount(VMFormModal, { props: { vm } })
+      await flushPromises()
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+      expect(wrapper.emitted('saved')).toBeFalsy() // IP не сохранились: форма остаётся открытой
+      expect(calls.filter((c) => c.method === 'GET' && c.url.endsWith('/resources/vms/vm-1'))).toHaveLength(1)
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(vmPuts(calls).map((c) => c.body?.expected_updated_at)).toEqual([OPENED, REFRESHED])
+      expect(wrapper.emitted('saved')).toHaveLength(1)
+    })
+
+    it('успешное сохранение не перечитывает версию лишний раз', async () => {
+      const calls = stubApi(0)
+      const wrapper = mount(VMFormModal, { props: { vm } })
+      await flushPromises()
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(wrapper.emitted('saved')).toHaveLength(1)
+      expect(calls.some((c) => c.method === 'GET' && c.url.endsWith('/resources/vms/vm-1'))).toBe(false)
+    })
+  })
+
   it('сохраняет добавленный программный актив под id новой ВМ', async () => {
     const catalogs = useCatalogsStore()
     catalogs.items['software-assets'] = [{ id: 'sa-1c', name: '1С:Предприятие' }]

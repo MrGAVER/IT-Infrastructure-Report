@@ -15,6 +15,7 @@ from ..validation import validate_ipv4_field, validate_prefix_length_field
 from .audit_log import audit
 from .stack_vlan_settings import Values, assert_device_vlan_editable
 from .validators import _validate_physical_device_vlan
+from .versioning import touch_parent
 
 
 def _normalize_device_vlan_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -113,6 +114,8 @@ def sync_device_vlans(device_id: str, payload: dict[str, Any], session: Session)
                 session.delete(obj)
                 removed += 1
         session.flush()
+        if added or updated or removed:
+            touch_parent(device)  # вложенный список изменился — версия устройства тоже (см. versioning)
         audit(
             session,
             "device-vlans",
