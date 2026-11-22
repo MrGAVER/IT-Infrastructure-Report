@@ -39,7 +39,7 @@ def test_no_application_line_is_longer_than_the_declared_line_length():
 
 def test_the_limit_is_not_silently_raised():
     # Объявленный предел только снижается (план — 140). Поднять его, чтобы тест позеленел, нельзя: сначала нужно осознанно поменять число здесь.
-    assert _line_length_limit() <= 300
+    assert _line_length_limit() <= 240
 
 
 # --- Исключения из `ruff format` ----------------------------------------------------------------------------------------------------------

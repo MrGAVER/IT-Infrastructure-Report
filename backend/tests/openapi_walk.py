@@ -24,7 +24,9 @@ MISSING_ID = "does-not-exist"
 
 # Допустимое описание листа отчёта: схема OpenAPI называет ``config`` просто объектом, поэтому глубокие поля (ширина столбца, высота
 # строки …) обход по схеме не видит.
-REPORT_CONFIG = {"sheets": [{"title": "Лист1", "columns": [{"width": 25}], "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems", "limit": 5}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}]}]}
+REPORT_CONFIG = {
+    "sheets": [{"title": "Лист1", "columns": [{"width": 25}], "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems", "limit": 5}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}]}]
+}
 
 _PLAIN_STRING = "a"
 

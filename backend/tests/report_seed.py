@@ -201,7 +201,13 @@ def seed_registry(session: Session) -> None:
             InformationSystemSource(id="src-gone", information_system_id="is1", source_type="device", owner_id="нет-такого"),
         ]
     )
-    add([ISDepartment(id="isd1", information_system_id="is1", department_id="dep1"), ISProtocol(id="isp1", information_system_id="is1", protocol_catalog_id="cat-443"), ISPlacementAsset(id="isa1", information_system_id="is1", placement_asset_id="pa1")])
+    add(
+        [
+            ISDepartment(id="isd1", information_system_id="is1", department_id="dep1"),
+            ISProtocol(id="isp1", information_system_id="is1", protocol_catalog_id="cat-443"),
+            ISPlacementAsset(id="isa1", information_system_id="is1", placement_asset_id="pa1"),
+        ]
+    )
     add([SoftwareAsset(id="sa1", name="1С"), SoftwareAsset(id="sa2", name="Postgres")])
     session.flush()
     add(

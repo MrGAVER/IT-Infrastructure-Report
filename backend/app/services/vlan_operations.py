@@ -31,7 +31,9 @@ def build_vlan_dashboard(session: Session) -> dict[str, Any]:
     assignments = session.scalars(select(PhysicalDeviceVLAN)).all()
     grouped = {}
     for v in vlans:
-        grouped.setdefault(v.vlan_id, []).append({"id": v.id, "vlan_id": v.vlan_id, "name": v.name, "description": v.description or "", "domain_id": v.domain_id, "domain_name": domains[v.domain_id].name if v.domain_id in domains else "Локальный VLAN", "devices": []})
+        grouped.setdefault(v.vlan_id, []).append(
+            {"id": v.id, "vlan_id": v.vlan_id, "name": v.name, "description": v.description or "", "domain_id": v.domain_id, "domain_name": domains[v.domain_id].name if v.domain_id in domains else "Локальный VLAN", "devices": []}
+        )
     by_vlan = {}
     for a in assignments:
         by_vlan.setdefault(a.vlan_id, []).append({"device_id": a.physical_device_id, "device_name": device_names.get(a.physical_device_id, a.physical_device_id), "ip_address": a.ip_address, "is_management": a.is_management})

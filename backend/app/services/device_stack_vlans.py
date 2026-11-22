@@ -179,7 +179,13 @@ def apply_stack_vlan(session: Session, stack_id: str, vlan_id: str, ip_address: 
     outcomes = Counter(write_link(session, d.id, vlan, links.get(d.id), values) for d in members)
     address = f"{values[0]}/{values[1]}" if values[0] else "адрес не задан"
     flag = ", «Управление»" if values[2] else ""
-    audit(session, "device-stacks", stack.id, AuditAction.SYNC, f"Общая настройка VLAN {vlan.vlan_id} «{vlan.name}» для стека «{stack.name}»: {address}{flag}; назначено устройствам {outcomes['added']}, изменено {outcomes['updated']}, без изменений {outcomes[None]}")
+    audit(
+        session,
+        "device-stacks",
+        stack.id,
+        AuditAction.SYNC,
+        f"Общая настройка VLAN {vlan.vlan_id} «{vlan.name}» для стека «{stack.name}»: {address}{flag}; назначено устройствам {outcomes['added']}, изменено {outcomes['updated']}, без изменений {outcomes[None]}",
+    )
     try:
         session.commit()
     except IntegrityError as exc:  # параллельный запрос успел создать то же назначение или настройку
@@ -220,7 +226,9 @@ def remove_stack_vlan(session: Session, stack_id: str, vlan_id: str, remove_from
         busy = _vlan_usage_by_device(session, list(names), vlan_id)
         if busy:
             listing = ", ".join(f"{names[device_id]} ({count})" for device_id, count in sorted(busy.items(), key=lambda item: names[item[0]]))
-            raise HTTPException(409, f"VLAN {label} нельзя убрать с устройств стека: он используется на портах, в группах портов или подинтерфейсах ({listing}). Сначала снимите VLAN с них или снимите настройку без удаления VLAN с устройств")
+            raise HTTPException(
+                409, f"VLAN {label} нельзя убрать с устройств стека: он используется на портах, в группах портов или подинтерфейсах ({listing}). Сначала снимите VLAN с них или снимите настройку без удаления VLAN с устройств"
+            )
         for link in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan_id, PhysicalDeviceVLAN.physical_device_id.in_(list(names)))).all():
             session.delete(link)
             removed += 1

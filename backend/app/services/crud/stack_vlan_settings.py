@@ -48,7 +48,9 @@ def vlan_sort_key(vlan: VLAN) -> tuple[int, str, str]:
 
 def member_devices(session: Session, stack_id: str) -> list[PhysicalDevice]:
     """Участники стека по позиции (при равных позициях — по id, чтобы порядок был стабильным)."""
-    return list(session.scalars(select(PhysicalDevice).join(DeviceStackMember, DeviceStackMember.physical_device_id == PhysicalDevice.id).where(DeviceStackMember.stack_id == stack_id).order_by(DeviceStackMember.position, PhysicalDevice.id)).all())
+    return list(
+        session.scalars(select(PhysicalDevice).join(DeviceStackMember, DeviceStackMember.physical_device_id == PhysicalDevice.id).where(DeviceStackMember.stack_id == stack_id).order_by(DeviceStackMember.position, PhysicalDevice.id)).all()
+    )
 
 
 def stack_settings(session: Session, stack_id: str) -> dict[str, DeviceStackVLAN]:

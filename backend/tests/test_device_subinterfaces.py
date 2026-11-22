@@ -67,7 +67,14 @@ def test_port_with_subinterfaces_is_saved_with_ips_ports_and_flags(client):
             _port(
                 "Gi0/0",
                 subinterfaces=[
-                    _sub("Gi0/0.10", v10, is_management=True, description="управление", ips=[{"ip_address": "10.0.10.1", "prefix_length": 24, "purpose": "шлюз"}], open_ports=[{"protocol_catalog_id": ssh["id"], "transport_protocol": "TCP", "description": "админ"}]),
+                    _sub(
+                        "Gi0/0.10",
+                        v10,
+                        is_management=True,
+                        description="управление",
+                        ips=[{"ip_address": "10.0.10.1", "prefix_length": 24, "purpose": "шлюз"}],
+                        open_ports=[{"protocol_catalog_id": ssh["id"], "transport_protocol": "TCP", "description": "админ"}],
+                    ),
                     _sub("Gi0/0.20", v20, is_data_transfer=True, ips=[{"ip_address": "10.0.20.1", "prefix_length": 24}]),
                 ],
             )

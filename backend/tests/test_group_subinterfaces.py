@@ -68,7 +68,13 @@ def test_group_template_is_written_into_every_member_port(client):
     group = _group(
         [v10, v20],
         [
-            _tpl(v10, is_management=True, description="управление", ips=[{"ip_address": "10.0.10.1", "prefix_length": 24, "purpose": "шлюз"}], open_ports=[{"protocol_catalog_id": ssh["id"], "transport_protocol": "TCP", "description": "админ"}]),
+            _tpl(
+                v10,
+                is_management=True,
+                description="управление",
+                ips=[{"ip_address": "10.0.10.1", "prefix_length": 24, "purpose": "шлюз"}],
+                open_ports=[{"protocol_catalog_id": ssh["id"], "transport_protocol": "TCP", "description": "админ"}],
+            ),
             _tpl(v20, is_data_transfer=True),
         ],
     )

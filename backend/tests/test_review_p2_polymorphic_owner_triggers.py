@@ -228,7 +228,13 @@ def migration_run(request, tmp_path_factory):
         tables = {"open_ports", "deployed_software", "ip_addresses"}
         database.upgrade("head")
         with database.engine.connect() as connection:
-            present = {key: connection.execute(sa.text(f"SELECT 1 FROM {table} WHERE id = :id"), {"id": row_id}).first() is not None for group in (kept, orphans) for key, row_id in group.items() for table in tables if _row_in(connection, table, row_id)}
+            present = {
+                key: connection.execute(sa.text(f"SELECT 1 FROM {table} WHERE id = :id"), {"id": row_id}).first() is not None
+                for group in (kept, orphans)
+                for key, row_id in group.items()
+                for table in tables
+                if _row_in(connection, table, row_id)
+            }
             audit = connection.execute(sa.text("SELECT entity_type, action, details FROM audit_log WHERE entity_id = :revision ORDER BY entity_type"), {"revision": REVISION}).all()
         triggers_at_head = database.triggers()
         database.downgrade(PREVIOUS_REVISION)

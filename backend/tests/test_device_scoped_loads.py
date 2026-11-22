@@ -56,7 +56,11 @@ def test_ips_and_open_ports_of_the_device_come_with_their_owner_port(client, db_
         f"{API}/devices/{device}/interfaces",
         json={
             "interfaces": [
-                {"name": "Gi0/1", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 24, "purpose": "управление"}], "open_ports": [{"protocol_catalog_id": https.id, "transport_protocol": "TCP", "description": "веб"}, {"protocol_catalog_id": ssh.id}]},
+                {
+                    "name": "Gi0/1",
+                    "ips": [{"ip_address": "10.0.0.1", "prefix_length": 24, "purpose": "управление"}],
+                    "open_ports": [{"protocol_catalog_id": https.id, "transport_protocol": "TCP", "description": "веб"}, {"protocol_catalog_id": ssh.id}],
+                },
                 {"name": "Gi0/2", "ips": [{"ip_address": "10.0.0.2", "prefix_length": 24}]},
             ]
         },
@@ -115,7 +119,10 @@ def test_rows_beyond_the_generic_list_limit_are_still_returned(client, db_sessio
     db_session.add_all(
         [IPAddress(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=old_port, ip_address=f"10.9.{i // 250}.{i % 250 + 1}", created_at=base + timedelta(seconds=i)) for i in range(GENERIC_LIMIT)]
         + [OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=old_port, protocol_catalog_id=https.id, created_at=base + timedelta(seconds=i)) for i in range(GENERIC_LIMIT)]
-        + [IPAddress(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=new_port, ip_address="10.20.0.1", created_at=base + timedelta(days=1)), OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=new_port, protocol_catalog_id=https.id, created_at=base + timedelta(days=1))]
+        + [
+            IPAddress(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=new_port, ip_address="10.20.0.1", created_at=base + timedelta(days=1)),
+            OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=new_port, protocol_catalog_id=https.id, created_at=base + timedelta(days=1)),
+        ]
     )
     db_session.commit()
 

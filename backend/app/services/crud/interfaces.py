@@ -192,7 +192,12 @@ def _synced_interfaces_response(device_id: str, session: Session) -> dict[str, A
                 # port больше не колонка OpenPort (см. models.py) — сортируем по номеру порта из
                 # справочника через join, а не по несуществующей больше колонке.
                 "open_ports": enrich_open_ports(
-                    session.scalars(select(OpenPort).join(ProtocolPortCatalog, OpenPort.protocol_catalog_id == ProtocolPortCatalog.id).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == iface.id).order_by(ProtocolPortCatalog.port)).all(),
+                    session.scalars(
+                        select(OpenPort)
+                        .join(ProtocolPortCatalog, OpenPort.protocol_catalog_id == ProtocolPortCatalog.id)
+                        .where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == iface.id)
+                        .order_by(ProtocolPortCatalog.port)
+                    ).all(),
                     session,
                 ),
             }
@@ -267,7 +272,10 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
             "interfaces",
             device_id,
             AuditAction.SYNC,
-            f"Синхронизация интерфейсов: {len(items)}" + (f", групп: {len(groups_payload)}" if manage_groups else "") + (f", подинтерфейсов: {subinterface_total}" if subinterface_total else "") + (f", подключений изменено: {connections_changed}" if connections_changed else ""),
+            f"Синхронизация интерфейсов: {len(items)}"
+            + (f", групп: {len(groups_payload)}" if manage_groups else "")
+            + (f", подинтерфейсов: {subinterface_total}" if subinterface_total else "")
+            + (f", подключений изменено: {connections_changed}" if connections_changed else ""),
         )
         session.commit()
         return _synced_interfaces_response(device_id, session)
@@ -298,7 +306,11 @@ def _interface_owned_rows(model: type[IPAddress] | type[OpenPort], device_id: st
     Порядок тот же, что у generic-списка (создание, затем id), — форма не должна менять порядок строк."""
     if not session.get(PhysicalDevice, device_id):
         raise HTTPException(404, "Физическое устройство не найдено")
-    return list(session.scalars(select(model).join(DeviceInterface, DeviceInterface.id == model.owner_id).where(model.owner_type == OwnerType.DEVICE_INTERFACE, DeviceInterface.physical_device_id == device_id).order_by(model.created_at, model.id)).all())
+    return list(
+        session.scalars(
+            select(model).join(DeviceInterface, DeviceInterface.id == model.owner_id).where(model.owner_type == OwnerType.DEVICE_INTERFACE, DeviceInterface.physical_device_id == device_id).order_by(model.created_at, model.id)
+        ).all()
+    )
 
 
 def get_device_interface_ips(device_id: str, session: Session) -> dict[str, Any]:

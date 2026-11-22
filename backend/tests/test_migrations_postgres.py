@@ -241,7 +241,19 @@ class TestMigrationsThatMoveData:
         """b3f7a2c91d54: колонки status удалены (ALTER TABLE … DROP COLUMN), данные строк целы, сохранённые шаблоны переписаны, откат возвращает колонки."""
         revision = "b3f7a2c91d54"
         scratch.upgrade(_down_revision(revision))
-        config = {"sheets": [{"rows": [{"repeat": True, "data_source": {"root_entity": "information-systems", "filters": [{"path": "status", "op": "eq", "value": "active"}], "sort_by": "name"}, "cells": [{"col": 0, "kind": "field", "path": "name"}, {"col": 1, "kind": "field", "path": "status"}]}]}]}
+        config = {
+            "sheets": [
+                {
+                    "rows": [
+                        {
+                            "repeat": True,
+                            "data_source": {"root_entity": "information-systems", "filters": [{"path": "status", "op": "eq", "value": "active"}], "sort_by": "name"},
+                            "cells": [{"col": 0, "kind": "field", "path": "name"}, {"col": 1, "kind": "field", "path": "status"}],
+                        }
+                    ]
+                }
+            ]
+        }
         with scratch.engine.begin() as connection:
             device = insert_row(connection, "physical_devices", serial_number="SN-9", status="retired")
             system = insert_row(connection, "information_systems", name="ИС-9", status="planned")
@@ -366,7 +378,9 @@ class TestMigrationsThatMoveData:
             devices = {r.id: r.operating_system_id for r in connection.execute(sa.text("SELECT id, operating_system_id FROM physical_devices"))}
             vm_row = connection.execute(sa.text("SELECT operating_system_id, hypervisor_os_id FROM virtual_machines WHERE id = :i"), {"i": vm}).one()
             debian_entries = connection.execute(sa.text("SELECT COUNT(*) FROM operating_systems WHERE name = 'Debian'")).scalar_one()
-            hypervisor = connection.execute(sa.text("SELECT o.name, o.version FROM operating_systems o JOIN operating_system_categories c ON c.id = o.category_id WHERE o.id = :i AND c.name = 'Гипервизор'"), {"i": vm_row.hypervisor_os_id}).one()
+            hypervisor = connection.execute(
+                sa.text("SELECT o.name, o.version FROM operating_systems o JOIN operating_system_categories c ON c.id = o.category_id WHERE o.id = :i AND c.name = 'Гипервизор'"), {"i": vm_row.hypervisor_os_id}
+            ).one()
         assert all(devices.values())
         assert devices[windows_a] == devices[windows_b] and devices[debian_a] == devices[debian_b] and devices[windows_a] != devices[debian_a]
         assert debian_entries == 1

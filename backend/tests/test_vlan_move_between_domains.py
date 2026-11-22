@@ -288,7 +288,9 @@ class TestSubinterfacesOnMovedVlan:
             f"{API}/devices/{router['id']}/interfaces",
             json={
                 "interfaces": [{"name": "Gi0/0", "group_key": "g1"}],
-                "groups": [{"key": "g1", "name": "Серверные", "vlan_mode": "trunk", "vlan_ids": [vlan["id"]], "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": vlan["id"], "ips": [{"ip_address": "10.4.12.1", "prefix_length": 24}]}]}],
+                "groups": [
+                    {"key": "g1", "name": "Серверные", "vlan_mode": "trunk", "vlan_ids": [vlan["id"]], "manage_subinterfaces": True, "subinterfaces": [{"vlan_id": vlan["id"], "ips": [{"ip_address": "10.4.12.1", "prefix_length": 24}]}]}
+                ],
             },
         )
         assert r.status_code == 200, r.text

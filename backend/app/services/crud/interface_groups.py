@@ -151,7 +151,17 @@ def _normalize_group_item(item: Any, allowed_vlans: set[str], session: Session) 
     ips = _group_ips(item, name)
     manage_open_ports, open_ports = _group_open_ports(item, name, session)
     manage_subinterfaces, subinterfaces = _group_subinterfaces(item, name, vlans, allowed_vlans, session)
-    return {"name": name, "vlan_mode": vlans.mode, "all_vlans": vlans.all_vlans, "vlan_ids": vlans.vlan_ids, "ips": ips, "manage_open_ports": manage_open_ports, "open_ports": open_ports, "manage_subinterfaces": manage_subinterfaces, "subinterfaces": subinterfaces}
+    return {
+        "name": name,
+        "vlan_mode": vlans.mode,
+        "all_vlans": vlans.all_vlans,
+        "vlan_ids": vlans.vlan_ids,
+        "ips": ips,
+        "manage_open_ports": manage_open_ports,
+        "open_ports": open_ports,
+        "manage_subinterfaces": manage_subinterfaces,
+        "subinterfaces": subinterfaces,
+    }
 
 
 def _sync_interface_groups(device_id: str, groups_payload: list[Any], allowed_vlans: set[str], session: Session) -> dict[str, _GroupState]:
@@ -304,7 +314,9 @@ def _apply_group_ips(iface: DeviceInterface, group_ips: list[dict[str, Any]], se
     назначение порта). is_management наследуется от порта, как у IP, заданных вручную."""
     current = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).order_by(IPAddress.created_at, IPAddress.id)).all()
     wanted = with_reused_ids([(ip.id, (ip.ip_address, ip.prefix_length)) for ip in current], group_ips, lambda d: (d["ip_address"], d["prefix_length"]))
-    sync_owner_ip_addresses(OwnerType.DEVICE_INTERFACE, iface.id, [{**ip, "is_management": bool(iface.is_management)} for ip in wanted], session, array_error="Поле ips порта должно быть массивом", foreign_id_error="IP не принадлежит выбранному порту")
+    sync_owner_ip_addresses(
+        OwnerType.DEVICE_INTERFACE, iface.id, [{**ip, "is_management": bool(iface.is_management)} for ip in wanted], session, array_error="Поле ips порта должно быть массивом", foreign_id_error="IP не принадлежит выбранному порту"
+    )
 
 
 def _apply_group_open_ports(iface: DeviceInterface, group_ports: list[dict[str, Any]], session: Session) -> None:

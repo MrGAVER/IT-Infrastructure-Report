@@ -517,9 +517,23 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
     totals, target = plan["totals"], plan["target_mode"]
     result: list[dict[str, str]] = []
     if totals["immediate_ports"]:
-        result.append(_warning("immediate", "warning", f"Изменения на других устройствах ({totals['immediate_ports']} портов на {totals['immediate_devices']} устройствах) применяются сразу и не отменяются кнопкой «Отмена» формы; они записываются в журнал аудита."))
+        result.append(
+            _warning(
+                "immediate",
+                "warning",
+                f"Изменения на других устройствах ({totals['immediate_ports']} портов на {totals['immediate_devices']} устройствах) применяются сразу и не отменяются кнопкой «Отмена» формы; они записываются в журнал аудита.",
+            )
+        )
     if totals["deferred_ports"]:
-        result.append(_warning("deferred", "info", f"Изменения на редактируемом устройстве ({totals['deferred_ports']} портов) попадут в форму и сохранятся только после нажатия «Сохранить». Если форму не сохранить, режим у соседей уже будет другим, и расхождения появятся снова."))
+        result.append(
+            _warning(
+                "deferred",
+                "info",
+                f"Изменения на редактируемом устройстве ({totals['deferred_ports']} портов) попадут в форму и сохранятся только "
+                "после нажатия «Сохранить». Если форму не сохранить, режим у соседей уже будет другим, и расхождения появятся "
+                "снова.",
+            )
+        )
     if plan["groups"]:
         listed = _short_list([f"«{g['name']}» ({len(g['ports'])} портов, {g['device_name']})" for g in plan["groups"]])
         result.append(_warning("groups", "warning", f"Режим порта задаётся группами, поэтому он изменится у всех портов группы, а не только у связанного порта: {listed}."))
@@ -532,7 +546,13 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
     dropped = [(g["name"], g, v) for g in plan["groups"] + plan["ports"] for v in g["dropped_vlans"]]
     if dropped:
         listed = _short_list([f"VLAN {v['vlan_id']} «{v['name']}» ({'группа' if 'ports' in g else 'порт'} «{owner}»)" for owner, g, v in dropped])
-        result.append(_warning("vlans_dropped", "warning", f"Режим access допускает у порта или группы не более одного VLAN: останется VLAN с наименьшим номером, будут сняты {listed}. Это изменит VLAN ID и VLAN Name в отчётах (лист «Организация подключений») и на диаграммах."))
+        result.append(
+            _warning(
+                "vlans_dropped",
+                "warning",
+                f"Режим access допускает у порта или группы не более одного VLAN: останется VLAN с наименьшим номером, будут сняты {listed}. Это изменит VLAN ID и VLAN Name в отчётах (лист «Организация подключений») и на диаграммах.",
+            )
+        )
     if target == "trunk":
         result.append(_warning("trunk", "info", "В режиме trunk остаются только уже назначенные VLAN — «все VLAN» автоматически не добавляются. При необходимости добавьте VLAN в группе или у порта."))
     if change.inactive_ports:

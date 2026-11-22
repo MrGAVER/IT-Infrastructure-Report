@@ -198,7 +198,12 @@ def enrich_subinterfaces(subinterfaces: Sequence[DeviceSubinterface], session: S
     ips_by_owner: dict[str, list[dict[str, Any]]] = {}
     for ip in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE, IPAddress.owner_id.in_(ids)).order_by(IPAddress.ip_address, IPAddress.id)).all():
         ips_by_owner.setdefault(ip.owner_id, []).append(serialize(ip))
-    ports = session.scalars(select(OpenPort).join(ProtocolPortCatalog, OpenPort.protocol_catalog_id == ProtocolPortCatalog.id).where(OpenPort.owner_type == OwnerType.DEVICE_SUBINTERFACE, OpenPort.owner_id.in_(ids)).order_by(ProtocolPortCatalog.port, OpenPort.transport_protocol, OpenPort.id)).all()
+    ports = session.scalars(
+        select(OpenPort)
+        .join(ProtocolPortCatalog, OpenPort.protocol_catalog_id == ProtocolPortCatalog.id)
+        .where(OpenPort.owner_type == OwnerType.DEVICE_SUBINTERFACE, OpenPort.owner_id.in_(ids))
+        .order_by(ProtocolPortCatalog.port, OpenPort.transport_protocol, OpenPort.id)
+    ).all()
     ports_by_owner: dict[str, list[dict[str, Any]]] = {}
     for port in enrich_open_ports(ports, session):
         ports_by_owner.setdefault(port["owner_id"], []).append(port)
@@ -209,7 +214,9 @@ def subinterfaces_by_parent(interface_ids: Sequence[str], session: Session) -> d
     """{id порта -> его подинтерфейсы (enrich_subinterfaces)}, порядок — по номеру VLAN, затем по имени."""
     if not interface_ids:
         return {}
-    subs = session.scalars(select(DeviceSubinterface).join(VLAN, VLAN.id == DeviceSubinterface.vlan_id).where(DeviceSubinterface.parent_interface_id.in_(list(interface_ids))).order_by(VLAN.vlan_id, DeviceSubinterface.name, DeviceSubinterface.id)).all()
+    subs = session.scalars(
+        select(DeviceSubinterface).join(VLAN, VLAN.id == DeviceSubinterface.vlan_id).where(DeviceSubinterface.parent_interface_id.in_(list(interface_ids))).order_by(VLAN.vlan_id, DeviceSubinterface.name, DeviceSubinterface.id)
+    ).all()
     result: dict[str, list[dict[str, Any]]] = {}
     for data in enrich_subinterfaces(subs, session):
         result.setdefault(data["parent_interface_id"], []).append(data)

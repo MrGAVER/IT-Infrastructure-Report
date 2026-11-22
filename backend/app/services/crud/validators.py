@@ -6,7 +6,25 @@ from typing import Any, Callable
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ...models import Connection, Container, DeviceCategory, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember, DeviceType, DiagramIcon, IPAddress, InformationSystem, InterfaceVLAN, PhysicalDevice, VirtualMachine, PhysicalDeviceVLAN, VLAN, VLANDomainDevice
+from ...models import (
+    Connection,
+    Container,
+    DeviceCategory,
+    DeviceInterface,
+    DeviceModel,
+    DeviceStack,
+    DeviceStackMember,
+    DeviceType,
+    DiagramIcon,
+    IPAddress,
+    InformationSystem,
+    InterfaceVLAN,
+    PhysicalDevice,
+    VirtualMachine,
+    PhysicalDeviceVLAN,
+    VLAN,
+    VLANDomainDevice,
+)
 from ...constants import ErrorCode
 from ..diagram_icons import SHAPE_GLYPHS, is_hex_color, validate_svg_markup
 from ..device_label import device_label
@@ -37,7 +55,9 @@ def _validate_physical_device(data: dict[str, Any], session: Session, item_id: s
         raise HTTPException(409, detail={"code": ErrorCode.DUPLICATE_SYSTEM_NAME, "message": "Системное имя уже используется другим устройством. Сохранить дубликат?"})
     occupant = _find_rack_slot_occupant(data, session, item_id)
     if occupant and not confirm_rack_reassign:
-        raise HTTPException(409, detail={"code": ErrorCode.RACK_POSITION_OCCUPIED, "message": f'Позиция "{data.get("rack_position")}" в этой стойке уже занята устройством "{device_label(occupant)}". Переназначить позицию на текущее устройство?'})
+        raise HTTPException(
+            409, detail={"code": ErrorCode.RACK_POSITION_OCCUPIED, "message": f'Позиция "{data.get("rack_position")}" в этой стойке уже занята устройством "{device_label(occupant)}". Переназначить позицию на текущее устройство?'}
+        )
 
 
 def _find_rack_slot_occupant(data: dict[str, Any], session: Session, item_id: str | None) -> PhysicalDevice | None:

@@ -116,7 +116,11 @@ class TestGenericIsModelAgnostic:
     """Критерии приёмки П-7: в generic.py нет ветвлений по модели и почти нет импортов моделей."""
 
     def test_no_identity_comparison_with_a_class(self):
-        offenders = [node.lineno for node in ast.walk(_generic_tree()) if isinstance(node, ast.Compare) and any(isinstance(op, (ast.Is, ast.IsNot)) for op in node.ops) and any(isinstance(operand, ast.Name) and operand.id[:1].isupper() for operand in [node.left, *node.comparators])]
+        offenders = [
+            node.lineno
+            for node in ast.walk(_generic_tree())
+            if isinstance(node, ast.Compare) and any(isinstance(op, (ast.Is, ast.IsNot)) for op in node.ops) and any(isinstance(operand, ast.Name) and operand.id[:1].isupper() for operand in [node.left, *node.comparators])
+        ]
         assert not offenders, f"в generic.py появилось ветвление по классу модели (строки {offenders}) — вынесите его в crud/hooks.py"
 
     def test_models_imported_at_most_five(self):

@@ -20,7 +20,9 @@ from .audit_log import audit
 def _load_protocols(system_id: str, session: Session) -> list[ISProtocol]:
     """Протоколы ИС по возрастанию номера порта (как открытые порты ВМ): форма показывает их в этом
     порядке без собственной сортировки. Равные номера — по id, чтобы порядок был стабильным."""
-    return list(session.scalars(select(ISProtocol).join(ProtocolPortCatalog, ProtocolPortCatalog.id == ISProtocol.protocol_catalog_id).where(ISProtocol.information_system_id == system_id).order_by(ProtocolPortCatalog.port, ISProtocol.id)).all())
+    return list(
+        session.scalars(select(ISProtocol).join(ProtocolPortCatalog, ProtocolPortCatalog.id == ISProtocol.protocol_catalog_id).where(ISProtocol.information_system_id == system_id).order_by(ProtocolPortCatalog.port, ISProtocol.id)).all()
+    )
 
 
 def get_information_system_details(system_id: str, session: Session) -> dict[str, Any]:

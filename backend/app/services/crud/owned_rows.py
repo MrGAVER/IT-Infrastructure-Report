@@ -249,7 +249,12 @@ def sync_vm_open_ports(vm_id: str, payload: dict[str, Any], session: Session) ->
     Ответ: {'items': [...]} — порты ВМ по возрастанию номера порта."""
 
     def load(vm: VirtualMachine) -> list[dict[str, Any]]:
-        rows = session.scalars(select(OpenPort).join(ProtocolPortCatalog, OpenPort.protocol_catalog_id == ProtocolPortCatalog.id).where(OpenPort.owner_type == OwnerType.VIRTUAL_MACHINE, OpenPort.owner_id == vm.id).order_by(ProtocolPortCatalog.port, OpenPort.transport_protocol)).all()
+        rows = session.scalars(
+            select(OpenPort)
+            .join(ProtocolPortCatalog, OpenPort.protocol_catalog_id == ProtocolPortCatalog.id)
+            .where(OpenPort.owner_type == OwnerType.VIRTUAL_MACHINE, OpenPort.owner_id == vm.id)
+            .order_by(ProtocolPortCatalog.port, OpenPort.transport_protocol)
+        ).all()
         return enrich_open_ports(rows, session)
 
     return _sync_vm_collection(

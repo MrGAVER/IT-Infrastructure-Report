@@ -71,7 +71,17 @@ def test_group_values_are_written_into_every_member_port(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
     ssh = _catalog_entry(client, 22, "SSH")
-    groups = [{"key": "g1", "name": "Серверные", "vlan_mode": "access", "vlan_ids": [v10["id"]], "ips": [{"ip_address": "10.0.0.5", "prefix_length": 24}], "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": ssh["id"], "transport_protocol": "TCP", "description": "админ"}]}]
+    groups = [
+        {
+            "key": "g1",
+            "name": "Серверные",
+            "vlan_mode": "access",
+            "vlan_ids": [v10["id"]],
+            "ips": [{"ip_address": "10.0.0.5", "prefix_length": 24}],
+            "manage_open_ports": True,
+            "open_ports": [{"protocol_catalog_id": ssh["id"], "transport_protocol": "TCP", "description": "админ"}],
+        }
+    ]
 
     r = _sync(client, dev["id"], [_port("Gi0/1", "g1"), _port("Gi0/2", "g1"), _port("Gi0/3")], groups)
 

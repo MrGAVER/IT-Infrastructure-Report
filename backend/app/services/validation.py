@@ -252,7 +252,10 @@ def validate_connection(data: dict[str, Any], session: Session, current_connecti
     lock_interfaces(session, (source_id, destination_id))
     # One physical/logical interface can participate in only one active connection.
     # During editing, the current connection itself is ignored.
-    stmt = select(Connection).where(Connection.is_active.is_not(False), ((Connection.source_interface_id == source_id) | (Connection.destination_interface_id == source_id) | (Connection.source_interface_id == destination_id) | (Connection.destination_interface_id == destination_id)))
+    stmt = select(Connection).where(
+        Connection.is_active.is_not(False),
+        ((Connection.source_interface_id == source_id) | (Connection.destination_interface_id == source_id) | (Connection.source_interface_id == destination_id) | (Connection.destination_interface_id == destination_id)),
+    )
     if current_connection_id:
         stmt = stmt.where(Connection.id != current_connection_id)
     ignored = {cid for cid in ignore_connection_ids if cid}

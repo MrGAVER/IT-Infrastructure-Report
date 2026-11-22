@@ -172,7 +172,13 @@ def _device_computed_fields(device: PhysicalDevice, lk: _DeviceLookups) -> dict[
     ports = lk.interfaces_by_device.get(device.id, [])
     vlan_links = lk.vlans_by_device.get(device.id, [])
     mgmt_names, mgmt_ips = device_management_ports_and_ips(
-        [i for i in ports if i.is_management], lk.ips_by_interface, [x for x in vlan_links if x.is_management], lk.vlan_map, management_subinterfaces=lk.mgmt_subs_by_device.get(device.id, []), ips_by_subinterface=lk.ips_by_subinterface, port_name_by_id=lk.port_name_by_id
+        [i for i in ports if i.is_management],
+        lk.ips_by_interface,
+        [x for x in vlan_links if x.is_management],
+        lk.vlan_map,
+        management_subinterfaces=lk.mgmt_subs_by_device.get(device.id, []),
+        ips_by_subinterface=lk.ips_by_subinterface,
+        port_name_by_id=lk.port_name_by_id,
     )
     embedded = lk.embedded_map.get(device.embedded_os_id) if device.embedded_os_id else None
     member = lk.member_by_device.get(device.id)
@@ -228,8 +234,15 @@ def enrich_interface_groups(groups: Sequence[InterfaceGroup], session: Session) 
     if not groups:
         return []
     group_ids = [g.id for g in groups]
-    vlan_links = session.execute(select(InterfaceGroupVLAN.group_id, InterfaceGroupVLAN.vlan_id).join(VLAN, VLAN.id == InterfaceGroupVLAN.vlan_id).where(InterfaceGroupVLAN.group_id.in_(group_ids)).order_by(VLAN.vlan_id, InterfaceGroupVLAN.vlan_id)).all()
-    ports = session.scalars(select(InterfaceGroupOpenPort).join(ProtocolPortCatalog, InterfaceGroupOpenPort.protocol_catalog_id == ProtocolPortCatalog.id).where(InterfaceGroupOpenPort.group_id.in_(group_ids)).order_by(ProtocolPortCatalog.port, InterfaceGroupOpenPort.transport_protocol)).all()
+    vlan_links = session.execute(
+        select(InterfaceGroupVLAN.group_id, InterfaceGroupVLAN.vlan_id).join(VLAN, VLAN.id == InterfaceGroupVLAN.vlan_id).where(InterfaceGroupVLAN.group_id.in_(group_ids)).order_by(VLAN.vlan_id, InterfaceGroupVLAN.vlan_id)
+    ).all()
+    ports = session.scalars(
+        select(InterfaceGroupOpenPort)
+        .join(ProtocolPortCatalog, InterfaceGroupOpenPort.protocol_catalog_id == ProtocolPortCatalog.id)
+        .where(InterfaceGroupOpenPort.group_id.in_(group_ids))
+        .order_by(ProtocolPortCatalog.port, InterfaceGroupOpenPort.transport_protocol)
+    ).all()
     ips_by_group: dict[str, list[dict[str, Any]]] = {}
     for ip in sorted(session.scalars(select(InterfaceGroupIP).where(InterfaceGroupIP.group_id.in_(group_ids))).all(), key=_ip_sort_key):
         ips_by_group.setdefault(ip.group_id, []).append(serialize(ip))

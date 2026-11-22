@@ -1,7 +1,22 @@
 from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ..models import Building, Department, DeviceCategory, DeviceType, InterfaceSpeed, InterfaceType, ConnectionType, OperatingSystemCategory, OperatingSystem, EmbeddedOperatingSystem, Manufacturer, SupportOrganization, ProtocolPortCatalog, CatalogSeedMarker
+from ..models import (
+    Building,
+    Department,
+    DeviceCategory,
+    DeviceType,
+    InterfaceSpeed,
+    InterfaceType,
+    ConnectionType,
+    OperatingSystemCategory,
+    OperatingSystem,
+    EmbeddedOperatingSystem,
+    Manufacturer,
+    SupportOrganization,
+    ProtocolPortCatalog,
+    CatalogSeedMarker,
+)
 
 # Имя маркера «стартовые значения заведены» (models.CatalogSeedMarker). Версия в имени: новые
 # стандартные значения, которые появятся в будущих релизах, вводятся отдельным набором с новым

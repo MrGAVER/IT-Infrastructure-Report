@@ -270,7 +270,11 @@ def _warn_if_remote_access_without_auth(auth_enabled: bool) -> None:
     (services/auth/guards.require_setup_access) — поэтому подсказываем, как это сделать."""
     if auth_enabled or not has_remote_clients(ALLOWED_CLIENT_NETWORKS):
         return
-    logger.warning("Доступ по сети открыт, но аутентификация выключена: любой компьютер из списка разрешённых клиентов может читать и менять реестр без входа. Включите её на этом компьютере: «Настройки → Аутентификация» (создайте администратора и включите вход).")
+    logger.warning(
+        "Доступ по сети открыт, но аутентификация выключена: любой компьютер из списка разрешённых клиентов может "
+        "читать и менять реестр без входа. Включите её на этом компьютере: «Настройки → Аутентификация» (создайте "
+        "администратора и включите вход)."
+    )
 
 
 def _warn_if_host_check_disabled(auth_enabled: bool) -> None:
@@ -282,7 +286,11 @@ def _warn_if_host_check_disabled(auth_enabled: bool) -> None:
     Запуск НЕ блокируется: администратор мог выбрать '*' осознанно, например за прокси, который сам проверяет Host."""
     if auth_enabled or "*" not in ALLOWED_HOSTS:
         return
-    logger.warning("Проверка заголовка Host отключена (INFRA_REGISTRY_ALLOWED_HOSTS=*) при выключенной аутентификации: веб-страница в браузере пользователя может обратиться к реестру через DNS-rebinding. Перечислите реальные имена сервера в INFRA_REGISTRY_ALLOWED_HOSTS или включите аутентификацию.")
+    logger.warning(
+        "Проверка заголовка Host отключена (INFRA_REGISTRY_ALLOWED_HOSTS=*) при выключенной аутентификации: "
+        "веб-страница в браузере пользователя может обратиться к реестру через DNS-rebinding. Перечислите реальные "
+        "имена сервера в INFRA_REGISTRY_ALLOWED_HOSTS или включите аутентификацию."
+    )
 
 
 def _warn_if_insecure_server_config(auth_enabled: bool) -> None:

@@ -300,7 +300,9 @@ SAFE_ICONS = [
     "",
     '<svg viewBox="0 0 24 24"><rect width="24" height="24" fill="#4f7cff"/></svg>',
     '<svg><circle cx="5" cy="5" r="5" class="on-hover"/></svg>',
-    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><linearGradient id="g"><stop offset="0" stop-color="#000"/></linearGradient></defs><use xlink:href="#g"/><path d="M0 0L5 5" fill="url(#g)"/><text>on = off</text></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><linearGradient '
+    'id="g"><stop offset="0" stop-color="#000"/></linearGradient></defs><use xlink:href="#g"/><path d="M0 0L5 5" '
+    'fill="url(#g)"/><text>on = off</text></svg>',
     '<?xml version="1.0" encoding="UTF-8"?><svg><g><title>Коммутатор</title><polygon points="0,0 5,5 0,5"/></g></svg>',
     '<rect width="10" height="10"/><circle r="3"/>',  # голый фрагмент из нескольких элементов
 ]

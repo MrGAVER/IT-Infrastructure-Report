@@ -55,7 +55,13 @@ GRID = {
 DOCX = {
     "blocks": [
         {"type": "heading", "text": "Устройства"},
-        {"type": "table", "root_entity": "devices", "filters": [{"path": "status", "op": "ne", "value": "retired"}], "sort_by": "status", "columns": [{"header": "Имя", "source": "field", "path": "system_name"}, {"header": "Состояние", "source": "field", "path": "status"}]},
+        {
+            "type": "table",
+            "root_entity": "devices",
+            "filters": [{"path": "status", "op": "ne", "value": "retired"}],
+            "sort_by": "status",
+            "columns": [{"header": "Имя", "source": "field", "path": "system_name"}, {"header": "Состояние", "source": "field", "path": "status"}],
+        },
         {"type": "table", "root_entity": "devices", "columns": [{"header": "Состояние", "source": "field", "path": "status"}]},
     ]
 }
@@ -265,7 +271,13 @@ E2E_GRID = {
 E2E_DOCX = {
     "blocks": [
         {"type": "heading", "text": "Устройства", "level": 1},
-        {"type": "table", "root_entity": "devices", "filters": [{"path": "status", "op": "ne", "value": "retired"}], "sort_by": "status", "columns": [{"header": "Имя", "source": "field", "path": "system_name"}, {"header": "Состояние", "source": "field", "path": "status"}]},
+        {
+            "type": "table",
+            "root_entity": "devices",
+            "filters": [{"path": "status", "op": "ne", "value": "retired"}],
+            "sort_by": "status",
+            "columns": [{"header": "Имя", "source": "field", "path": "system_name"}, {"header": "Состояние", "source": "field", "path": "status"}],
+        },
     ]
 }
 

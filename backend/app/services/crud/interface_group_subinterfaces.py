@@ -177,7 +177,9 @@ def group_subinterfaces_by_group(group_ids: Sequence[str], session: Session) -> 
     """{id группы -> её подинтерфейсы с вложенными ips и open_ports}, порядок — по номеру VLAN. Три запроса на все группы."""
     if not group_ids:
         return {}
-    rows = session.scalars(select(InterfaceGroupSubinterface).join(VLAN, VLAN.id == InterfaceGroupSubinterface.vlan_id).where(InterfaceGroupSubinterface.group_id.in_(list(group_ids))).order_by(VLAN.vlan_id, InterfaceGroupSubinterface.id)).all()
+    rows = session.scalars(
+        select(InterfaceGroupSubinterface).join(VLAN, VLAN.id == InterfaceGroupSubinterface.vlan_id).where(InterfaceGroupSubinterface.group_id.in_(list(group_ids))).order_by(VLAN.vlan_id, InterfaceGroupSubinterface.id)
+    ).all()
     if not rows:
         return {}
     ids = [row.id for row in rows]
@@ -236,8 +238,18 @@ def apply_group_subinterfaces(iface: DeviceInterface, templates: list[dict[str, 
         current_ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE, IPAddress.owner_id == sub.id).order_by(IPAddress.created_at, IPAddress.id)).all()
         ips = with_reused_ids([(ip.id, (ip.ip_address, ip.prefix_length)) for ip in current_ips], template["ips"], lambda d: (d["ip_address"], d["prefix_length"]))
         # is_management IP наследуется от подинтерфейса, как у IP подинтерфейса, заданного вручную.
-        sync_owner_ip_addresses(OwnerType.DEVICE_SUBINTERFACE, sub.id, [{**ip, "is_management": sub.is_management} for ip in ips], session, array_error="Поле ips подинтерфейса должно быть массивом", foreign_id_error="IP не принадлежит выбранному подинтерфейсу")
+        sync_owner_ip_addresses(
+            OwnerType.DEVICE_SUBINTERFACE, sub.id, [{**ip, "is_management": sub.is_management} for ip in ips], session, array_error="Поле ips подинтерфейса должно быть массивом", foreign_id_error="IP не принадлежит выбранному подинтерфейсу"
+        )
         current_ports = session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_SUBINTERFACE, OpenPort.owner_id == sub.id).order_by(OpenPort.created_at, OpenPort.id)).all()
         ports = with_reused_ids([(p.id, (p.protocol_catalog_id, p.transport_protocol)) for p in current_ports], template["open_ports"], lambda d: (d["protocol_catalog_id"], d["transport_protocol"]))
-        sync_owner_open_ports(OwnerType.DEVICE_SUBINTERFACE, sub.id, ports, session, owner_label=f"Подинтерфейс «{sub.name}»", array_error="Поле open_ports подинтерфейса должно быть массивом", foreign_id_error="Открытый порт не принадлежит выбранному подинтерфейсу")
+        sync_owner_open_ports(
+            OwnerType.DEVICE_SUBINTERFACE,
+            sub.id,
+            ports,
+            session,
+            owner_label=f"Подинтерфейс «{sub.name}»",
+            array_error="Поле open_ports подинтерфейса должно быть массивом",
+            foreign_id_error="Открытый порт не принадлежит выбранному подинтерфейсу",
+        )
     delete_subinterfaces([sub.id for sub in existing if sub.id not in kept], session)
