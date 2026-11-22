@@ -216,6 +216,17 @@ class TestScheduledPostgresBackupService:
             "дамп с хешами паролей не должен попасть в git"
         )
 
+    def test_readme_describes_the_service_with_the_same_names_and_commands_as_compose(self, service):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        section = readme[readme.index("### Периодические резервные копии") : readme.index("### Безопасность по умолчанию")]
+        for name in (*self.ENV_KEYS, "BACKUP_HOST_DIR", "db-backup-scheduled", "backup-schedule", "pg_restore --list"):
+            assert name in section, name
+        assert "--profile backup-schedule up -d db-backup-scheduled" in section
+        assert "--profile backup-schedule run --rm --entrypoint sh db-backup-scheduled" in section
+        for key, default in (("BACKUP_INTERVAL_SECONDS", "86400"), ("BACKUP_KEEP", "14")):
+            assert f"{key}:-{default}" in service["environment"][key] and f"`{default}`" in section, key
+        assert "в приложении пока нет" in section, "плановой копии SQLite ещё нет — README не должен обещать обратного"
+
     # --- поведение скрипта: настоящая оболочка, заглушки pg_dump / pg_restore -------------------------------------------------------
     @pytest.fixture()
     def sandbox(self, tmp_path):
