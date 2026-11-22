@@ -185,7 +185,12 @@ def group_subinterfaces_by_group(group_ids: Sequence[str], session: Session) -> 
     for ip in session.scalars(select(InterfaceGroupSubinterfaceIP).where(InterfaceGroupSubinterfaceIP.subinterface_id.in_(ids)).order_by(InterfaceGroupSubinterfaceIP.ip_address, InterfaceGroupSubinterfaceIP.id)).all():
         ips.setdefault(ip.subinterface_id, []).append(serialize(ip))
     ports: dict[str, list[dict[str, Any]]] = {}
-    for port in session.scalars(select(InterfaceGroupSubinterfaceOpenPort).join(ProtocolPortCatalog, InterfaceGroupSubinterfaceOpenPort.protocol_catalog_id == ProtocolPortCatalog.id).where(InterfaceGroupSubinterfaceOpenPort.subinterface_id.in_(ids)).order_by(ProtocolPortCatalog.port, InterfaceGroupSubinterfaceOpenPort.transport_protocol)).all():
+    for port in session.scalars(
+        select(InterfaceGroupSubinterfaceOpenPort)
+        .join(ProtocolPortCatalog, InterfaceGroupSubinterfaceOpenPort.protocol_catalog_id == ProtocolPortCatalog.id)
+        .where(InterfaceGroupSubinterfaceOpenPort.subinterface_id.in_(ids))
+        .order_by(ProtocolPortCatalog.port, InterfaceGroupSubinterfaceOpenPort.transport_protocol)
+    ).all():
         ports.setdefault(port.subinterface_id, []).append(serialize(port))
     result: dict[str, list[dict[str, Any]]] = {}
     for row in rows:

@@ -65,7 +65,9 @@ HEADERS1 = [
     "Наименование организации, информационная система которой осуществляет взаимодействие и (или) обеспечивает техническую поддержку",
     "Способ оказания технической поддержки",
     "Описание процесса функционирования ИС, особенности организации направления потоков для обеспечения функционирования ИС",
-    "Название физического сервера (ПК, выполняющего роль сервера), на котором установлена информационная система (подсистема/информационный ресурс) или установлена виртуальная машина (контейнер), обеспечивающая (ий) функционирование данной информационной системы (подсистемы/информационного ресурса)",
+    "Название физического сервера (ПК, выполняющего роль сервера), на котором установлена информационная система "
+    "(подсистема/информационный ресурс) или установлена виртуальная машина (контейнер), обеспечивающая (ий) функционирование данной "
+    "информационной системы (подсистемы/информационного ресурса)",
     "IP-адрес физического сервера, на котором установлена информационная система (подсистема/информационный ресурс)",
     "Наименование виртуальной машины или контейнера, обеспечивающая (ий) функционирование данной информационной системы (подсистемы/информационного ресурса)",
     "IP-адрес виртуальной машины (контейнера), обеспечивающая (ий) функционирование данной информационной системы (подсистемы/информационного ресурса)",
@@ -829,7 +831,18 @@ def _vm_row_values(v, d: SimpleNamespace) -> list:
     containers_for_vm = [c for c in d.containers if c.virtual_machine_id == v.id]
     openp = _open_ports_by_number(d.open_ports_by_owner.get(("virtual_machine", v.id), []), d)
     admin_ips = join_values([ip_label(x) for x in ips if x.is_management])
-    return [v.name, os_label(d.operating_systems.get(v.operating_system_id)), join_values([c.name for c in containers_for_vm]), device_label(host), os_label(hyp), v.purpose or "", join_values([ip_label(x) for x in ips]), join_values([_open_port_label(p, d) for p in openp]), admin_ips, join_values([s.name for s in d.software_by_vm.get(v.id, [])])]
+    return [
+        v.name,
+        os_label(d.operating_systems.get(v.operating_system_id)),
+        join_values([c.name for c in containers_for_vm]),
+        device_label(host),
+        os_label(hyp),
+        v.purpose or "",
+        join_values([ip_label(x) for x in ips]),
+        join_values([_open_port_label(p, d) for p in openp]),
+        admin_ips,
+        join_values([s.name for s in d.software_by_vm.get(v.id, [])]),
+    ]
 
 
 def _populate_sheet4(ws4, d: SimpleNamespace) -> None:

@@ -171,7 +171,9 @@ def _load_device_lookups(devices: Sequence[PhysicalDevice], session: Session) ->
 def _device_computed_fields(device: PhysicalDevice, lk: _DeviceLookups) -> dict[str, Any]:
     ports = lk.interfaces_by_device.get(device.id, [])
     vlan_links = lk.vlans_by_device.get(device.id, [])
-    mgmt_names, mgmt_ips = device_management_ports_and_ips([i for i in ports if i.is_management], lk.ips_by_interface, [x for x in vlan_links if x.is_management], lk.vlan_map, management_subinterfaces=lk.mgmt_subs_by_device.get(device.id, []), ips_by_subinterface=lk.ips_by_subinterface, port_name_by_id=lk.port_name_by_id)
+    mgmt_names, mgmt_ips = device_management_ports_and_ips(
+        [i for i in ports if i.is_management], lk.ips_by_interface, [x for x in vlan_links if x.is_management], lk.vlan_map, management_subinterfaces=lk.mgmt_subs_by_device.get(device.id, []), ips_by_subinterface=lk.ips_by_subinterface, port_name_by_id=lk.port_name_by_id
+    )
     embedded = lk.embedded_map.get(device.embedded_os_id) if device.embedded_os_id else None
     member = lk.member_by_device.get(device.id)
     stack = lk.stack_map.get(member.stack_id) if member else None

@@ -222,5 +222,11 @@ def get_device_subinterfaces(device_id: str, session: Session) -> dict[str, Any]
     устройствам сразу, как у портов через generic /resources."""
     if not session.get(PhysicalDevice, device_id):
         raise HTTPException(404, "Физическое устройство не найдено")
-    subs = session.scalars(select(DeviceSubinterface).join(DeviceInterface, DeviceInterface.id == DeviceSubinterface.parent_interface_id).join(VLAN, VLAN.id == DeviceSubinterface.vlan_id).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.name, DeviceInterface.id, VLAN.vlan_id, DeviceSubinterface.name, DeviceSubinterface.id)).all()
+    subs = session.scalars(
+        select(DeviceSubinterface)
+        .join(DeviceInterface, DeviceInterface.id == DeviceSubinterface.parent_interface_id)
+        .join(VLAN, VLAN.id == DeviceSubinterface.vlan_id)
+        .where(DeviceInterface.physical_device_id == device_id)
+        .order_by(DeviceInterface.name, DeviceInterface.id, VLAN.vlan_id, DeviceSubinterface.name, DeviceSubinterface.id)
+    ).all()
     return {"items": enrich_subinterfaces(subs, session)}

@@ -1,5 +1,5 @@
 [tool.ruff]
-line-length = 400
+line-length = 300
 extend-exclude = ["frontend"]
 
 # Форматтер (`ruff format`) применяется ко всему backend; CI проверяет его одной командой `ruff format --check backend` (без списка файлов).

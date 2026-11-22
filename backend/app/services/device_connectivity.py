@@ -177,6 +177,10 @@ def list_device_options(session: Session, *, q: str | None = None, include: Iter
     def matches(system_name: str | None, serial_number: str | None) -> bool:
         return not needle or needle in (system_name or "").casefold() or needle in (serial_number or "").casefold()
 
-    selected = [{"id": device_id, "label": device_label_from_parts(system_name, serial_number, fallback=device_id), "system_name": system_name, "serial_number": serial_number} for device_id, system_name, serial_number in rows if device_id not in excluded and (device_id in forced or matches(system_name, serial_number))]
+    selected = [
+        {"id": device_id, "label": device_label_from_parts(system_name, serial_number, fallback=device_id), "system_name": system_name, "serial_number": serial_number}
+        for device_id, system_name, serial_number in rows
+        if device_id not in excluded and (device_id in forced or matches(system_name, serial_number))
+    ]
     selected.sort(key=lambda item: (item["label"].casefold(), item["id"]))
     return {"items": selected[offset : offset + limit], "total": len(selected), "offset": offset, "limit": limit}

@@ -101,7 +101,19 @@ PROTOCOL_DEFAULTS = [
     (8080, "HTTP-alt", "Alternative HTTP"),
     (8443, "HTTPS-alt", "Alternative HTTPS"),
 ]
-EMBEDDED_OS_DEFAULTS = [("Cisco IOS", "15", "Cisco"), ("Cisco IOS XE", "17", "Cisco"), ("Junos OS", "21", "Juniper"), ("RouterOS", "7", "MikroTik"), ("FortiOS", "7", "Fortinet"), ("PAN-OS", "11", "Palo Alto Networks"), ("ArubaOS-CX", "10", "HPE Aruba"), ("Comware", "7", "HPE"), ("Huawei VRP", "8", "Huawei"), ("Dell OS10", "10", "Dell"), ("SONiC", "", "Community")]
+EMBEDDED_OS_DEFAULTS = [
+    ("Cisco IOS", "15", "Cisco"),
+    ("Cisco IOS XE", "17", "Cisco"),
+    ("Junos OS", "21", "Juniper"),
+    ("RouterOS", "7", "MikroTik"),
+    ("FortiOS", "7", "Fortinet"),
+    ("PAN-OS", "11", "Palo Alto Networks"),
+    ("ArubaOS-CX", "10", "HPE Aruba"),
+    ("Comware", "7", "HPE"),
+    ("Huawei VRP", "8", "Huawei"),
+    ("Dell OS10", "10", "Dell"),
+    ("SONiC", "", "Community"),
+]
 OS_DEFAULTS = [
     ("Серверная ОС", "Windows Server", "Microsoft", "2016"),
     ("Серверная ОС", "Windows Server", "Microsoft", "2019"),

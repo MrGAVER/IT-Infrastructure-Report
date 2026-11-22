@@ -202,7 +202,9 @@ class TestNoUnreviewedDeletionPaths:
         found, _ = _scan_deletions()
         new = sorted(found - ALLOWED_DELETIONS)
         assert not new, (
-            "Найдены новые пути прямого удаления в app/, не прошедшие ревью:\n  " + "\n  ".join(f"{f} → {fn}() удаляет {arg or '<query>'}" for f, fn, arg in new) + "\nУдаление устройства/ВМ/контейнера должно идти через crud.delete_resource() / crud.assert_deletable() (см. services/integrity.py). Если это удаление ДОЧЕРНИХ записей и оно безопасно — добавьте его в ALLOWED_DELETIONS с комментарием."
+            "Найдены новые пути прямого удаления в app/, не прошедшие ревью:\n  "
+            + "\n  ".join(f"{f} → {fn}() удаляет {arg or '<query>'}" for f, fn, arg in new)
+            + "\nУдаление устройства/ВМ/контейнера должно идти через crud.delete_resource() / crud.assert_deletable() (см. services/integrity.py). Если это удаление ДОЧЕРНИХ записей и оно безопасно — добавьте его в ALLOWED_DELETIONS с комментарием."
         )
 
     def test_protected_models_never_deleted_via_core_or_raw_sql(self):

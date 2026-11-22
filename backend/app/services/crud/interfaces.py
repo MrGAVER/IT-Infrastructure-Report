@@ -262,7 +262,13 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
         all_ifaces = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id)).all()
         for iface in all_ifaces:
             session.execute(update(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).values(is_management=bool(iface.is_management)))
-        audit(session, "interfaces", device_id, AuditAction.SYNC, f"Синхронизация интерфейсов: {len(items)}" + (f", групп: {len(groups_payload)}" if manage_groups else "") + (f", подинтерфейсов: {subinterface_total}" if subinterface_total else "") + (f", подключений изменено: {connections_changed}" if connections_changed else ""))
+        audit(
+            session,
+            "interfaces",
+            device_id,
+            AuditAction.SYNC,
+            f"Синхронизация интерфейсов: {len(items)}" + (f", групп: {len(groups_payload)}" if manage_groups else "") + (f", подинтерфейсов: {subinterface_total}" if subinterface_total else "") + (f", подключений изменено: {connections_changed}" if connections_changed else ""),
+        )
         session.commit()
         return _synced_interfaces_response(device_id, session)
     except HTTPException:

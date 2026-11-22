@@ -12,7 +12,20 @@ from ..diagram_icons import SHAPE_GLYPHS, is_hex_color, validate_svg_markup
 from ..device_label import device_label
 from ..port_config import DEFAULT_VLAN_MODE, VLAN_MODE_ACCESS, VLAN_MODE_TRUNK
 from .stack_vlan_settings import assert_device_vlan_editable, locked_vlan_ids, normalize_ip
-from ..validation import duplicate_system_name, validate_connection, validate_container_host, validate_device_location_hierarchy, validate_device_model_relation, validate_hypervisor, validate_ipv4_field, validate_operating_system, validate_prefix_length_field, validate_vm_host, validate_embedded_os, validate_support_method_organization
+from ..validation import (
+    duplicate_system_name,
+    validate_connection,
+    validate_container_host,
+    validate_device_location_hierarchy,
+    validate_device_model_relation,
+    validate_hypervisor,
+    validate_ipv4_field,
+    validate_operating_system,
+    validate_prefix_length_field,
+    validate_vm_host,
+    validate_embedded_os,
+    validate_support_method_organization,
+)
 
 
 def _validate_physical_device(data: dict[str, Any], session: Session, item_id: str | None, confirm_duplicate: bool, confirm_rack_reassign: bool) -> None:

@@ -200,7 +200,9 @@ async def data_error_handler(request: Request, exc: DataError) -> JSONResponse:
 SCHEMA_PROBE_TABLE = "catalog_seed_markers"
 
 SCHEMA_NOT_MIGRATED_MESSAGE = (
-    f"База данных не инициализирована: в ней нет таблицы {SCHEMA_PROBE_TABLE} — не применены миграции Alembic. Выполните в каталоге backend команду «alembic upgrade head» и запустите приложение снова. Docker (команда запуска образа) и EXE (launcher.py) применяют миграции сами, поэтому эта ошибка возможна только при прямом запуске «uvicorn app.main:app» на пустой или ещё не обновлённой базе."
+    f"База данных не инициализирована: в ней нет таблицы {SCHEMA_PROBE_TABLE} — не применены миграции Alembic. Выполните в каталоге "
+    "backend команду «alembic upgrade head» и запустите приложение снова. Docker (команда запуска образа) и EXE (launcher.py) применяют "
+    "миграции сами, поэтому эта ошибка возможна только при прямом запуске «uvicorn app.main:app» на пустой или ещё не обновлённой базе."
 )
 
 
@@ -300,7 +302,9 @@ def _warn_if_insecure_server_config(auth_enabled: bool) -> None:
         problems.append("CORS разрешён для любого origin (INFRA_REGISTRY_CORS_ORIGINS=*)")
     if problems:
         logger.warning(
-            "Небезопасная конфигурация серверного развёртывания на PostgreSQL: %s. Эти дефолты рассчитаны на локальный однопользовательский сценарий — для сервера, доступного нескольким сотрудникам, включите аутентификацию (см. раздел 'Аутентификация' в README) и ограничьте INFRA_REGISTRY_CORS_ORIGINS конкретными адресами.",
+            "Небезопасная конфигурация серверного развёртывания на PostgreSQL: %s. Эти дефолты рассчитаны на локальный однопользовательский "
+            "сценарий — для сервера, доступного нескольким сотрудникам, включите аутентификацию (см. раздел 'Аутентификация' в README) и "
+            "ограничьте INFRA_REGISTRY_CORS_ORIGINS конкретными адресами.",
             "; ".join(problems),
         )
 

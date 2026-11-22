@@ -241,12 +241,18 @@ def find_duplicate_open_port_numbers(session: Session) -> list[dict[str, Any]]:
     сохранение формы упрётся в 422 из-за старых данных). Запросов по числу ТИПОВ владельцев (не строк).
     """
     port_count = func.count(OpenPort.id)
-    owned = session.execute(select(OpenPort.owner_type, OpenPort.owner_id, ProtocolPortCatalog.port, port_count.label("n")).join(ProtocolPortCatalog, ProtocolPortCatalog.id == OpenPort.protocol_catalog_id).group_by(OpenPort.owner_type, OpenPort.owner_id, ProtocolPortCatalog.port).having(port_count > 1)).all()
+    owned = session.execute(
+        select(OpenPort.owner_type, OpenPort.owner_id, ProtocolPortCatalog.port, port_count.label("n")).join(ProtocolPortCatalog, ProtocolPortCatalog.id == OpenPort.protocol_catalog_id).group_by(OpenPort.owner_type, OpenPort.owner_id, ProtocolPortCatalog.port).having(port_count > 1)
+    ).all()
     group_count = func.count(InterfaceGroupOpenPort.id)
-    grouped = session.execute(select(InterfaceGroupOpenPort.group_id, ProtocolPortCatalog.port, group_count.label("n")).join(ProtocolPortCatalog, ProtocolPortCatalog.id == InterfaceGroupOpenPort.protocol_catalog_id).group_by(InterfaceGroupOpenPort.group_id, ProtocolPortCatalog.port).having(group_count > 1)).all()
+    grouped = session.execute(
+        select(InterfaceGroupOpenPort.group_id, ProtocolPortCatalog.port, group_count.label("n")).join(ProtocolPortCatalog, ProtocolPortCatalog.id == InterfaceGroupOpenPort.protocol_catalog_id).group_by(InterfaceGroupOpenPort.group_id, ProtocolPortCatalog.port).having(group_count > 1)
+    ).all()
 
     protocol_count = func.count(ISProtocol.id)
-    protocols = session.execute(select(ISProtocol.information_system_id, ProtocolPortCatalog.port, protocol_count.label("n")).join(ProtocolPortCatalog, ProtocolPortCatalog.id == ISProtocol.protocol_catalog_id).group_by(ISProtocol.information_system_id, ProtocolPortCatalog.port).having(protocol_count > 1)).all()
+    protocols = session.execute(
+        select(ISProtocol.information_system_id, ProtocolPortCatalog.port, protocol_count.label("n")).join(ProtocolPortCatalog, ProtocolPortCatalog.id == ISProtocol.protocol_catalog_id).group_by(ISProtocol.information_system_id, ProtocolPortCatalog.port).having(protocol_count > 1)
+    ).all()
 
     found = [(r.owner_type, r.owner_id, r.port, r.n) for r in owned] + [(INTERFACE_GROUP_OWNER, r.group_id, r.port, r.n) for r in grouped] + [(INFORMATION_SYSTEM_OWNER, r.information_system_id, r.port, r.n) for r in protocols]
     names = _owner_names(session, {(t, i) for t, i, _, _ in found})

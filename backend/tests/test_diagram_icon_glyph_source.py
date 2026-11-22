@@ -23,7 +23,17 @@ SOURCE = Path(diagram_icons.__file__)
 TARGET_LINE_LENGTH = 140
 
 # Разметка глифов на момент ревью (до разбивки): первые 16 символов sha256 каждого глифа. Это снимок: осознанно меняете значок — обновите хеш.
-EXPECTED_GLYPH_HASHES = {"server": "7d637f251abfe93b", "switch_l2": "420dce3b9ee5e796", "switch_l3": "f9cd35c6dbbdd219", "router": "47d7ed11f492f813", "firewall": "b190ec4bebc933bf", "workstation": "7ffed08cc10121af", "peripheral": "32873f068955158a", "generic": "e29e2b4fd2f21879", "switch": "420dce3b9ee5e796"}
+EXPECTED_GLYPH_HASHES = {
+    "server": "7d637f251abfe93b",
+    "switch_l2": "420dce3b9ee5e796",
+    "switch_l3": "f9cd35c6dbbdd219",
+    "router": "47d7ed11f492f813",
+    "firewall": "b190ec4bebc933bf",
+    "workstation": "7ffed08cc10121af",
+    "peripheral": "32873f068955158a",
+    "generic": "e29e2b4fd2f21879",
+    "switch": "420dce3b9ee5e796",
+}
 
 
 def test_no_line_in_diagram_icons_is_longer_than_the_target_line_length():

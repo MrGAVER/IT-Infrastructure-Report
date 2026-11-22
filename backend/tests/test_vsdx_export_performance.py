@@ -69,7 +69,9 @@ def timings() -> dict[int, float]:
 @pytest.mark.slow
 def test_vsdx_export_time_grows_linearly_with_the_number_of_nodes(timings):
     ratio = timings[LARGE_NODES] / timings[SMALL_NODES]
-    assert ratio < MAX_GROWTH_RATIO, f"{LARGE_NODES} узлов — {timings[LARGE_NODES]:.2f} с, {SMALL_NODES} — {timings[SMALL_NODES]:.2f} с: в {ratio:.1f} раза при {LARGE_NODES // SMALL_NODES}-кратном росте числа узлов (линейный рост ≈ 4, лимит {MAX_GROWTH_RATIO:g}); похоже на возврат квадратичного роста"
+    assert ratio < MAX_GROWTH_RATIO, (
+        f"{LARGE_NODES} узлов — {timings[LARGE_NODES]:.2f} с, {SMALL_NODES} — {timings[SMALL_NODES]:.2f} с: в {ratio:.1f} раза при {LARGE_NODES // SMALL_NODES}-кратном росте числа узлов (линейный рост ≈ 4, лимит {MAX_GROWTH_RATIO:g}); похоже на возврат квадратичного роста"
+    )
 
 
 @pytest.mark.slow

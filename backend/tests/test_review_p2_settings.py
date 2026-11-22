@@ -39,7 +39,12 @@ def _clean_environment(**extra: str) -> dict[str, str]:
 class TestImportHasNoSideEffects:
     def test_importing_config_creates_no_directories_and_ensure_data_dirs_creates_them(self, tmp_path):
         data_dir = tmp_path / "not-created-yet"
-        script = f"import json, sys\nsys.path.insert(0, {str(BACKEND_DIR)!r})\nimport app.config as config\nafter_import = [config.APP_DATA_DIR.exists(), config.REPORT_DIR.exists()]\nconfig.ensure_data_dirs()\nafter_call = [config.APP_DATA_DIR.exists(), config.REPORT_DIR.exists()]\nprint(json.dumps({{'after_import': after_import, 'after_call': after_call, 'reports': str(config.REPORT_DIR)}}))\n"
+        script = (
+            f"import json, sys\nsys.path.insert(0, {str(BACKEND_DIR)!r})\nimport app.config as config\n"
+            "after_import = [config.APP_DATA_DIR.exists(), config.REPORT_DIR.exists()]\n"
+            "config.ensure_data_dirs()\nafter_call = [config.APP_DATA_DIR.exists(), config.REPORT_DIR.exists()]\n"
+            f"print(json.dumps({{'after_import': after_import, 'after_call': after_call, 'reports': str(config.REPORT_DIR)}}))\n"
+        )
         result = subprocess.run(
             [sys.executable, "-c", script],
             cwd=tmp_path,
