@@ -6,6 +6,8 @@ venv/
 *.db
 *.sqlite3
 reports/
+# Дампы PostgreSQL сервиса db-backup-scheduled (BACKUP_HOST_DIR по умолчанию): в них хеши паролей и журнал аудита
+/backups/
 .pytest_cache/
 *.egg-info/
 build/
