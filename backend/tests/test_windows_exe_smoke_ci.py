@@ -109,6 +109,17 @@ def test_the_smoke_step_reads_the_version_from_openapi_because_the_public_health
     assert "$health.version" not in run, "версии в health нет"
 
 
+def test_the_smoke_step_reads_only_fields_that_health_actually_returns(steps, client):
+    """Тест-контракт на стыке «потребитель — источник» (F-01 код-ревью). Раньше шаг читал `$health.version`, а ветка П1 убрала это поле
+    из ответа: git слил без конфликтов, а текстовые проверки подстрок дефекта не видели. Здесь сверяется то, что шаг читает из ответа
+    `/api/v1/health`, с тем, что приложение отдаёт на самом деле (в PowerShell отсутствующее свойство — `$null`, и сравнение падает)."""
+    run = _smoke(steps)["run"]
+    used = set(re.findall(r"\$health\.(\w+)", run))
+    assert used, "шаг должен проверять хотя бы одно поле ответа health"
+    returned = set(client.get("/api/v1/health").json())
+    assert used <= returned, f"шаг читает из health поля, которых нет в ответе: {sorted(used - returned)}"
+
+
 def test_the_smoke_step_stops_the_exe_with_its_children_and_fails_when_it_dies_early(steps):
     run = _smoke(steps)["run"]
     assert "finally" in run and "taskkill" in run and "/T" in run, "onefile-EXE — загрузчик и дочерний процесс: убиваем дерево"
