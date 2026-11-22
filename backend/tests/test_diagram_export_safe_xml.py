@@ -134,7 +134,11 @@ class TestNoUnsafeParsingInModule:
         calls = []
         for path in PACKAGE_FILES:
             tree = ast.parse(path.read_text(encoding="utf-8"))
-            calls.extend((node.func.value.id, node.func.attr, node.lineno) for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name))
+            calls.extend(
+                (node.func.value.id, node.func.attr, node.lineno)
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+            )
         return calls
 
     def test_the_scan_really_covers_the_package(self):

@@ -122,7 +122,8 @@ def install_http_security(
       DELETE к /api/ с чужого origin (CSRF: CORS защищает чтение, но не мешает браузеру отправить сам запрос). Origin'ы
       из cors_origins считаются доверенными; X-Forwarded-Host учитывается при trust_forwarded_host. Стоит внутри CORS
       и проверки Host, но снаружи AuthGateMiddleware: чужая страница получает отказ раньше, чем 401/обработчик.
-    - BodySizeLimitMiddleware (если задан max_body_bytes) — 413 REQUEST_BODY_TOO_LARGE на тело больше предела (раньше тело любого размера целиком читалось в память). Стоит САМЫМ внутренним из слоёв этой функции: внутри CORS, чтобы 413
+    - BodySizeLimitMiddleware (если задан max_body_bytes) — 413 REQUEST_BODY_TOO_LARGE на тело больше предела (раньше тело любого размера
+      целиком читалось в память). Стоит САМЫМ внутренним из слоёв этой функции: внутри CORS, чтобы 413
       дошёл до браузера на dev-сервере с понятным текстом, а не CORS-ошибкой, и внутри проверок клиента, Host и origin — чужие
       запросы отсекаются раньше. Снаружи AuthGateMiddleware: тело больше предела не читается и до проверки входа.
     allow_credentials=False: авторизация идёт через заголовок Authorization: Bearer <токен>, а не через

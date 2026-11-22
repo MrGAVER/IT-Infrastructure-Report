@@ -188,7 +188,10 @@ def _synced_interfaces_response(device_id: str, session: Session) -> dict[str, A
             {
                 **serialize(iface),
                 "subinterfaces": subinterfaces.get(iface.id, []),
-                "ips": [serialize(ip) for ip in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).order_by(IPAddress.ip_address)).all()],
+                "ips": [
+                    serialize(ip)
+                    for ip in session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).order_by(IPAddress.ip_address)).all()
+                ],
                 # port больше не колонка OpenPort (см. models.py) — сортируем по номеру порта из
                 # справочника через join, а не по несуществующей больше колонке.
                 "open_ports": enrich_open_ports(
@@ -294,11 +297,18 @@ def get_device_interface_vlans(device_id: str, session: Session) -> dict[str, An
     всех портов реестра общим списком с потолком записей, за которым VLAN порта «пропадали»."""
     if not session.get(PhysicalDevice, device_id):
         raise HTTPException(404, "Физическое устройство не найдено")
-    ports = session.execute(select(DeviceInterface.id, DeviceInterface.all_vlans, DeviceInterface.vlan_mode).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.name, DeviceInterface.id)).all()
+    ports = session.execute(
+        select(DeviceInterface.id, DeviceInterface.all_vlans, DeviceInterface.vlan_mode).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.name, DeviceInterface.id)
+    ).all()
     by_port = effective_vlan_ids(session, [port_id for port_id, _, _ in ports])
     wanted = set().union(*by_port.values()) if by_port else set()
     number_of = {vlan_id: number for vlan_id, number in session.execute(select(VLAN.id, VLAN.vlan_id).where(VLAN.id.in_(wanted))).all()} if wanted else {}
-    return {"items": [{"interface_id": port_id, "all_vlans": bool(all_vlans) and mode == "trunk", "vlan_ids": sorted(by_port.get(port_id, ()), key=lambda v: (number_of.get(v, 0), v))} for port_id, all_vlans, mode in ports]}
+    return {
+        "items": [
+            {"interface_id": port_id, "all_vlans": bool(all_vlans) and mode == "trunk", "vlan_ids": sorted(by_port.get(port_id, ()), key=lambda v: (number_of.get(v, 0), v))}
+            for port_id, all_vlans, mode in ports
+        ]
+    }
 
 
 def _interface_owned_rows(model: type[IPAddress] | type[OpenPort], device_id: str, session: Session) -> list[Any]:
@@ -308,7 +318,10 @@ def _interface_owned_rows(model: type[IPAddress] | type[OpenPort], device_id: st
         raise HTTPException(404, "Физическое устройство не найдено")
     return list(
         session.scalars(
-            select(model).join(DeviceInterface, DeviceInterface.id == model.owner_id).where(model.owner_type == OwnerType.DEVICE_INTERFACE, DeviceInterface.physical_device_id == device_id).order_by(model.created_at, model.id)
+            select(model)
+            .join(DeviceInterface, DeviceInterface.id == model.owner_id)
+            .where(model.owner_type == OwnerType.DEVICE_INTERFACE, DeviceInterface.physical_device_id == device_id)
+            .order_by(model.created_at, model.id)
         ).all()
     )
 

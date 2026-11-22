@@ -464,7 +464,15 @@ class TestStreamingAuditExport:
         from app.models import AuditLog
 
         for i in range(count):
-            db_session.add(AuditLog(entity_type="devices", entity_id=f"id-{i:03d}", action="UPDATE", details=f"Запись {i}", created_at=datetime(2026, 1, 1, 0, 0, i % 60) if i < 60 else datetime(2026, 1, 2, 0, 0, i % 60)))
+            db_session.add(
+                AuditLog(
+                    entity_type="devices",
+                    entity_id=f"id-{i:03d}",
+                    action="UPDATE",
+                    details=f"Запись {i}",
+                    created_at=datetime(2026, 1, 1, 0, 0, i % 60) if i < 60 else datetime(2026, 1, 2, 0, 0, i % 60),
+                )
+            )
         db_session.commit()
 
     def test_all_rows_survive_page_boundaries_without_duplicates(self, db_session, tmp_path, monkeypatch):

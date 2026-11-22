@@ -374,7 +374,10 @@ def apply_grouping(session: Session, saved_diagram: SavedDiagram, group_counts: 
     if persist and created:
         session.flush()  # отложенные изменения (device_count существующих записей) — до core-вставки
         _insert_missing_group_states(session, created)
-        stored = {s.group_key: s for s in session.scalars(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == saved_diagram.id, DiagramGroupState.group_key.in_([s.group_key for s in created]))).all()}
+        stored = {
+            s.group_key: s
+            for s in session.scalars(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == saved_diagram.id, DiagramGroupState.group_key.in_([s.group_key for s in created]))).all()
+        }
         for state in created:
             result[state.group_key] = stored.get(state.group_key, state)  # победитель гонки, если вставила другая транзакция
     return result

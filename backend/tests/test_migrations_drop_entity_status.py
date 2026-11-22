@@ -44,8 +44,17 @@ GRID = {
                 {
                     "height": 18,
                     "repeat": True,
-                    "data_source": {"root_entity": "information-systems", "expand": None, "filters": [{"path": "status", "op": "eq", "value": "active"}, {"path": "siem_enabled", "op": "is_true"}], "sort_by": "name"},
-                    "cells": [{"col": 0, "kind": "index"}, {"col": 1, "kind": "field", "path": "name", "separator": "; "}, {"col": 2, "kind": "field", "path": "status", "separator": "; ", "style": {"bold": True}, "colspan": 2}],
+                    "data_source": {
+                        "root_entity": "information-systems",
+                        "expand": None,
+                        "filters": [{"path": "status", "op": "eq", "value": "active"}, {"path": "siem_enabled", "op": "is_true"}],
+                        "sort_by": "name",
+                    },
+                    "cells": [
+                        {"col": 0, "kind": "index"},
+                        {"col": 1, "kind": "field", "path": "name", "separator": "; "},
+                        {"col": 2, "kind": "field", "path": "status", "separator": "; ", "style": {"bold": True}, "colspan": 2},
+                    ],
                 },
             ],
         }
@@ -256,11 +265,20 @@ E2E_GRID = {
             "title": "ИС",
             "columns": [{"width": 6}, {"width": 30}, {"width": 18}],
             "rows": [
-                {"height": 20, "repeat": False, "cells": [{"col": 0, "kind": "static", "text": "№", "colspan": 1}, {"col": 1, "kind": "static", "text": "Наименование"}, {"col": 2, "kind": "static", "text": "Состояние"}]},
+                {
+                    "height": 20,
+                    "repeat": False,
+                    "cells": [{"col": 0, "kind": "static", "text": "№", "colspan": 1}, {"col": 1, "kind": "static", "text": "Наименование"}, {"col": 2, "kind": "static", "text": "Состояние"}],
+                },
                 {
                     "height": 18,
                     "repeat": True,
-                    "data_source": {"root_entity": "information-systems", "expand": None, "filters": [{"path": "status", "op": "eq", "value": "active"}, {"path": "siem_enabled", "op": "is_true"}], "sort_by": "status"},
+                    "data_source": {
+                        "root_entity": "information-systems",
+                        "expand": None,
+                        "filters": [{"path": "status", "op": "eq", "value": "active"}, {"path": "siem_enabled", "op": "is_true"}],
+                        "sort_by": "status",
+                    },
                     "cells": [{"col": 0, "kind": "index"}, {"col": 1, "kind": "field", "path": "name"}, {"col": 2, "kind": "field", "path": "status"}],
                 },
             ],

@@ -74,7 +74,8 @@ def _seed_connections(db_path: Path) -> dict[str, str]:
     for key, signature in (("legacy", LEGACY), ("short_new", NEW_FORMAT), ("long_new", LONG_NEW_FORMAT), ("none", None)):
         ids[key] = _uid()
         conn.execute(
-            "INSERT INTO connections (id, source_interface_id, destination_interface_id, connection_type_id, is_active, port_config_approved_signature, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
+            "INSERT INTO connections (id, source_interface_id, destination_interface_id, connection_type_id, is_active, "
+            "port_config_approved_signature, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
             (ids[key], _insert_interface(conn), _insert_interface(conn), cable_id, signature, _now(), _now()),
         )
     conn.commit()

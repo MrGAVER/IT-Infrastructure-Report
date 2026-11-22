@@ -90,7 +90,10 @@ def _database_url(data_dir: Path | None = None, *, env: Environ | None = None) -
 
 
 # Content-Security-Policy для интерфейса и API по умолчанию (переопределяется INFRA_REGISTRY_CSP).
-_DEFAULT_CSP_POLICY = "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+_DEFAULT_CSP_POLICY = (
+    "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; "
+    "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+)
 
 
 @dataclass(frozen=True, slots=True)

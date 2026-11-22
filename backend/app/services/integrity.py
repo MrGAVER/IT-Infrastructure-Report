@@ -263,7 +263,11 @@ def find_duplicate_open_port_numbers(session: Session) -> list[dict[str, Any]]:
         .having(protocol_count > 1)
     ).all()
 
-    found = [(r.owner_type, r.owner_id, r.port, r.n) for r in owned] + [(INTERFACE_GROUP_OWNER, r.group_id, r.port, r.n) for r in grouped] + [(INFORMATION_SYSTEM_OWNER, r.information_system_id, r.port, r.n) for r in protocols]
+    found = (
+        [(r.owner_type, r.owner_id, r.port, r.n) for r in owned]
+        + [(INTERFACE_GROUP_OWNER, r.group_id, r.port, r.n) for r in grouped]
+        + [(INFORMATION_SYSTEM_OWNER, r.information_system_id, r.port, r.n) for r in protocols]
+    )
     names = _owner_names(session, {(t, i) for t, i, _, _ in found})
     result = [{"owner_type": t, "owner_id": i, "owner_name": names.get((t, i)), "port": port, "count": n} for t, i, port, n in found]
     return sorted(result, key=lambda d: (d["owner_type"], d["owner_name"] or "", d["port"]))

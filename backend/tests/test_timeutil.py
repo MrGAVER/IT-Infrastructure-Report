@@ -161,7 +161,15 @@ def test_diagram_has_same_format_on_create_and_read(client):
 
 
 def test_report_template_and_versions_carry_the_offset(client):
-    config = {"sheets": [{"title": "Лист1", "columns": [{"width": 25}], "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}]}]}
+    config = {
+        "sheets": [
+            {
+                "title": "Лист1",
+                "columns": [{"width": 25}],
+                "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}],
+            }
+        ]
+    }
     created = client.post(f"{API}/report-templates", json={"name": "Шаблон А-06", "config": config})
     assert created.status_code == 201, created.text
     template = created.json()

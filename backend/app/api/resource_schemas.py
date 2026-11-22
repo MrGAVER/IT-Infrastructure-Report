@@ -23,7 +23,10 @@ from .schema_base import RequestBody
 ResourceBody = Annotated[
     dict[str, Any],
     Body(
-        description=("Поля записи — колонки ресурса из {resource} (список: GET /api/v1/resources/{resource}/schema). Неизвестные колонки игнорируются; типы и правила проверяются по ресурсу, ошибка — 422 с текстом на русском."),
+        description=(
+            "Поля записи — колонки ресурса из {resource} (список: GET /api/v1/resources/{resource}/schema). Неизвестные "
+            "колонки игнорируются; типы и правила проверяются по ресурсу, ошибка — 422 с текстом на русском."
+        ),
     ),
 ]
 

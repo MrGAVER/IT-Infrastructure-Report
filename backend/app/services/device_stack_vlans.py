@@ -137,7 +137,9 @@ def stack_vlans(session: Session, stack_id: str) -> dict[str, Any]:
     result["items"] = [_shared_row(v, settings[v.id], members, links_by_vlan.get(v.id, {})) for v in catalog if v.id in settings]
     if members:
         members_by_domain = domain_members(session, member_ids)
-        result["available"] = [_candidate(v, members, links_by_vlan.get(v.id, {})) for v in catalog if v.id not in settings and v.id in links_by_vlan and not outside_domain(v, members, members_by_domain)]
+        result["available"] = [
+            _candidate(v, members, links_by_vlan.get(v.id, {})) for v in catalog if v.id not in settings and v.id in links_by_vlan and not outside_domain(v, members, members_by_domain)
+        ]
     return result
 
 
@@ -175,7 +177,10 @@ def apply_stack_vlan(session: Session, stack_id: str, vlan_id: str, ip_address: 
         setting = DeviceStackVLAN(stack_id=stack.id, vlan_id=vlan.id)
         session.add(setting)
     setting.ip_address, setting.prefix_length, setting.is_management = values
-    links = {l.physical_device_id: l for l in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_([d.id for d in members]))).all()}
+    links = {
+        l.physical_device_id: l
+        for l in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_([d.id for d in members]))).all()
+    }
     outcomes = Counter(write_link(session, d.id, vlan, links.get(d.id), values) for d in members)
     address = f"{values[0]}/{values[1]}" if values[0] else "адрес не задан"
     flag = ", «Управление»" if values[2] else ""
@@ -184,7 +189,8 @@ def apply_stack_vlan(session: Session, stack_id: str, vlan_id: str, ip_address: 
         "device-stacks",
         stack.id,
         AuditAction.SYNC,
-        f"Общая настройка VLAN {vlan.vlan_id} «{vlan.name}» для стека «{stack.name}»: {address}{flag}; назначено устройствам {outcomes['added']}, изменено {outcomes['updated']}, без изменений {outcomes[None]}",
+        f"Общая настройка VLAN {vlan.vlan_id} «{vlan.name}» для стека «{stack.name}»: {address}{flag}; назначено "
+        f"устройствам {outcomes['added']}, изменено {outcomes['updated']}, без изменений {outcomes[None]}",
     )
     try:
         session.commit()
@@ -198,9 +204,15 @@ def _vlan_usage_by_device(session: Session, device_ids: list[str], vlan_id: str)
     """Сколько связей портов, групп портов и подинтерфейсов каждого устройства используют VLAN."""
     usage: Counter = Counter()
     queries = (
-        select(DeviceInterface.physical_device_id).join(InterfaceVLAN, InterfaceVLAN.interface_id == DeviceInterface.id).where(InterfaceVLAN.vlan_id == vlan_id, DeviceInterface.physical_device_id.in_(device_ids)),
-        select(InterfaceGroup.physical_device_id).join(InterfaceGroupVLAN, InterfaceGroupVLAN.group_id == InterfaceGroup.id).where(InterfaceGroupVLAN.vlan_id == vlan_id, InterfaceGroup.physical_device_id.in_(device_ids)),
-        select(DeviceInterface.physical_device_id).join(DeviceSubinterface, DeviceSubinterface.parent_interface_id == DeviceInterface.id).where(DeviceSubinterface.vlan_id == vlan_id, DeviceInterface.physical_device_id.in_(device_ids)),
+        select(DeviceInterface.physical_device_id)
+        .join(InterfaceVLAN, InterfaceVLAN.interface_id == DeviceInterface.id)
+        .where(InterfaceVLAN.vlan_id == vlan_id, DeviceInterface.physical_device_id.in_(device_ids)),
+        select(InterfaceGroup.physical_device_id)
+        .join(InterfaceGroupVLAN, InterfaceGroupVLAN.group_id == InterfaceGroup.id)
+        .where(InterfaceGroupVLAN.vlan_id == vlan_id, InterfaceGroup.physical_device_id.in_(device_ids)),
+        select(DeviceInterface.physical_device_id)
+        .join(DeviceSubinterface, DeviceSubinterface.parent_interface_id == DeviceInterface.id)
+        .where(DeviceSubinterface.vlan_id == vlan_id, DeviceInterface.physical_device_id.in_(device_ids)),
     )
     for query in queries:
         usage.update(session.scalars(query).all())
@@ -227,7 +239,9 @@ def remove_stack_vlan(session: Session, stack_id: str, vlan_id: str, remove_from
         if busy:
             listing = ", ".join(f"{names[device_id]} ({count})" for device_id, count in sorted(busy.items(), key=lambda item: names[item[0]]))
             raise HTTPException(
-                409, f"VLAN {label} нельзя убрать с устройств стека: он используется на портах, в группах портов или подинтерфейсах ({listing}). Сначала снимите VLAN с них или снимите настройку без удаления VLAN с устройств"
+                409,
+                f"VLAN {label} нельзя убрать с устройств стека: он используется на портах, в группах портов или подинтерфейсах "
+                f"({listing}). Сначала снимите VLAN с них или снимите настройку без удаления VLAN с устройств",
             )
         for link in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan_id, PhysicalDeviceVLAN.physical_device_id.in_(list(names)))).all():
             session.delete(link)

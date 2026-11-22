@@ -271,7 +271,9 @@ class TestSubinterfaces:
     def test_name_decides_between_subinterfaces_of_the_same_vlan_ignoring_case(self, registry):
         from app.models import DeviceSubinterface
 
-        registry.add_all([DeviceSubinterface(id="s-d", parent_interface_id="p5", name="Gi1/0/5.dup-b", vlan_id="v10"), DeviceSubinterface(id="s-e", parent_interface_id="p5", name="gi1/0/5.dup-a", vlan_id="v10")])
+        registry.add_all(
+            [DeviceSubinterface(id="s-d", parent_interface_id="p5", name="Gi1/0/5.dup-b", vlan_id="v10"), DeviceSubinterface(id="s-e", parent_interface_id="p5", name="gi1/0/5.dup-a", vlan_id="v10")]
+        )
         registry.commit()
         d = _load(registry)
         assert _ids(d.subs_by_iface["p5"]) == ["s-b", "s-e", "s-d", "s-a"]  # VLAN 10: «Gi1/0/5.10» < «gi1/0/5.dup-a» < «Gi1/0/5.dup-b»; затем VLAN 20

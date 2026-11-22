@@ -33,7 +33,12 @@ def _resolve_protocol_catalog_entry(catalog_id: Any, session: Session) -> Protoc
     return entry
 
 
-_OPEN_PORT_OWNER_LABELS = {OwnerType.VIRTUAL_MACHINE: "Виртуальная машина", OwnerType.DEVICE_INTERFACE: "Порт устройства", OwnerType.DEVICE_SUBINTERFACE: "Подинтерфейс порта", OwnerType.PHYSICAL_DEVICE: "Устройство"}
+_OPEN_PORT_OWNER_LABELS = {
+    OwnerType.VIRTUAL_MACHINE: "Виртуальная машина",
+    OwnerType.DEVICE_INTERFACE: "Порт устройства",
+    OwnerType.DEVICE_SUBINTERFACE: "Подинтерфейс порта",
+    OwnerType.PHYSICAL_DEVICE: "Устройство",
+}
 
 
 def _ensure_port_number_is_free(model: type, owner_filters: list[Any], catalog_id: Any, label: str, session: Session, current_id: str | None) -> None:
@@ -93,7 +98,9 @@ def _validate_open_port_catalog(data: dict[str, Any], session: Session) -> None:
     _resolve_protocol_catalog_entry(data.get("protocol_catalog_id"), session)
 
 
-def _sync_owned_rows(model: type, owner_type: str, owner_id: str, items: Any, session: Session, *, normalize: Callable[[dict[str, Any]], dict[str, Any] | None], array_error: str, foreign_id_error: str) -> tuple[int, int, int]:
+def _sync_owned_rows(
+    model: type, owner_type: str, owner_id: str, items: Any, session: Session, *, normalize: Callable[[dict[str, Any]], dict[str, Any] | None], array_error: str, foreign_id_error: str
+) -> tuple[int, int, int]:
     """Общая diff-синхронизация вложенных записей с полиморфным владельцем (OpenPort, IPAddress,
     DeployedSoftware: owner_type/owner_id) по присланному списку: элемент с id обновляет существующую
     запись владельца, без id создаёт новую, записи владельца, которых в списке нет, удаляются.
@@ -212,7 +219,9 @@ def sync_owner_deployed_software(owner_type: str, owner_id: str, deployed_softwa
     return _sync_owned_rows(DeployedSoftware, owner_type, owner_id, deployed_software, session, normalize=normalize, array_error=array_error, foreign_id_error=foreign_id_error)
 
 
-def _sync_owner_collection(owner_model: type, entity: str, not_found: str, owner_id: str, session: Session, *, label: str, sync: Callable[[Any], tuple[int, int, int]], load: Callable[[Any], list[dict[str, Any]]]) -> dict[str, Any]:
+def _sync_owner_collection(
+    owner_model: type, entity: str, not_found: str, owner_id: str, session: Session, *, label: str, sync: Callable[[Any], tuple[int, int, int]], load: Callable[[Any], list[dict[str, Any]]]
+) -> dict[str, Any]:
     """Общий каркас атомарной синхронизации одного вложенного списка владельца (ВМ или физического
     устройства: порты, IP-адреса, ПО): владелец существует (404 с текстом not_found), список
     применяется одной транзакцией (любая ошибка откатывает весь запрос), запись в журнал аудита
@@ -303,7 +312,9 @@ def sync_vm_deployed_software(vm_id: str, payload: dict[str, Any], session: Sess
     deployed_software, см. sync_owner_deployed_software). Ответ: {'items': [...]} — записи ПО ВМ."""
 
     def load(vm: VirtualMachine) -> list[dict[str, Any]]:
-        rows = session.scalars(select(DeployedSoftware).where(DeployedSoftware.owner_type == OwnerType.VIRTUAL_MACHINE, DeployedSoftware.owner_id == vm.id).order_by(DeployedSoftware.created_at, DeployedSoftware.id)).all()
+        rows = session.scalars(
+            select(DeployedSoftware).where(DeployedSoftware.owner_type == OwnerType.VIRTUAL_MACHINE, DeployedSoftware.owner_id == vm.id).order_by(DeployedSoftware.created_at, DeployedSoftware.id)
+        ).all()
         return [serialize(row) for row in rows]
 
     return _sync_vm_collection(
@@ -330,7 +341,9 @@ def sync_device_deployed_software(device_id: str, payload: dict[str, Any], sessi
     Ответ: {'items': [...]} — записи ПО устройства."""
 
     def load(device: PhysicalDevice) -> list[dict[str, Any]]:
-        rows = session.scalars(select(DeployedSoftware).where(DeployedSoftware.owner_type == OwnerType.PHYSICAL_DEVICE, DeployedSoftware.owner_id == device.id).order_by(DeployedSoftware.created_at, DeployedSoftware.id)).all()
+        rows = session.scalars(
+            select(DeployedSoftware).where(DeployedSoftware.owner_type == OwnerType.PHYSICAL_DEVICE, DeployedSoftware.owner_id == device.id).order_by(DeployedSoftware.created_at, DeployedSoftware.id)
+        ).all()
         return [serialize(row) for row in rows]
 
     return _sync_owner_collection(

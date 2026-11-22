@@ -139,7 +139,10 @@ def test_upgrade_adds_columns_flags_all_vlans_ports_and_drops_their_links(legacy
     conn = _connect(db_path)
     try:
         assert "all_vlans" in _columns(conn, "device_interfaces") and "all_vlans" in _columns(conn, "interface_groups")
-        flags = {name: bool(conn.execute("SELECT all_vlans FROM device_interfaces WHERE id=?", (ids[name],)).fetchone()[0]) for name in ("all", "all_plus_foreign", "subset", "access", "empty_trunk", "bare_trunk")}
+        flags = {
+            name: bool(conn.execute("SELECT all_vlans FROM device_interfaces WHERE id=?", (ids[name],)).fetchone()[0])
+            for name in ("all", "all_plus_foreign", "subset", "access", "empty_trunk", "bare_trunk")
+        }
         assert flags == {"all": True, "all_plus_foreign": True, "subset": False, "access": False, "empty_trunk": False, "bare_trunk": False}
         # набор порта с признаком вычисляется из VLAN устройства — связей у него больше нет
         assert _port_links(conn, ids["all"]) == set() and _port_links(conn, ids["all_plus_foreign"]) == set()

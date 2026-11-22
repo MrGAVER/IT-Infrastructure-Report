@@ -27,7 +27,14 @@ def _static_default(column) -> str | None:
 
 def columns_for(model):
     return [
-        {"name": c.key, "type": str(c.type), "nullable": c.nullable, "primary_key": c.primary_key, "default": _static_default(c), "foreign_key": next(iter(c.foreign_keys)).target_fullname if c.foreign_keys else None}
+        {
+            "name": c.key,
+            "type": str(c.type),
+            "nullable": c.nullable,
+            "primary_key": c.primary_key,
+            "default": _static_default(c),
+            "foreign_key": next(iter(c.foreign_keys)).target_fullname if c.foreign_keys else None,
+        }
         for c in inspect(model).columns
     ]
 

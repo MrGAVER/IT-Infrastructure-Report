@@ -114,7 +114,9 @@ def test_repeated_sync_keeps_ids_and_template_edit_updates_in_place(client):
     v10, v20 = _vlan(client, 10), _vlan(client, 20)
     dev = _device(client, vlans=(v10, v20))
     ssh = _catalog_entry(client, 22, "SSH")
-    first = _sync(client, dev["id"], [_port("Gi0/0")], [_group([v10, v20], [_tpl(v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}])])]).json()
+    first = _sync(
+        client, dev["id"], [_port("Gi0/0")], [_group([v10, v20], [_tpl(v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}])])]
+    ).json()
     sub = _subs(first, "Gi0/0")["Gi0/0.10"]
     stored_group = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"][0]
 

@@ -25,7 +25,15 @@ NON_FINITE = [float("nan"), float("inf"), float("-inf")]
 
 def _config(**cell_overrides) -> dict:
     column = {"width": 25, **cell_overrides}
-    return {"sheets": [{"title": "Лист1", "columns": [column], "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}]}]}
+    return {
+        "sheets": [
+            {
+                "title": "Лист1",
+                "columns": [column],
+                "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}],
+            }
+        ]
+    }
 
 
 def _post(client, url: str, body: dict, method: str = "post"):

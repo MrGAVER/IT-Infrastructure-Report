@@ -495,7 +495,9 @@ class TestInterfacesSync:
         assert all(item["vlan_mode"] == "access" for item in r.json()["items"])
 
         update_queries = [s for s in sql_log if s.strip().upper().startswith("UPDATE") and "DEVICE_INTERFACES" in s.upper()]
-        assert not update_queries, f"Создание новых интерфейсов не должно требовать UPDATE device_interfaces (vlan_mode должен уходить в исходный INSERT), получено {len(update_queries)}: {update_queries}"
+        assert not update_queries, (
+            f"Создание новых интерфейсов не должно требовать UPDATE device_interfaces (vlan_mode должен уходить в исходный INSERT), получено {len(update_queries)}: {update_queries}"
+        )
 
     def test_sync_interfaces_creates_and_lists_open_ports(self, client):
         """п.1.4 (батч4): открытые порты теперь свойство интерфейса — переживают сохранение и
@@ -1283,7 +1285,11 @@ class TestVlanDomainReplaceSync:
         assert r.status_code == 200, r.text
         assert r.json() == {"status": "ok", "created_definitions": 2, "assigned": 2, "removed": 0}
 
-        source_vlan20_link = next(row for row in client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}").json()["items"] if client.get(f"/api/v1/resources/vlans/{row['vlan_id']}").json()["vlan_id"] == 20)
+        source_vlan20_link = next(
+            row
+            for row in client.get(f"/api/v1/resources/device-vlans?physical_device_id={source['id']}").json()["items"]
+            if client.get(f"/api/v1/resources/vlans/{row['vlan_id']}").json()["vlan_id"] == 20
+        )
         client.delete(f"/api/v1/resources/device-vlans/{source_vlan20_link['id']}")
         return domain, member
 

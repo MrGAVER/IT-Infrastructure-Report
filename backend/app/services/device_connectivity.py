@@ -57,7 +57,11 @@ def _active_connections_of_device(device_id: str, session: Session) -> list[Conn
     """Активные подключения, в которых участвует хотя бы один порт устройства, в стабильном порядке.
     Порты выбираются подзапросом, а не списком id: у устройства их может быть много."""
     own_ids = select(DeviceInterface.id).where(DeviceInterface.physical_device_id == device_id)
-    stmt = select(Connection).where(Connection.is_active.is_not(False), or_(Connection.source_interface_id.in_(own_ids), Connection.destination_interface_id.in_(own_ids))).order_by(Connection.created_at, Connection.id)
+    stmt = (
+        select(Connection)
+        .where(Connection.is_active.is_not(False), or_(Connection.source_interface_id.in_(own_ids), Connection.destination_interface_id.in_(own_ids)))
+        .order_by(Connection.created_at, Connection.id)
+    )
     return list(session.scalars(stmt).all())
 
 

@@ -293,7 +293,9 @@ def test_copying_several_vlans_into_an_access_port_is_blocked(world):
     world.configure(a, mode="access", vlans=())
     world.configure(b, mode="access", vlans=(10,))
     world.configure(b, mode="trunk", vlans=(10, 20))
-    rule = world.client.post(RULES, json={"name": "Копировать VLAN в любой порт", "action": "auto", "priority": 1, "target": {"vlans": "none"}, "source": {"vlans": "set"}, "apply": {"vlans": "copy"}}).json()
+    rule = world.client.post(
+        RULES, json={"name": "Копировать VLAN в любой порт", "action": "auto", "priority": 1, "target": {"vlans": "none"}, "source": {"vlans": "set"}, "apply": {"vlans": "copy"}}
+    ).json()
     world.connect(a, b)
 
     plan = world.preview(rule_id=rule["id"])
@@ -467,7 +469,9 @@ def test_mode_rule_adapts_vlans_when_the_target_becomes_access(world):
     world.configure(b, mode="access", vlans=(10,))
     connection = world.connect(a, b)
     assert world.status(connection) == "mismatch"
-    world.client.post(RULES, json={"name": "Trunk берёт access соседа", "action": "auto", "priority": 1, "target": {"mode": "trunk"}, "source": {"mode": "access"}, "apply": {"mode": True, "vlans": "adapt"}})
+    world.client.post(
+        RULES, json={"name": "Trunk берёт access соседа", "action": "auto", "priority": 1, "target": {"mode": "trunk"}, "source": {"mode": "access"}, "apply": {"mode": True, "vlans": "adapt"}}
+    )
 
     world.apply()
 

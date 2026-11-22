@@ -168,7 +168,10 @@ def _parse_hosts(entries: list[str]) -> tuple[str, ...]:
             ipaddress.ip_address(entry)
         except ValueError:
             continue
-        raise SettingsError(f"[access] allowed_hosts: {entry!r} — это IP-адрес. Здесь перечисляются имена; по IP-адресу приложение открывается без дополнительных настроек, а список клиентов задаётся в allowed_clients.")
+        raise SettingsError(
+            f"[access] allowed_hosts: {entry!r} — это IP-адрес. Здесь перечисляются имена; по IP-адресу приложение "
+            "открывается без дополнительных настроек, а список клиентов задаётся в allowed_clients."
+        )
     return tuple(dict.fromkeys(entries))
 
 

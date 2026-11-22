@@ -86,7 +86,11 @@ def test_pyinstaller_is_pinned_inside_the_declared_range(build_lock):
 def test_build_lock_has_the_runtime_versions_from_requirements_lock(build_lock):
     """В EXE — те же версии общих пакетов, что в Docker и CI (прошедшие pip-audit по requirements.lock)."""
     runtime = _parse_lock(RUNTIME_LOCK)
-    different = {name: (entry["version"], build_lock.get(name, {}).get("version")) for name, entry in runtime.items() if build_lock.get(name, {}).get("version") != entry["version"] or build_lock[name]["marker"] != entry["marker"]}
+    different = {
+        name: (entry["version"], build_lock.get(name, {}).get("version"))
+        for name, entry in runtime.items()
+        if build_lock.get(name, {}).get("version") != entry["version"] or build_lock[name]["marker"] != entry["marker"]
+    }
     assert different == {}, f"версии runtime в requirements-build.lock расходятся с requirements.lock: {different}"
     assert set(build_lock) - set(runtime), "в сборочном lock должны быть пакеты сборки (PyInstaller и его зависимости)"
 

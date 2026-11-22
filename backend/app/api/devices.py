@@ -3,7 +3,16 @@ from sqlalchemy.orm import Session
 from ..constants import MAX_PAGE_OFFSET, MAX_SEARCH_LENGTH
 from ..db import get_db
 from ..schemas import DeployedSoftwareSync, DeviceInterfacesSync, DeviceVlansSync
-from ..services.crud import get_device_interface_ips, get_device_interface_open_ports, get_device_interface_vlans, get_device_subinterfaces, get_interface_groups, sync_device_deployed_software, sync_device_vlans, sync_interfaces
+from ..services.crud import (
+    get_device_interface_ips,
+    get_device_interface_open_ports,
+    get_device_interface_vlans,
+    get_device_subinterfaces,
+    get_interface_groups,
+    sync_device_deployed_software,
+    sync_device_vlans,
+    sync_interfaces,
+)
 from ..services.device_connectivity import list_device_options, list_free_interfaces, list_interface_connections
 
 router = APIRouter(prefix="/api/v1/devices", tags=["Devices"])

@@ -119,7 +119,9 @@ class TestGenericIsModelAgnostic:
         offenders = [
             node.lineno
             for node in ast.walk(_generic_tree())
-            if isinstance(node, ast.Compare) and any(isinstance(op, (ast.Is, ast.IsNot)) for op in node.ops) and any(isinstance(operand, ast.Name) and operand.id[:1].isupper() for operand in [node.left, *node.comparators])
+            if isinstance(node, ast.Compare)
+            and any(isinstance(op, (ast.Is, ast.IsNot)) for op in node.ops)
+            and any(isinstance(operand, ast.Name) and operand.id[:1].isupper() for operand in [node.left, *node.comparators])
         ]
         assert not offenders, f"в generic.py появилось ветвление по классу модели (строки {offenders}) — вынесите его в crud/hooks.py"
 

@@ -84,7 +84,9 @@ def test_non_numeric_value_fails_the_start_naming_the_variable(tmp_path, env_nam
     assert error.startswith("ValueError") and env_name in error, f"в ошибке запуска должно быть имя переменной, а не безымянный invalid literal: {error}"
 
 
-@pytest.mark.parametrize(("env_name", "attr", "default", "valid", "below_minimum"), [setting for setting in SETTINGS if setting[4] is not None], ids=[setting[1] for setting in SETTINGS if setting[4] is not None])
+@pytest.mark.parametrize(
+    ("env_name", "attr", "default", "valid", "below_minimum"), [setting for setting in SETTINGS if setting[4] is not None], ids=[setting[1] for setting in SETTINGS if setting[4] is not None]
+)
 def test_value_below_the_minimum_fails_the_start_naming_the_variable(tmp_path, env_name, attr, default, valid, below_minimum):
     error = _error_line(_import_config(tmp_path, **{env_name: below_minimum}))
     assert error.startswith("ValueError") and env_name in error, error

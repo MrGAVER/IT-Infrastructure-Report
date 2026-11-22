@@ -83,7 +83,9 @@ def _enrich_rows(model, rows, session: Session):
     return hooks_for(model).enrich_rows(rows, session)
 
 
-def list_resource(resource: str, session: Session, q: str | None = None, offset: int = 0, limit: int = 100, filters: dict[str, str] | None = None, date_from: str | None = None, date_to: str | None = None):
+def list_resource(
+    resource: str, session: Session, q: str | None = None, offset: int = 0, limit: int = 100, filters: dict[str, str] | None = None, date_from: str | None = None, date_to: str | None = None
+):
     model = model_for(resource)
     stmt = _apply_ordering(select(model), model)
     stmt = _apply_search(stmt, model, q)

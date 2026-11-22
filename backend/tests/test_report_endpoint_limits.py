@@ -23,7 +23,15 @@ from app.services.report_params import (
 )
 
 API = "/api/v1"
-VALID_CONFIG = {"sheets": [{"title": "Лист1", "columns": [{"width": 25}], "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}]}]}
+VALID_CONFIG = {
+    "sheets": [
+        {
+            "title": "Лист1",
+            "columns": [{"width": 25}],
+            "rows": [{"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}],
+        }
+    ]
+}
 
 
 @pytest.fixture()

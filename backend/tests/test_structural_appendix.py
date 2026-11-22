@@ -94,7 +94,9 @@ class Registry:
         manufacturer = s.query(Manufacturer).filter_by(name=maker).first() or Manufacturer(name=maker)
         s.add(manufacturer)
         s.flush()
-        device_model = s.query(DeviceModel).filter_by(manufacturer_id=manufacturer.id, device_type_id=dtype.id, model=model).first() or DeviceModel(manufacturer_id=manufacturer.id, device_type_id=dtype.id, model=model)
+        device_model = s.query(DeviceModel).filter_by(manufacturer_id=manufacturer.id, device_type_id=dtype.id, model=model).first() or DeviceModel(
+            manufacturer_id=manufacturer.id, device_type_id=dtype.id, model=model
+        )
         s.add(device_model)
         s.flush()
         dev = PhysicalDevice(

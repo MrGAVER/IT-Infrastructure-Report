@@ -180,7 +180,16 @@ def _seed_rich_dataset(session):
     session.add_all([operating_system, room])
     session.flush()
 
-    dev1 = PhysicalDevice(device_type_id=dtype.id, manufacturer_id=manufacturer.id, serial_number="SN-001", system_name="srv-01", embedded_os_id=embedded_os.id, building_id=building.id, room_id=room.id, siem_enabled=True)
+    dev1 = PhysicalDevice(
+        device_type_id=dtype.id,
+        manufacturer_id=manufacturer.id,
+        serial_number="SN-001",
+        system_name="srv-01",
+        embedded_os_id=embedded_os.id,
+        building_id=building.id,
+        room_id=room.id,
+        siem_enabled=True,
+    )
     dev2 = PhysicalDevice(device_type_id=dtype.id, manufacturer_id=manufacturer.id, serial_number="SN-002", system_name="sw-01", embedded_os_id=embedded_os.id)
     session.add_all([dev1, dev2])
     session.flush()

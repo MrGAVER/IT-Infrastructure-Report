@@ -129,7 +129,9 @@ def _drop_port_vlans(db_session, port_id: str) -> None:
 
 
 def _port_with_vlan(client, device: dict, port: str, name: str, vlan: dict) -> dict:
-    r = client.put(f"{API}/devices/{device['id']}/interfaces", json={"interfaces": [{"name": port, "vlan_mode": "trunk", "vlan_ids": [vlan["id"]], "subinterfaces": [{"name": name, "vlan_id": vlan["id"]}]}]})
+    r = client.put(
+        f"{API}/devices/{device['id']}/interfaces", json={"interfaces": [{"name": port, "vlan_mode": "trunk", "vlan_ids": [vlan["id"]], "subinterfaces": [{"name": name, "vlan_id": vlan["id"]}]}]}
+    )
     assert r.status_code == 200, r.text
     return r.json()["items"][0]
 

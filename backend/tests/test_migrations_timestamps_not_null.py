@@ -62,7 +62,10 @@ def schema_snapshot(engine: sa.engine.Engine) -> dict[str, dict]:
     snapshot: dict[str, dict] = {}
     for table in sorted(inspector.get_table_names()):
         columns = [(c["name"], str(c["type"]), None if _relaxed(table, c["name"]) else c["nullable"], str(c.get("default"))) for c in inspector.get_columns(table)]
-        foreign_keys = sorted((fk.get("name") or "", tuple(fk["constrained_columns"]), fk["referred_table"], tuple(fk["referred_columns"]), (fk.get("options") or {}).get("ondelete") or "") for fk in inspector.get_foreign_keys(table))
+        foreign_keys = sorted(
+            (fk.get("name") or "", tuple(fk["constrained_columns"]), fk["referred_table"], tuple(fk["referred_columns"]), (fk.get("options") or {}).get("ondelete") or "")
+            for fk in inspector.get_foreign_keys(table)
+        )
         indexes = sorted((i["name"], tuple(i["column_names"]), bool(i["unique"])) for i in inspector.get_indexes(table))
         uniques = sorted((u.get("name") or "", tuple(u["column_names"])) for u in inspector.get_unique_constraints(table))
         snapshot[table] = {

@@ -70,7 +70,13 @@ def seed_registry(session: Session) -> None:
     session.flush()
     add([StructuralUnit(id="u-child", name="Отдел 1", parent_id="u-root")])
     session.flush()
-    add([Building(id="b1", name="Корпус 1", address="ул. Первая, 1", structural_unit_id="u-child"), Building(id="b2", name="Корпус 2", address="ул. Вторая, 2", structural_unit_id="u-other"), Building(id="b3", name="Склад")])
+    add(
+        [
+            Building(id="b1", name="Корпус 1", address="ул. Первая, 1", structural_unit_id="u-child"),
+            Building(id="b2", name="Корпус 2", address="ул. Вторая, 2", structural_unit_id="u-other"),
+            Building(id="b3", name="Склад"),
+        ]
+    )
     session.flush()
     add([Room(id="rm1", building_id="b1", name="101")])
     add([DeviceType(id="dt-sw", name="Коммутатор", category_id="cat1"), DeviceType(id="dt-rt", name="Маршрутизатор", category_id="cat1"), DeviceType(id="dt-srv", name="Сервер", category_id="cat1")])
@@ -80,22 +86,52 @@ def seed_registry(session: Session) -> None:
     add([OperatingSystem(id="os1", category_id="osc1", name="Debian", version="12"), EmbeddedOperatingSystem(id="eos1", name="IOS XE")])
     add([InterfaceType(id="it1", name="GigabitEthernet")])
     add([VLAN(id="v10", vlan_id=10, name="Данные"), VLAN(id="v20", vlan_id=20, name="Управление"), VLAN(id="a30", vlan_id=30, name="Гости"), VLAN(id="v40", vlan_id=40, name="Лишний")])
-    add([SupportOrganization(id="so1", name="Интегратор"), SupportMethod(id="sm1", name="Удалённо"), CryptoProtectionMeans(id="cp1", name="КриптоПро"), Department(id="dep1", name="Бухгалтерия"), PlacementAsset(id="pa1", name="ЦОД")])
-    add([ProtocolPortCatalog(id="cat-22", port=22, protocol_type="SSH"), ProtocolPortCatalog(id="cat-443", port=443, protocol_type="HTTPS"), ProtocolPortCatalog(id="cat-80", port=80, protocol_type="HTTP")])
+    add(
+        [
+            SupportOrganization(id="so1", name="Интегратор"),
+            SupportMethod(id="sm1", name="Удалённо"),
+            CryptoProtectionMeans(id="cp1", name="КриптоПро"),
+            Department(id="dep1", name="Бухгалтерия"),
+            PlacementAsset(id="pa1", name="ЦОД"),
+        ]
+    )
+    add(
+        [
+            ProtocolPortCatalog(id="cat-22", port=22, protocol_type="SSH"),
+            ProtocolPortCatalog(id="cat-443", port=443, protocol_type="HTTPS"),
+            ProtocolPortCatalog(id="cat-80", port=80, protocol_type="HTTP"),
+        ]
+    )
     add([ConnectionType(id="ct1", name="Витая пара")])
     session.flush()
     add([DeviceTypeVLAN(id="dtv1", device_type_id="dt-sw", vlan_id="a30")])
     add(
         [
             PhysicalDevice(id="srv0", device_type_id="dt-srv", serial_number="SN-AAA", system_name="AAA-first"),
-            PhysicalDevice(id="sw1", device_type_id="dt-sw", serial_number="SN-SW1", system_name="SW-1", building_id="b1", room_id="rm1", manufacturer_id="m1", model_id="mod1", embedded_os_id="eos1", siem_enabled=True),
+            PhysicalDevice(
+                id="sw1",
+                device_type_id="dt-sw",
+                serial_number="SN-SW1",
+                system_name="SW-1",
+                building_id="b1",
+                room_id="rm1",
+                manufacturer_id="m1",
+                model_id="mod1",
+                embedded_os_id="eos1",
+                siem_enabled=True,
+            ),
             PhysicalDevice(id="sw2", device_type_id="dt-sw", serial_number="SN-SW2", system_name="SW-2", building_id="b2"),
             PhysicalDevice(id="rt1", device_type_id="dt-rt", serial_number="SN-RT1", building_id="b1"),
             PhysicalDevice(id="srv1", device_type_id="dt-srv", serial_number="SN-SRV1", system_name="SRV-1", building_id="b3", operating_system_id="os1"),
         ]
     )
     session.flush()
-    add([PhysicalDeviceVLAN(id="pdv1", physical_device_id="sw1", vlan_id="v10"), PhysicalDeviceVLAN(id="pdv2", physical_device_id="sw1", vlan_id="v20", ip_address="192.168.20.1", prefix_length=24, is_management=True)])
+    add(
+        [
+            PhysicalDeviceVLAN(id="pdv1", physical_device_id="sw1", vlan_id="v10"),
+            PhysicalDeviceVLAN(id="pdv2", physical_device_id="sw1", vlan_id="v20", ip_address="192.168.20.1", prefix_length=24, is_management=True),
+        ]
+    )
     add(
         [
             DeviceInterface(id="p1", physical_device_id="sw1", name="Gi1/0/1", is_management=True, is_data_transfer=True, vlan_mode="trunk", interface_type_id="it1"),

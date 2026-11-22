@@ -122,7 +122,11 @@ class TestSavedState:
         device = _device(client)
         port = _put(client, device["id"], [{"name": "m", "is_management": True, "ips": [{"ip_address": "10.0.0.1", "prefix_length": 24}, {"ip_address": "10.0.0.2"}]}])["items"][0]
         kept_id = next(ip["id"] for ip in port["ips"] if ip["ip_address"] == "10.0.0.1")
-        result = _put(client, device["id"], [{"id": port["id"], "name": "m", "is_management": False, "ips": [{"id": kept_id, "ip_address": "10.0.0.1", "prefix_length": 25, "purpose": "mgmt"}, {"ip_address": "10.0.0.3"}]}])
+        result = _put(
+            client,
+            device["id"],
+            [{"id": port["id"], "name": "m", "is_management": False, "ips": [{"id": kept_id, "ip_address": "10.0.0.1", "prefix_length": 25, "purpose": "mgmt"}, {"ip_address": "10.0.0.3"}]}],
+        )
         ips = {ip["ip_address"]: ip for ip in result["items"][0]["ips"]}
         assert set(ips) == {"10.0.0.1", "10.0.0.3"}  # 10.0.0.2 удалён, 10.0.0.3 добавлен
         assert ips["10.0.0.1"]["id"] == kept_id and ips["10.0.0.1"]["prefix_length"] == 25 and ips["10.0.0.1"]["purpose"] == "mgmt"

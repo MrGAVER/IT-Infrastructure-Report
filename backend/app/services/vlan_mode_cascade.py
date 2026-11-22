@@ -521,7 +521,8 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
             _warning(
                 "immediate",
                 "warning",
-                f"Изменения на других устройствах ({totals['immediate_ports']} портов на {totals['immediate_devices']} устройствах) применяются сразу и не отменяются кнопкой «Отмена» формы; они записываются в журнал аудита.",
+                f"Изменения на других устройствах ({totals['immediate_ports']} портов на {totals['immediate_devices']} "
+                "устройствах) применяются сразу и не отменяются кнопкой «Отмена» формы; они записываются в журнал аудита.",
             )
         )
     if totals["deferred_ports"]:
@@ -542,7 +543,11 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
     beyond = [p for p in change.changed_ports if p not in start_scope]
     if beyond:
         beyond_devices = {change.loader.ports[p].physical_device_id for p in beyond}
-        result.append(_warning("cascade", "warning", f"Чтобы на портах соседей не осталось расхождений, режим меняется и у связанных с ними портов: ещё {len(beyond)} портов на {len(beyond_devices)} устройствах."))
+        result.append(
+            _warning(
+                "cascade", "warning", f"Чтобы на портах соседей не осталось расхождений, режим меняется и у связанных с ними портов: ещё {len(beyond)} портов на {len(beyond_devices)} устройствах."
+            )
+        )
     dropped = [(g["name"], g, v) for g in plan["groups"] + plan["ports"] for v in g["dropped_vlans"]]
     if dropped:
         listed = _short_list([f"VLAN {v['vlan_id']} «{v['name']}» ({'группа' if 'ports' in g else 'порт'} «{owner}»)" for owner, g, v in dropped])
@@ -550,7 +555,8 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
             _warning(
                 "vlans_dropped",
                 "warning",
-                f"Режим access допускает у порта или группы не более одного VLAN: останется VLAN с наименьшим номером, будут сняты {listed}. Это изменит VLAN ID и VLAN Name в отчётах (лист «Организация подключений») и на диаграммах.",
+                "Режим access допускает у порта или группы не более одного VLAN: останется VLAN с наименьшим номером, будут "
+                f"сняты {listed}. Это изменит VLAN ID и VLAN Name в отчётах (лист «Организация подключений») и на диаграммах.",
             )
         )
     if target == "trunk":

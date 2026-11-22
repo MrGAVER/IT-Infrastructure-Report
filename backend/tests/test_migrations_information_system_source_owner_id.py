@@ -95,7 +95,9 @@ def _insert_source(conn: sqlite3.Connection, is_id: str, source_type: str, *, ph
     source_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_sources (id, information_system_id, source_type, physical_device_id, virtual_machine_id, container_id, external_interaction, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)",
+        "INSERT INTO information_system_sources (id, information_system_id, source_type, physical_device_id, "
+        "virtual_machine_id, container_id, external_interaction, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, "
+        "?, ?)",
         (source_id, is_id, source_type, physical_device_id, virtual_machine_id, container_id, now, now),
     )
     conn.commit()

@@ -152,7 +152,10 @@ class TestIps:
         assert [(ip["id"], ip["ip_address"]) for ip in ips] == [("r2", "10.0.0.9"), (None, "10.0.0.1")]
 
     def test_repeated_address_is_rejected_even_with_different_prefix(self, db_session):
-        assert _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 24}, {"ip_address": " 10.0.0.1 ", "prefix_length": 16}]}) == "Группа портов «Г»: IP-адреса не должны повторяться"
+        assert (
+            _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 24}, {"ip_address": " 10.0.0.1 ", "prefix_length": 16}]})
+            == "Группа портов «Г»: IP-адреса не должны повторяться"
+        )
 
     def test_purpose_is_stripped_and_blank_becomes_none(self, db_session):
         ips = self._ips(db_session, {"ip_address": "10.0.0.1", "purpose": "  шлюз "}, {"ip_address": "10.0.0.2", "purpose": "  "}, {"ip_address": "10.0.0.3"})

@@ -41,7 +41,9 @@ def _unassign_moved_vlan_from_former_domain_devices(vlan: "VLAN", old_domain_id:
     if not assigned:
         return 0
     type_allowed = set(session.scalars(select(DeviceTypeVLAN.device_type_id).where(DeviceTypeVLAN.vlan_id == vlan.id)).all())
-    strip_ports_of = {device_id for device_id, type_id in session.execute(select(PhysicalDevice.id, PhysicalDevice.device_type_id).where(PhysicalDevice.id.in_(assigned))).all() if type_id not in type_allowed}
+    strip_ports_of = {
+        device_id for device_id, type_id in session.execute(select(PhysicalDevice.id, PhysicalDevice.device_type_id).where(PhysicalDevice.id.in_(assigned))).all() if type_id not in type_allowed
+    }
     session.execute(delete(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_(assigned)))
     if strip_ports_of:
         port_ids = select(DeviceInterface.id).where(DeviceInterface.physical_device_id.in_(strip_ports_of))

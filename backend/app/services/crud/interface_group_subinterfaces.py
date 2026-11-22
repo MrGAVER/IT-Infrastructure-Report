@@ -61,7 +61,9 @@ def _normalize_open_ports(raw: Any, label: str, session: Session) -> list[dict[s
         if not port.get("protocol_catalog_id"):
             continue  # плейсхолдер без выбранной записи справочника
         _validate_open_port_catalog(port, session)
-        result.append({"id": port.get("id"), "protocol_catalog_id": port["protocol_catalog_id"], "transport_protocol": port.get("transport_protocol") or "TCP", "description": port.get("description") or None})
+        result.append(
+            {"id": port.get("id"), "protocol_catalog_id": port["protocol_catalog_id"], "transport_protocol": port.get("transport_protocol") or "TCP", "description": port.get("description") or None}
+        )
     validate_unique_open_port_numbers((p["protocol_catalog_id"] for p in result), session, label)
     return result
 
@@ -178,13 +180,18 @@ def group_subinterfaces_by_group(group_ids: Sequence[str], session: Session) -> 
     if not group_ids:
         return {}
     rows = session.scalars(
-        select(InterfaceGroupSubinterface).join(VLAN, VLAN.id == InterfaceGroupSubinterface.vlan_id).where(InterfaceGroupSubinterface.group_id.in_(list(group_ids))).order_by(VLAN.vlan_id, InterfaceGroupSubinterface.id)
+        select(InterfaceGroupSubinterface)
+        .join(VLAN, VLAN.id == InterfaceGroupSubinterface.vlan_id)
+        .where(InterfaceGroupSubinterface.group_id.in_(list(group_ids)))
+        .order_by(VLAN.vlan_id, InterfaceGroupSubinterface.id)
     ).all()
     if not rows:
         return {}
     ids = [row.id for row in rows]
     ips: dict[str, list[dict[str, Any]]] = {}
-    for ip in session.scalars(select(InterfaceGroupSubinterfaceIP).where(InterfaceGroupSubinterfaceIP.subinterface_id.in_(ids)).order_by(InterfaceGroupSubinterfaceIP.ip_address, InterfaceGroupSubinterfaceIP.id)).all():
+    for ip in session.scalars(
+        select(InterfaceGroupSubinterfaceIP).where(InterfaceGroupSubinterfaceIP.subinterface_id.in_(ids)).order_by(InterfaceGroupSubinterfaceIP.ip_address, InterfaceGroupSubinterfaceIP.id)
+    ).all():
         ips.setdefault(ip.subinterface_id, []).append(serialize(ip))
     ports: dict[str, list[dict[str, Any]]] = {}
     for port in session.scalars(
@@ -239,7 +246,12 @@ def apply_group_subinterfaces(iface: DeviceInterface, templates: list[dict[str, 
         ips = with_reused_ids([(ip.id, (ip.ip_address, ip.prefix_length)) for ip in current_ips], template["ips"], lambda d: (d["ip_address"], d["prefix_length"]))
         # is_management IP наследуется от подинтерфейса, как у IP подинтерфейса, заданного вручную.
         sync_owner_ip_addresses(
-            OwnerType.DEVICE_SUBINTERFACE, sub.id, [{**ip, "is_management": sub.is_management} for ip in ips], session, array_error="Поле ips подинтерфейса должно быть массивом", foreign_id_error="IP не принадлежит выбранному подинтерфейсу"
+            OwnerType.DEVICE_SUBINTERFACE,
+            sub.id,
+            [{**ip, "is_management": sub.is_management} for ip in ips],
+            session,
+            array_error="Поле ips подинтерфейса должно быть массивом",
+            foreign_id_error="IP не принадлежит выбранному подинтерфейсу",
         )
         current_ports = session.scalars(select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_SUBINTERFACE, OpenPort.owner_id == sub.id).order_by(OpenPort.created_at, OpenPort.id)).all()
         ports = with_reused_ids([(p.id, (p.protocol_catalog_id, p.transport_protocol)) for p in current_ports], template["open_ports"], lambda d: (d["protocol_catalog_id"], d["transport_protocol"]))

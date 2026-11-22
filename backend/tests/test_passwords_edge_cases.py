@@ -53,7 +53,20 @@ class TestVerifyPassword:
             f"pbkdf2_sha256$-5${_SALT}${_DIGEST}",  # отрицательное число итераций
             f"pbkdf2_sha256$99999999999999999999${_SALT}${_DIGEST}",  # число не помещается в C long
         ],
-        ids=["empty", "no-separators", "extra-field", "missing-field", "foreign-algorithm", "algorithm-case", "iterations-nan", "bad-salt", "bad-hash", "zero-iterations", "negative-iterations", "huge-iterations"],
+        ids=[
+            "empty",
+            "no-separators",
+            "extra-field",
+            "missing-field",
+            "foreign-algorithm",
+            "algorithm-case",
+            "iterations-nan",
+            "bad-salt",
+            "bad-hash",
+            "zero-iterations",
+            "negative-iterations",
+            "huge-iterations",
+        ],
     )
     def test_foreign_or_corrupted_hash_is_a_failed_check_not_an_exception(self, broken):
         assert verify_password("anything", broken) is False

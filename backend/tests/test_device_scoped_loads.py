@@ -72,10 +72,16 @@ def test_ips_and_open_ports_of_the_device_come_with_their_owner_port(client, db_
     ports = _get(client, device, "interface-open-ports")
 
     assert ips.status_code == 200 and ports.status_code == 200
-    assert {(row["owner_id"], row["ip_address"], row["prefix_length"], row["purpose"]) for row in ips.json()["items"]} == {(port_ids["Gi0/1"], "10.0.0.1", 24, "управление"), (port_ids["Gi0/2"], "10.0.0.2", 24, None)}
+    assert {(row["owner_id"], row["ip_address"], row["prefix_length"], row["purpose"]) for row in ips.json()["items"]} == {
+        (port_ids["Gi0/1"], "10.0.0.1", 24, "управление"),
+        (port_ids["Gi0/2"], "10.0.0.2", 24, None),
+    }
     assert all(row["owner_type"] == "device_interface" for row in ips.json()["items"])
     # открытые порты — в виде generic-списка: с port/protocol, подставленными из справочника
-    assert {(row["owner_id"], row["port"], row["protocol"], row["transport_protocol"]) for row in ports.json()["items"]} == {(port_ids["Gi0/1"], 443, "HTTPS", "TCP"), (port_ids["Gi0/1"], 22, "SSH", "TCP")}
+    assert {(row["owner_id"], row["port"], row["protocol"], row["transport_protocol"]) for row in ports.json()["items"]} == {
+        (port_ids["Gi0/1"], 443, "HTTPS", "TCP"),
+        (port_ids["Gi0/1"], 22, "SSH", "TCP"),
+    }
     assert {row["description"] for row in ports.json()["items"]} == {"веб", None}
 
 

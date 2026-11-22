@@ -3,7 +3,8 @@
 
 Миграция сначала ищет в данных активные подключения с общим портом в одной роли (источник или назначение) и, если они есть, останавливается с перечнем портов и id
 подключений: НИЧЕГО не удаляя и не меняя — какое из двух подключений настоящее, решает человек. Неактивные подключения индексам не мешают. Сценарии одинаковы для
-SQLite (файл-БД, sqlite_only) и PostgreSQL (временная база на сервере из INFRA_REGISTRY_TEST_DATABASE_URL, postgres_only) — фикстура `database` та же, что у тестов c4a9e2d7b185 (connection_support.scratch_database).
+SQLite (файл-БД, sqlite_only) и PostgreSQL (временная база на сервере из INFRA_REGISTRY_TEST_DATABASE_URL, postgres_only) — фикстура
+`database` та же, что у тестов c4a9e2d7b185 (connection_support.scratch_database).
 
 Запуск: pytest backend/tests/test_migrations_connections_unique_ports.py -v
 """

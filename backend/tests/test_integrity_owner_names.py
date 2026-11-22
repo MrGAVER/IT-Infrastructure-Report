@@ -80,7 +80,12 @@ def test_queries_depend_on_owner_types_not_on_rows(db_session, sql_log, data):
     sql_log.clear()
     names = _owner_names(
         db_session,
-        {(OwnerType.DEVICE_INTERFACE, data["port"]), (OwnerType.DEVICE_INTERFACE, data["port_other"]), (OwnerType.DEVICE_SUBINTERFACE, data["sub"]), (OwnerType.DEVICE_SUBINTERFACE, data["sub_other"])},
+        {
+            (OwnerType.DEVICE_INTERFACE, data["port"]),
+            (OwnerType.DEVICE_INTERFACE, data["port_other"]),
+            (OwnerType.DEVICE_SUBINTERFACE, data["sub"]),
+            (OwnerType.DEVICE_SUBINTERFACE, data["sub_other"]),
+        },
     )
     assert names == {
         (OwnerType.DEVICE_INTERFACE, data["port"]): "srv-01 / Gi0/1",

@@ -55,7 +55,8 @@ def test_public_exporters_are_the_functions_of_their_modules():
 
 
 def test_the_export_registry_serves_what_the_package_functions_produce():
-    """Реестр форматов (api/diagrams.py) подключён к функциям пакета: svg и drawio обёрнуты в encode (функции возвращают str), vsdx идёт через рендер в дочернем процессе (services/vsdx_process.py), который вызывает export_vsdx."""
+    """Реестр форматов (api/diagrams.py) подключён к функциям пакета: svg и drawio обёрнуты в encode (функции возвращают str), vsdx идёт
+    через рендер в дочернем процессе (services/vsdx_process.py), который вызывает export_vsdx."""
     graph = {"nodes": [], "edges": []}
     registry = diagrams_module.EXPORT_FORMATS
     assert registry["svg"][1](graph) == diagram_export.export_svg(graph).encode("utf-8")
@@ -91,5 +92,14 @@ def test_a_stale_monkeypatch_on_the_facade_fails_loudly_instead_of_silently_doin
 
 def test_every_private_name_the_facade_reexports_exists_in_a_submodule():
     # Страж реэкспорта для существующих тестов: переименование функции в подмодуле должно ломаться здесь, а не в десятке тестов.
-    for name in ("_device_fill_color", "_vlan_label", "_custom_icon_tile_svg", "_rasterize_custom_icon_png", "_standalone_custom_svg", "_drawio_edge_anchors", "_embed_vsdx_category_icons", "_finalize_vsdx_package"):
+    for name in (
+        "_device_fill_color",
+        "_vlan_label",
+        "_custom_icon_tile_svg",
+        "_rasterize_custom_icon_png",
+        "_standalone_custom_svg",
+        "_drawio_edge_anchors",
+        "_embed_vsdx_category_icons",
+        "_finalize_vsdx_package",
+    ):
         assert callable(getattr(diagram_export, name)), name

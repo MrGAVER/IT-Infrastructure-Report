@@ -27,7 +27,15 @@ def _role(before: PortRole, after: PortRole) -> str:
 
 
 def _port(
-    port_id: str, *, mode: str = "trunk", role: PortRole = PortRole.DATA, numbers: tuple[int, ...] = (), allowed: tuple[int | str, ...] = (), all_vlans: bool = False, group: InterfaceGroup | None = None, vlan_ids: set[str] | None = None
+    port_id: str,
+    *,
+    mode: str = "trunk",
+    role: PortRole = PortRole.DATA,
+    numbers: tuple[int, ...] = (),
+    allowed: tuple[int | str, ...] = (),
+    all_vlans: bool = False,
+    group: InterfaceGroup | None = None,
+    vlan_ids: set[str] | None = None,
 ) -> _Port:
     """allowed — VLAN устройства порта: номера из VLANS или произвольные id (например, записи вне справочника)."""
     assigned = {f"v{n}" for n in numbers} if vlan_ids is None else vlan_ids

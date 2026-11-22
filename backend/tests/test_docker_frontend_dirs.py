@@ -37,4 +37,6 @@ def test_base_dir_arithmetic_differs_between_source_tree_and_docker_layout():
 def test_dockerfile_overrides_data_and_frontend_dirs_explicitly():
     text = DOCKERFILE.read_text(encoding="utf-8")
     for var in ("INFRA_REGISTRY_DATA_DIR", "INFRA_REGISTRY_FRONTEND_DIR"):
-        assert f"ENV {var}=" in text, f'{var} должен быть задан явно в backend/Dockerfile — без него значение по умолчанию из config.py (через BASE_DIR) резолвится в "/" внутри контейнера, см. docstring этого файла.'
+        assert f"ENV {var}=" in text, (
+            f'{var} должен быть задан явно в backend/Dockerfile — без него значение по умолчанию из config.py (через BASE_DIR) резолвится в "/" внутри контейнера, см. docstring этого файла.'
+        )

@@ -105,7 +105,9 @@ def test_export_vsdx_walks_the_page_a_constant_number_of_times(monkeypatch):
     monkeypatch.setattr(Page, "set_max_ids", counting)
     base = _sample_graph(6)["nodes"][0]
     nodes = [{**copy.deepcopy(base), "id": f"n{i}", "x": (i % 8) * 200, "y": (i // 8) * 100} for i in range(40)]
-    edges = [{"id": f"e{i}", "source_node_id": f"n{i}", "target_node_id": f"n{i + 1}", "source_interface": {"port_index": 2}, "target_interface": None, "is_active": True, "vlans": []} for i in range(39)]
+    edges = [
+        {"id": f"e{i}", "source_node_id": f"n{i}", "target_node_id": f"n{i + 1}", "source_interface": {"port_index": 2}, "target_interface": None, "is_active": True, "vlans": []} for i in range(39)
+    ]
     export_vsdx({"nodes": nodes, "edges": edges})
     assert len(calls) <= 2  # шаблон узла и шаблон коннектора; при 40 узлах, 240 засечках и 39 рёбрах
 

@@ -403,7 +403,14 @@ class TestAddingAMember:
     def test_preview_hides_unchanged_and_is_empty_without_settings(self, client):
         stack, v10, v20 = self._stack_with_settings(client)
         twin = _device(client, "CL-AM-3")
-        assert _set_device_vlans(client, twin["id"], [{"vlan_id": v10["id"], "ip_address": "10.0.10.1", "prefix_length": 24, "is_management": True}, {"vlan_id": v20["id"], "ip_address": "10.0.20.1", "prefix_length": 24}]).status_code == 200
+        assert (
+            _set_device_vlans(
+                client,
+                twin["id"],
+                [{"vlan_id": v10["id"], "ip_address": "10.0.10.1", "prefix_length": 24, "is_management": True}, {"vlan_id": v20["id"], "ip_address": "10.0.20.1", "prefix_length": 24}],
+            ).status_code
+            == 200
+        )
         data = self._preview(client, stack["id"], twin).json()
         assert (data["changes"], data["unchanged_count"]) == ([], 2)
         plain = _stack(client, "Без настроек", [])

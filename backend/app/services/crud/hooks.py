@@ -24,7 +24,13 @@ from ...models import AuditLog, Connection, DeviceInterface, DeviceStackMember, 
 from ..serialization import enrich_connections, enrich_devices, enrich_information_systems, enrich_interfaces, enrich_open_port, enrich_open_ports, serialize
 from .owned_rows import _validate_is_protocol_number_is_free, _validate_open_port_catalog, _validate_open_port_number_is_free
 from .stack_vlan_settings import apply_stack_settings_to_device
-from .vlan_domains import _auto_assign_new_domain_vlan_to_domain_devices, _stale_group_subinterfaces_on_vlan, _stale_subinterfaces_on_vlan, _unassign_moved_vlan_from_former_domain_devices, assign_domain_vlans_to_device
+from .vlan_domains import (
+    _auto_assign_new_domain_vlan_to_domain_devices,
+    _stale_group_subinterfaces_on_vlan,
+    _stale_subinterfaces_on_vlan,
+    _unassign_moved_vlan_from_former_domain_devices,
+    assign_domain_vlans_to_device,
+)
 
 _Data = dict[str, Any]
 

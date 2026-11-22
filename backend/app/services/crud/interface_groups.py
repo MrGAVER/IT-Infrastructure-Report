@@ -18,7 +18,15 @@ from ...models import DeviceInterface, IPAddress, OpenPort, PhysicalDevice, Inte
 from ...constants import OwnerType
 from ..serialization import enrich_interface_groups
 from ..validation import validate_unique_open_port_numbers
-from .interface_group_subinterfaces import apply_group_subinterfaces, group_subinterfaces_by_group, normalize_group_subinterfaces, normalize_ips, purge_subinterfaces_of_groups, sync_group_subinterfaces, with_reused_ids
+from .interface_group_subinterfaces import (
+    apply_group_subinterfaces,
+    group_subinterfaces_by_group,
+    normalize_group_subinterfaces,
+    normalize_ips,
+    purge_subinterfaces_of_groups,
+    sync_group_subinterfaces,
+    with_reused_ids,
+)
 from .owned_rows import _validate_open_port_catalog, sync_owner_ip_addresses
 
 
@@ -124,7 +132,14 @@ def _group_open_ports(item: dict[str, Any], group_name: str, session: Session) -
         if not manage or not isinstance(port_data, dict) or not port_data.get("protocol_catalog_id"):
             continue
         _validate_open_port_catalog(port_data, session)
-        open_ports.append({"id": port_data.get("id"), "protocol_catalog_id": port_data["protocol_catalog_id"], "transport_protocol": port_data.get("transport_protocol") or "TCP", "description": port_data.get("description") or None})
+        open_ports.append(
+            {
+                "id": port_data.get("id"),
+                "protocol_catalog_id": port_data["protocol_catalog_id"],
+                "transport_protocol": port_data.get("transport_protocol") or "TCP",
+                "description": port_data.get("description") or None,
+            }
+        )
     validate_unique_open_port_numbers((p["protocol_catalog_id"] for p in open_ports), session, f"Группа портов «{group_name}»")
     return manage, open_ports
 
@@ -315,7 +330,12 @@ def _apply_group_ips(iface: DeviceInterface, group_ips: list[dict[str, Any]], se
     current = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).order_by(IPAddress.created_at, IPAddress.id)).all()
     wanted = with_reused_ids([(ip.id, (ip.ip_address, ip.prefix_length)) for ip in current], group_ips, lambda d: (d["ip_address"], d["prefix_length"]))
     sync_owner_ip_addresses(
-        OwnerType.DEVICE_INTERFACE, iface.id, [{**ip, "is_management": bool(iface.is_management)} for ip in wanted], session, array_error="Поле ips порта должно быть массивом", foreign_id_error="IP не принадлежит выбранному порту"
+        OwnerType.DEVICE_INTERFACE,
+        iface.id,
+        [{**ip, "is_management": bool(iface.is_management)} for ip in wanted],
+        session,
+        array_error="Поле ips порта должно быть массивом",
+        foreign_id_error="IP не принадлежит выбранному порту",
     )
 
 
@@ -345,7 +365,15 @@ def _apply_group_open_ports(iface: DeviceInterface, group_ports: list[dict[str, 
             row.transport_protocol = data["transport_protocol"]
             row.description = data["description"]
         else:
-            session.add(OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=iface.id, protocol_catalog_id=data["protocol_catalog_id"], transport_protocol=data["transport_protocol"], description=data["description"]))
+            session.add(
+                OpenPort(
+                    owner_type=OwnerType.DEVICE_INTERFACE,
+                    owner_id=iface.id,
+                    protocol_catalog_id=data["protocol_catalog_id"],
+                    transport_protocol=data["transport_protocol"],
+                    description=data["description"],
+                )
+            )
     for row in spare:
         session.delete(row)
 

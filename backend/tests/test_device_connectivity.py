@@ -41,7 +41,10 @@ def _connection_type(client) -> dict:
 
 
 def _connect(client, a: dict, b: dict, *, active: bool = True, description: str | None = None) -> dict:
-    r = client.post(f"{API}/resources/connections", json={"source_interface_id": a["id"], "destination_interface_id": b["id"], "connection_type_id": _connection_type(client)["id"], "is_active": active, "description": description})
+    r = client.post(
+        f"{API}/resources/connections",
+        json={"source_interface_id": a["id"], "destination_interface_id": b["id"], "connection_type_id": _connection_type(client)["id"], "is_active": active, "description": description},
+    )
     assert r.status_code == 201, r.text
     return r.json()
 

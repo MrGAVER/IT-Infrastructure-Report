@@ -32,11 +32,21 @@ def build_vlan_dashboard(session: Session) -> dict[str, Any]:
     grouped = {}
     for v in vlans:
         grouped.setdefault(v.vlan_id, []).append(
-            {"id": v.id, "vlan_id": v.vlan_id, "name": v.name, "description": v.description or "", "domain_id": v.domain_id, "domain_name": domains[v.domain_id].name if v.domain_id in domains else "Локальный VLAN", "devices": []}
+            {
+                "id": v.id,
+                "vlan_id": v.vlan_id,
+                "name": v.name,
+                "description": v.description or "",
+                "domain_id": v.domain_id,
+                "domain_name": domains[v.domain_id].name if v.domain_id in domains else "Локальный VLAN",
+                "devices": [],
+            }
         )
     by_vlan = {}
     for a in assignments:
-        by_vlan.setdefault(a.vlan_id, []).append({"device_id": a.physical_device_id, "device_name": device_names.get(a.physical_device_id, a.physical_device_id), "ip_address": a.ip_address, "is_management": a.is_management})
+        by_vlan.setdefault(a.vlan_id, []).append(
+            {"device_id": a.physical_device_id, "device_name": device_names.get(a.physical_device_id, a.physical_device_id), "ip_address": a.ip_address, "is_management": a.is_management}
+        )
     for defs in grouped.values():
         for item in defs:
             item["devices"] = by_vlan.get(item["id"], [])
@@ -106,7 +116,9 @@ def _existing_vlan_ids_by_device(session: Session, device_ids: list[str]) -> dic
     return existing_by_device
 
 
-def _sync_member_device(session: Session, device_id: str, existing_ids: set[str], source_vlans: list[VLAN], target_by_source_id: dict[str, VLAN], domain_vlan_ids: set[str], keep_ids: set[str], replace: bool) -> tuple[int, int]:
+def _sync_member_device(
+    session: Session, device_id: str, existing_ids: set[str], source_vlans: list[VLAN], target_by_source_id: dict[str, VLAN], domain_vlan_ids: set[str], keep_ids: set[str], replace: bool
+) -> tuple[int, int]:
     """Назначает участнику недостающие VLAN источника; при replace убирает VLAN этого домена, которых у источника нет.
 
     Возвращает (сколько назначено, сколько убрано)."""
@@ -166,7 +178,9 @@ def copy_device_vlans(session: Session, device_id: str, source_device_id: str | 
     source_vlans = {v.id: v for v in session.scalars(select(VLAN).where(VLAN.id.in_(source_vlan_ids)))} if source_vlan_ids else {}
     # Идемпотентность: VLAN с тем же номером и именем, что уже назначен целевому устройству, второй раз не
     # создаётся — повторный вызов раньше плодил дубли определений VLAN и назначений.
-    already_on_target = {(v.vlan_id, v.name) for v in session.scalars(select(VLAN).join(PhysicalDeviceVLAN, PhysicalDeviceVLAN.vlan_id == VLAN.id).where(PhysicalDeviceVLAN.physical_device_id == target.id))}
+    already_on_target = {
+        (v.vlan_id, v.name) for v in session.scalars(select(VLAN).join(PhysicalDeviceVLAN, PhysicalDeviceVLAN.vlan_id == VLAN.id).where(PhysicalDeviceVLAN.physical_device_id == target.id))
+    }
     created = 0
     assigned = 0
     skipped = 0
@@ -185,7 +199,13 @@ def copy_device_vlans(session: Session, device_id: str, source_device_id: str | 
         created += 1
         session.add(PhysicalDeviceVLAN(physical_device_id=target.id, vlan_id=v.id, ip_address=None, prefix_length=None, is_management=False, description=sv.description))
         assigned += 1
-    audit(session, "devices", target.id, AuditAction.SYNC, f"Скопированы VLAN с устройства «{device_label(source)}»: определений {created}, назначено {assigned}" + (f", уже были на устройстве {skipped}" if skipped else ""))
+    audit(
+        session,
+        "devices",
+        target.id,
+        AuditAction.SYNC,
+        f"Скопированы VLAN с устройства «{device_label(source)}»: определений {created}, назначено {assigned}" + (f", уже были на устройстве {skipped}" if skipped else ""),
+    )
     session.commit()
     return {"status": "ok", "created_definitions": created, "assigned": assigned}
 

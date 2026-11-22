@@ -774,8 +774,26 @@ def test_export_vsdx_skips_edges_whose_nodes_are_not_in_the_graph(tmp_path):
     """Ребро на узел, которого нет в графе, пропускается без ошибки; остальные рёбра рисуются как обычно."""
     graph = _sample_graph()
     valid_edges = len(graph["edges"])
-    graph["edges"].append({"id": "conn-dangling-target", "source_node_id": "dev-switch", "target_node_id": "нет-такого", "source_interface": None, "target_interface": None, "vlans": [{"vlan_id": 77, "name": "призрак"}]})
-    graph["edges"].append({"id": "conn-dangling-source", "source_node_id": "нет-такого", "target_node_id": "dev-server", "source_interface": None, "target_interface": None, "vlans": [{"vlan_id": 78, "name": "призрак"}]})
+    graph["edges"].append(
+        {
+            "id": "conn-dangling-target",
+            "source_node_id": "dev-switch",
+            "target_node_id": "нет-такого",
+            "source_interface": None,
+            "target_interface": None,
+            "vlans": [{"vlan_id": 77, "name": "призрак"}],
+        }
+    )
+    graph["edges"].append(
+        {
+            "id": "conn-dangling-source",
+            "source_node_id": "нет-такого",
+            "target_node_id": "dev-server",
+            "source_interface": None,
+            "target_interface": None,
+            "vlans": [{"vlan_id": 78, "name": "призрак"}],
+        }
+    )
     out_path = tmp_path / "dangling.vsdx"
     out_path.write_bytes(export_vsdx(graph))
 

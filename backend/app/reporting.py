@@ -57,14 +57,18 @@ HEADERS1 = [
     "Назначение использования информационной системы (подсистемы/информационного ресурса) для ИС Организация",
     "Работники, группы работников или подразделения, которые используют в своей работе информационную систему (подсистему/информационный ресурс)",
     "Локализация информационной системы (подсистемы/информационного ресурса)",
-    'Оборудование ООО "Организация", на котором размещается информационная ситема (подсистема/информационный ресурс), а также прикладное программное обеспечение или интерфейс взаимодействия с внешней информационной системой.',
+    'Оборудование ООО "Организация", на котором размещается информационная ситема (подсистема/информационный '
+    "ресурс), а также прикладное программное обеспечение или интерфейс взаимодействия с внешней информационной "
+    "системой.",
     "Протокол передачи данных, по которому осуществляется взаимодействие информационной системы "
     "(подсистемы/информационного ресурса), как внутри ИС Организация, так и при организации внешнего "
     "взаимодейтсвия, в том числе с внешними информационными системами",
     "IP адрес , по которому осуществляется взаимодействие информационной системы (подсистемы/информационного "
     "ресурса), как внутри ИС Организация, так и при организации внешнего взаимодейтсвия, в том числе с внешними "
     "информационными системами",
-    "Применение сертифицированных программных и/или программно-аппаратных средств криптографической защиты информации, применяемых при осуществлении внешнего взаимодействия, в том числе с внешними информационными системами.",
+    "Применение сертифицированных программных и/или программно-аппаратных средств криптографической защиты "
+    "информации, применяемых при осуществлении внешнего взаимодействия, в том числе с внешними информационными "
+    "системами.",
     "Признак получения событий в SIEM",
     "Наименование организации, информационная система которой осуществляет взаимодействие и (или) обеспечивает техническую поддержку",
     "Способ оказания технической поддержки",
@@ -93,7 +97,8 @@ HEADERS2 = [
 ]
 HEADERS3 = [
     "№",
-    "Вид физического устройства: серверы, сетевое оборудование, средства защиты информации, рабочий ПК системного/сетевого администратора и рабочий ПК администратора безопасности, за исключением ПК пользователей",
+    "Вид физического устройства: серверы, сетевое оборудование, средства защиты информации, рабочий ПК "
+    "системного/сетевого администратора и рабочий ПК администратора безопасности, за исключением ПК пользователей",
     "Серийный номер устройства",
     "Системное имя устройства, если устройство является управлемым",
     "Наименование и версия операционной системы физического устройства",
@@ -568,7 +573,14 @@ def _device_row_values(dev, d: SimpleNamespace) -> list:
     mgmt_vlan = [x for x in d.device_vlan_by_device.get(dev.id, []) if x.is_management]
     mgmt_subs = [x for x in d.subs_by_device.get(dev.id, []) if x.is_management]
     mgmt_port_names, mgmt_ip_values = device_management_ports_and_ips(
-        mgmt_ifaces, d.ips_by_iface, mgmt_vlan, d.vlan_map, vlan_label_with_name=False, management_subinterfaces=mgmt_subs, ips_by_subinterface=d.ips_by_sub, port_name_by_id={i.id: i.name for i in all_ifaces}
+        mgmt_ifaces,
+        d.ips_by_iface,
+        mgmt_vlan,
+        d.vlan_map,
+        vlan_label_with_name=False,
+        management_subinterfaces=mgmt_subs,
+        ips_by_subinterface=d.ips_by_sub,
+        port_name_by_id={i.id: i.name for i in all_ifaces},
     )
     mgmt_ports = join_values(mgmt_port_names)
     mgmt_ips = join_values(mgmt_ip_values)
@@ -580,7 +592,20 @@ def _device_row_values(dev, d: SimpleNamespace) -> list:
     addresses = d.buildings.get(dev.building_id).address if d.buildings.get(dev.building_id) else ""
     building_names = d.buildings.get(dev.building_id).name if d.buildings.get(dev.building_id) else ""
     room_names = d.rooms.get(dev.room_id).name if d.rooms.get(dev.room_id) else ""
-    return [manufacturer_names, model_names, serial, sysname, os_names, mgmt_ports, mgmt_ips, "Да" if dev.siem_enabled else "Нет", interface_port_count_label(all_ifaces, d.interface_types), addresses, building_names, room_names]
+    return [
+        manufacturer_names,
+        model_names,
+        serial,
+        sysname,
+        os_names,
+        mgmt_ports,
+        mgmt_ips,
+        "Да" if dev.siem_enabled else "Нет",
+        interface_port_count_label(all_ifaces, d.interface_types),
+        addresses,
+        building_names,
+        room_names,
+    ]
 
 
 def _populate_sheet2(ws2, d: SimpleNamespace) -> None:

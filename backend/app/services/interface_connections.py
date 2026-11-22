@@ -328,4 +328,8 @@ def assert_interfaces_not_connected(interfaces: Sequence[DeviceInterface], sessi
     connected = {iid for c in connections_of(list(by_id), session, active_only=False) for iid in (c.source_interface_id, c.destination_interface_id) if iid in by_id}
     if connected:
         names = ", ".join(f"«{by_id[i].name}»" for i in sorted(connected, key=lambda x: by_id[x].name))
-        raise HTTPException(409, f"Нельзя удалить порт, у которого есть подключение: {names}. Сначала отключите порт (блок «Подключение» в строке порта) и сохраните устройство, либо удалите подключение на экране «Подключения».")
+        raise HTTPException(
+            409,
+            f"Нельзя удалить порт, у которого есть подключение: {names}. Сначала отключите порт (блок «Подключение» в "
+            "строке порта) и сохраните устройство, либо удалите подключение на экране «Подключения».",
+        )

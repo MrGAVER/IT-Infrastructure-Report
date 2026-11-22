@@ -24,7 +24,9 @@ LOG_URL = "/api/v1/audit-log"
 
 def _seed_old(session, count: int, *, days: int = 400) -> None:
     now = utcnow_naive()
-    session.add_all(AuditLog(entity_type="devices", entity_id=f"old-{index}", action="UPDATE", details=f"старая {index}", created_at=now - timedelta(days=days, minutes=index)) for index in range(count))
+    session.add_all(
+        AuditLog(entity_type="devices", entity_id=f"old-{index}", action="UPDATE", details=f"старая {index}", created_at=now - timedelta(days=days, minutes=index)) for index in range(count)
+    )
     session.commit()
 
 
@@ -128,7 +130,9 @@ class TestReadAndWrite:
     def test_boundary_values_are_accepted(self, client, days):
         assert client.put(URL, json={"retention_days": days}).json()["retention_days"] == days
 
-    @pytest.mark.parametrize("payload", [{"retention_days": -1}, {"retention_days": 3651}, {"retention_days": "30"}, {"retention_days": 30.5}, {"retention_days": True}, {"retention_days": [30]}, {"retention": 30}])
+    @pytest.mark.parametrize(
+        "payload", [{"retention_days": -1}, {"retention_days": 3651}, {"retention_days": "30"}, {"retention_days": 30.5}, {"retention_days": True}, {"retention_days": [30]}, {"retention": 30}]
+    )
     def test_invalid_values_are_rejected_and_nothing_changes(self, client, db_session, payload):
         _seed_old(db_session, 3)
         client.put(URL, json={"retention_days": 0})

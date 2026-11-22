@@ -138,7 +138,13 @@ def test_repeated_sync_updates_in_place_without_recreating_rows(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
     ssh, http = _catalog_entry(client, 22, "SSH"), _catalog_entry(client, 80, "HTTP")
-    group = {"key": "g1", "name": "Группа", "ips": [{"ip_address": "10.0.0.5", "prefix_length": 24}], "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": ssh["id"]}, {"protocol_catalog_id": http["id"]}]}
+    group = {
+        "key": "g1",
+        "name": "Группа",
+        "ips": [{"ip_address": "10.0.0.5", "prefix_length": 24}],
+        "manage_open_ports": True,
+        "open_ports": [{"protocol_catalog_id": ssh["id"]}, {"protocol_catalog_id": http["id"]}],
+    }
     _sync(client, dev["id"], [_port("Gi0/1", "g1")], [group])
     iface = _stored_interfaces(client, dev["id"])["Gi0/1"]
     ip_id = _ips(client, iface["id"])[0]["id"]
@@ -146,7 +152,13 @@ def test_repeated_sync_updates_in_place_without_recreating_rows(client):
     saved_group = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"][0]
 
     # Меняем только IP группы и убираем HTTP: строка IP и порт SSH обновляются на месте.
-    group2 = {**group, "key": saved_group["id"], "id": saved_group["id"], "ips": [{**saved_group["ips"][0], "ip_address": "10.0.0.6"}], "open_ports": [next(p for p in saved_group["open_ports"] if p["protocol_catalog_id"] == ssh["id"])]}
+    group2 = {
+        **group,
+        "key": saved_group["id"],
+        "id": saved_group["id"],
+        "ips": [{**saved_group["ips"][0], "ip_address": "10.0.0.6"}],
+        "open_ports": [next(p for p in saved_group["open_ports"] if p["protocol_catalog_id"] == ssh["id"])],
+    }
     r = _sync(client, dev["id"], [_as_loaded(client, iface, saved_group["id"])], [group2])
 
     assert r.status_code == 200, r.text
@@ -163,7 +175,15 @@ def test_group_membership_without_changes_is_idempotent(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
     ssh = _catalog_entry(client, 22, "SSH")
-    group = {"key": "g1", "name": "Группа", "vlan_mode": "access", "vlan_ids": [v10["id"]], "ips": [{"ip_address": "10.0.0.5"}], "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": ssh["id"]}]}
+    group = {
+        "key": "g1",
+        "name": "Группа",
+        "vlan_mode": "access",
+        "vlan_ids": [v10["id"]],
+        "ips": [{"ip_address": "10.0.0.5"}],
+        "manage_open_ports": True,
+        "open_ports": [{"protocol_catalog_id": ssh["id"]}],
+    }
     _sync(client, dev["id"], [_port("Gi0/1", "g1")], [group])
     iface = _stored_interfaces(client, dev["id"])["Gi0/1"]
     saved_group = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"][0]
@@ -183,7 +203,15 @@ def test_removing_group_keeps_values_in_ports_and_cleans_group_rows(client, db_s
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
     ssh = _catalog_entry(client, 22, "SSH")
-    group = {"key": "g1", "name": "Временная", "vlan_mode": "access", "vlan_ids": [v10["id"]], "ips": [{"ip_address": "10.0.0.5"}], "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": ssh["id"]}]}
+    group = {
+        "key": "g1",
+        "name": "Временная",
+        "vlan_mode": "access",
+        "vlan_ids": [v10["id"]],
+        "ips": [{"ip_address": "10.0.0.5"}],
+        "manage_open_ports": True,
+        "open_ports": [{"protocol_catalog_id": ssh["id"]}],
+    }
     _sync(client, dev["id"], [_port("Gi0/1", "g1")], [group])
     iface = _stored_interfaces(client, dev["id"])["Gi0/1"]
 

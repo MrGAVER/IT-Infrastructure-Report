@@ -148,7 +148,9 @@ def _load_device_lookups(devices: Sequence[PhysicalDevice], session: Session) ->
     # Управление может висеть на подинтерфейсе порта (например, Gi0/0.99 на VLAN управления): подинтерфейс с ролью
     # «Управление» даёт порт и IP управления устройства так же, как в отчётах (reporting.py). Берём только такие
     # подинтерфейсы — остальные на дашборде устройств не нужны.
-    mgmt_subs = _select_in(session, DeviceSubinterface, DeviceSubinterface.parent_interface_id, device_by_interface, DeviceSubinterface.name, DeviceSubinterface.id, extra=(DeviceSubinterface.is_management.is_(True),))
+    mgmt_subs = _select_in(
+        session, DeviceSubinterface, DeviceSubinterface.parent_interface_id, device_by_interface, DeviceSubinterface.name, DeviceSubinterface.id, extra=(DeviceSubinterface.is_management.is_(True),)
+    )
     vlan_links = _select_in(session, PhysicalDeviceVLAN, PhysicalDeviceVLAN.physical_device_id, device_ids)
     # Устройство состоит максимум в одном стеке (UniqueConstraint на DeviceStackMember.physical_device_id), поэтому
     # member_by_device — словарь «один к одному», без списков.
@@ -235,7 +237,10 @@ def enrich_interface_groups(groups: Sequence[InterfaceGroup], session: Session) 
         return []
     group_ids = [g.id for g in groups]
     vlan_links = session.execute(
-        select(InterfaceGroupVLAN.group_id, InterfaceGroupVLAN.vlan_id).join(VLAN, VLAN.id == InterfaceGroupVLAN.vlan_id).where(InterfaceGroupVLAN.group_id.in_(group_ids)).order_by(VLAN.vlan_id, InterfaceGroupVLAN.vlan_id)
+        select(InterfaceGroupVLAN.group_id, InterfaceGroupVLAN.vlan_id)
+        .join(VLAN, VLAN.id == InterfaceGroupVLAN.vlan_id)
+        .where(InterfaceGroupVLAN.group_id.in_(group_ids))
+        .order_by(VLAN.vlan_id, InterfaceGroupVLAN.vlan_id)
     ).all()
     ports = session.scalars(
         select(InterfaceGroupOpenPort)
@@ -425,7 +430,9 @@ def _enrich_single_information_system(obj: InformationSystem, ln: _InformationSy
         "ip_addresses": ip_addresses,
         "ip_addresses_summary": "; ".join(ip_addresses),
         # protocol_catalog_id обязателен для ISProtocol (NOT NULL, миграция b7f2c1e5a904): свободного текста без справочника не бывает.
-        "protocols_summary": _unique_joined(f"{ln.proto_map[x.protocol_catalog_id].protocol_type}/{ln.proto_map[x.protocol_catalog_id].port}" for x in ln.proto_by_is.get(obj.id, []) if x.protocol_catalog_id in ln.proto_map),
+        "protocols_summary": _unique_joined(
+            f"{ln.proto_map[x.protocol_catalog_id].protocol_type}/{ln.proto_map[x.protocol_catalog_id].port}" for x in ln.proto_by_is.get(obj.id, []) if x.protocol_catalog_id in ln.proto_map
+        ),
         "physical_devices_summary": _unique_joined(device_label(d, fallback=d.id) for d in devices),
         "vms_summary": _unique_joined(v.name or v.id for v in vms),
         "containers_summary": _unique_joined(c.name or c.id for c in containers),

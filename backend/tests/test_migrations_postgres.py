@@ -139,7 +139,9 @@ class TestSchemaMatchesWhatTheAppNeeds:
         tables = set(inspector.get_table_names())
         missing_tables = {table.name for table in Base.metadata.tables.values()} - tables
         assert not missing_tables
-        missing_columns = {f"{table.name}.{column.name}" for table in Base.metadata.tables.values() for column in table.columns if column.name not in {c["name"] for c in inspector.get_columns(table.name)}}
+        missing_columns = {
+            f"{table.name}.{column.name}" for table in Base.metadata.tables.values() for column in table.columns if column.name not in {c["name"] for c in inspector.get_columns(table.name)}
+        }
         assert not missing_columns
 
     def test_columns_left_behind_by_old_migrations_never_block_an_insert(self, migrated):
@@ -156,7 +158,11 @@ class TestSchemaMatchesWhatTheAppNeeds:
 
     def test_datetime_columns_are_timezone_naive_like_the_models(self, migrated):
         with migrated.engine.connect() as connection:
-            aware = connection.execute(sa.text("SELECT table_name || '.' || column_name FROM information_schema.columns WHERE table_schema = 'public' AND data_type = 'timestamp with time zone'")).scalars().all()
+            aware = (
+                connection.execute(sa.text("SELECT table_name || '.' || column_name FROM information_schema.columns WHERE table_schema = 'public' AND data_type = 'timestamp with time zone'"))
+                .scalars()
+                .all()
+            )
         assert aware == []
 
     def test_model_uniqueness_is_enforced(self, migrated):
@@ -354,7 +360,9 @@ class TestMigrationsThatMoveData:
                 insert_row(connection, "open_ports", owner_type="physical_device", owner_id=device, port=port, protocol=protocol, **values)
         scratch.upgrade(revision)
         with scratch.engine.connect() as connection:
-            rows = connection.execute(sa.text("SELECT p.port, k.protocol_type, k.id AS catalog_id FROM open_ports p JOIN protocol_port_catalogs k ON k.id = p.protocol_catalog_id ORDER BY p.port, k.id")).all()
+            rows = connection.execute(
+                sa.text("SELECT p.port, k.protocol_type, k.id AS catalog_id FROM open_ports p JOIN protocol_port_catalogs k ON k.id = p.protocol_catalog_id ORDER BY p.port, k.id")
+            ).all()
         assert [(r.port, r.protocol_type) for r in rows] == [(22, "SSH"), (53, "UDP"), (443, "HTTPS"), (443, "HTTPS"), (444, "HTTPS")]
         assert rows[0].catalog_id == known  # существующая запись не задвоена
         assert rows[2].catalog_id == rows[3].catalog_id  # одинаковые 443/HTTPS делят одну новую запись
@@ -379,7 +387,8 @@ class TestMigrationsThatMoveData:
             vm_row = connection.execute(sa.text("SELECT operating_system_id, hypervisor_os_id FROM virtual_machines WHERE id = :i"), {"i": vm}).one()
             debian_entries = connection.execute(sa.text("SELECT COUNT(*) FROM operating_systems WHERE name = 'Debian'")).scalar_one()
             hypervisor = connection.execute(
-                sa.text("SELECT o.name, o.version FROM operating_systems o JOIN operating_system_categories c ON c.id = o.category_id WHERE o.id = :i AND c.name = 'Гипервизор'"), {"i": vm_row.hypervisor_os_id}
+                sa.text("SELECT o.name, o.version FROM operating_systems o JOIN operating_system_categories c ON c.id = o.category_id WHERE o.id = :i AND c.name = 'Гипервизор'"),
+                {"i": vm_row.hypervisor_os_id},
             ).one()
         assert all(devices.values())
         assert devices[windows_a] == devices[windows_b] and devices[debian_a] == devices[debian_b] and devices[windows_a] != devices[debian_a]

@@ -228,7 +228,8 @@ class TestUpgradeFunctionOnSchemasWithTheConstraint:
         engine = _scratch_engine(
             tmp_path,
             [
-                "CREATE TABLE physical_devices (id VARCHAR(36) PRIMARY KEY, serial_number VARCHAR(255) NOT NULL, system_name VARCHAR(255), CONSTRAINT uq_serial UNIQUE (serial_number), CONSTRAINT uq_system UNIQUE (system_name))",
+                "CREATE TABLE physical_devices (id VARCHAR(36) PRIMARY KEY, serial_number VARCHAR(255) NOT NULL, system_name "
+                "VARCHAR(255), CONSTRAINT uq_serial UNIQUE (serial_number), CONSTRAINT uq_system UNIQUE (system_name))",
             ],
         )
         assert _has_unique_on_serial(engine)

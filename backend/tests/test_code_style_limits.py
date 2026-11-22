@@ -1,9 +1,10 @@
 """
 Трещотки стиля кода backend: длина строк, форматтер для всех файлов, запрет ссылок на номера замечаний ревью.
 
-1. Длина строк. `pyproject.toml` объявляет `line-length = 400`; в `backend/app` накопилось 7 строк длиннее 400 символов (до 2452: списки заголовков
-   Excel в reporting.py, справочник протоколов, импорт моделей), теперь они обёрнуты, а тест не даёт им вернуться. Предел читается из pyproject.toml,
-   поэтому при его снижении (план: до 140) тест сам покажет, какие строки ещё нужно обернуть.
+1. Длина строк. Предел читается из `pyproject.toml` (`[tool.ruff] line-length`) и снижается ступенями к плану в 140: 400 → 300 → 240 → 200 (каждая
+   ступень — отдельный механический коммит: `ruff format backend` плюс проверка равенства AST до и после). Тест проверяет все .py-файлы backend, кроме
+   исторических миграций (`alembic/versions`): форматтер переносит операторы, но не переносит одиночные строковые литералы, комментарии и докстринги —
+   их режут вручную (строки — неявной конкатенацией), и тест не даёт им вернуться. При следующем снижении он сам покажет, что ещё нужно обернуть.
 2. Форматтер. `ruff format` применяется ко ВСЕМУ backend, кроме исторических миграций (шаблон в `[tool.ruff.format] exclude`, pyproject.toml);
    CI проверяет одной командой `ruff format --check backend`. Список файлов-исключений, который сокращали пачками (было 271 файл), теперь пуст:
    новый модуль форматируется автоматически, а добавить файл в исключения нельзя — тест этого не пропустит.
@@ -31,15 +32,27 @@ def _line_length_limit() -> int:
     return tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["ruff"]["line-length"]
 
 
-def test_no_application_line_is_longer_than_the_declared_line_length():
+HISTORICAL_MIGRATIONS = ROOT / "backend" / "alembic" / "versions"
+
+
+def _backend_python_files() -> list[Path]:
+    return sorted(path for path in (ROOT / "backend").rglob("*.py") if HISTORICAL_MIGRATIONS not in path.parents)
+
+
+def test_no_backend_line_is_longer_than_the_declared_line_length():
     limit = _line_length_limit()
-    too_long = [f"{path.relative_to(ROOT)}:{number} ({len(line)} симв.)" for path in sorted(APP_DIR.rglob("*.py")) for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if len(line) > limit]
-    assert too_long == [], f"строки длиннее {limit} символов (оберните оператор `ruff format`-ом): {too_long}"
+    too_long = [
+        f"{path.relative_to(ROOT)}:{number} ({len(line)} симв.)"
+        for path in _backend_python_files()
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if len(line) > limit
+    ]
+    assert too_long == [], f"строки длиннее {limit} символов (код оберните `ruff format`-ом, строку-литерал разрежьте на части, комментарий и докстринг перенесите): {too_long}"
 
 
 def test_the_limit_is_not_silently_raised():
     # Объявленный предел только снижается (план — 140). Поднять его, чтобы тест позеленел, нельзя: сначала нужно осознанно поменять число здесь.
-    assert _line_length_limit() <= 240
+    assert _line_length_limit() <= 200
 
 
 # --- Исключения из `ruff format` ----------------------------------------------------------------------------------------------------------
@@ -94,7 +107,12 @@ REVIEW_REFERENCE = re.compile(r"память проекта|\bR\d?-\d+\b|\b(?:И
 
 
 def _review_references() -> list[str]:
-    return [f"{path.relative_to(APP_DIR).as_posix()}:{number}" for path in sorted(APP_DIR.rglob("*.py")) for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if REVIEW_REFERENCE.search(line)]
+    return [
+        f"{path.relative_to(APP_DIR).as_posix()}:{number}"
+        for path in sorted(APP_DIR.rglob("*.py"))
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if REVIEW_REFERENCE.search(line)
+    ]
 
 
 def test_comments_do_not_refer_to_review_numbers_or_to_the_project_memory():

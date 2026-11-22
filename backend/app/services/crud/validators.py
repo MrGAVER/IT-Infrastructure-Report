@@ -56,7 +56,11 @@ def _validate_physical_device(data: dict[str, Any], session: Session, item_id: s
     occupant = _find_rack_slot_occupant(data, session, item_id)
     if occupant and not confirm_rack_reassign:
         raise HTTPException(
-            409, detail={"code": ErrorCode.RACK_POSITION_OCCUPIED, "message": f'Позиция "{data.get("rack_position")}" в этой стойке уже занята устройством "{device_label(occupant)}". Переназначить позицию на текущее устройство?'}
+            409,
+            detail={
+                "code": ErrorCode.RACK_POSITION_OCCUPIED,
+                "message": f'Позиция "{data.get("rack_position")}" в этой стойке уже занята устройством "{device_label(occupant)}". Переназначить позицию на текущее устройство?',
+            },
         )
 
 

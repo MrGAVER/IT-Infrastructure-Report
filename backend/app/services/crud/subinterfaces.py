@@ -215,7 +215,10 @@ def subinterfaces_by_parent(interface_ids: Sequence[str], session: Session) -> d
     if not interface_ids:
         return {}
     subs = session.scalars(
-        select(DeviceSubinterface).join(VLAN, VLAN.id == DeviceSubinterface.vlan_id).where(DeviceSubinterface.parent_interface_id.in_(list(interface_ids))).order_by(VLAN.vlan_id, DeviceSubinterface.name, DeviceSubinterface.id)
+        select(DeviceSubinterface)
+        .join(VLAN, VLAN.id == DeviceSubinterface.vlan_id)
+        .where(DeviceSubinterface.parent_interface_id.in_(list(interface_ids)))
+        .order_by(VLAN.vlan_id, DeviceSubinterface.name, DeviceSubinterface.id)
     ).all()
     result: dict[str, list[dict[str, Any]]] = {}
     for data in enrich_subinterfaces(subs, session):

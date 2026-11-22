@@ -7,7 +7,8 @@
 запуск) ничего не проверяется. CI запускает pytest с `-rs`, поэтому причины пропусков видны в сводке; поднять бюджет можно только осознанно —
 правкой числа в .github/workflows/ci.yml вместе с описанием, зачем появился новый пропуск.
 
-Хук `pytest_sessionfinish` импортируется в conftest.py (так pytest его регистрирует; через `pytest_plugins` модуль был бы импортирован дважды). Запуск проверок: pytest backend/tests/test_skip_budget.py -v
+Хук `pytest_sessionfinish` импортируется в conftest.py (так pytest его регистрирует; через `pytest_plugins` модуль был бы импортирован
+дважды). Запуск проверок: pytest backend/tests/test_skip_budget.py -v
 """
 
 from __future__ import annotations

@@ -61,7 +61,8 @@ def _insert_groups(conn: sqlite3.Connection) -> dict[str, str]:
     )
     ids = {"С IP": _uid(), "Без IP": _uid()}
     conn.execute(
-        "INSERT INTO interface_groups (id, physical_device_id, name, ip_address, prefix_length, ip_purpose, manage_open_ports, created_at, updated_at) VALUES (?, ?, 'С IP', '10.0.0.5', 24, 'Управление', 0, ?, ?)",
+        "INSERT INTO interface_groups (id, physical_device_id, name, ip_address, prefix_length, ip_purpose, "
+        "manage_open_ports, created_at, updated_at) VALUES (?, ?, 'С IP', '10.0.0.5', 24, 'Управление', 0, ?, ?)",
         (ids["С IP"], dev_id, _NOW, _NOW),
     )
     conn.execute(
@@ -98,7 +99,8 @@ def test_downgrade_restores_columns_with_first_ip_of_each_group(alembic_config):
     command.upgrade(cfg, MULTIPLE_IPS_REV)
     conn = _connect(db_path)
     conn.execute(
-        "INSERT INTO interface_group_ips (id, group_id, ip_address, prefix_length, purpose, created_at, updated_at) VALUES (?, ?, '10.0.1.5', 24, 'Данные', '2099-01-01 00:00:00', '2099-01-01 00:00:00')",
+        "INSERT INTO interface_group_ips (id, group_id, ip_address, prefix_length, purpose, created_at, updated_at) "
+        "VALUES (?, ?, '10.0.1.5', 24, 'Данные', '2099-01-01 00:00:00', '2099-01-01 00:00:00')",
         (_uid(), ids["С IP"]),
     )
     conn.commit()
