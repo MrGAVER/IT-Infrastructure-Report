@@ -65,11 +65,14 @@ def test_ci_runs_weekly_on_a_schedule_and_can_be_started_by_hand(workflow):
 
 def test_only_the_windows_build_runs_on_a_schedule(workflow):
     jobs = workflow["jobs"]
-    guarded = {name: job.get("if", "") for name, job in jobs.items() if name != "build-windows"}
+    # `changes` — вспомогательное дешёвое задание: решает, нужна ли проверка под Windows, и по расписанию обязано работать (от него зависит
+    # build-windows); само по себе оно ничего не проверяет. Остальные задания по расписанию пропускаются.
+    guarded = {name: job.get("if", "") for name, job in jobs.items() if name not in ("build-windows", "changes")}
     assert guarded, "в ci.yml есть и другие job"
     for name, condition in guarded.items():
         assert "github.event_name != 'schedule'" in condition, f"job {name} не должен запускаться по расписанию"
-    assert "if" not in jobs["build-windows"], "build-windows по расписанию как раз и нужен"
+    assert "schedule" not in jobs["build-windows"].get("if", ""), "build-windows по расписанию как раз и нужен"
+    assert "if" not in jobs["changes"], "по расписанию решение для build-windows должно приниматься"
 
 
 # ---------------------------------------------------------------------------------------------------------------------

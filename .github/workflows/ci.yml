@@ -165,8 +165,49 @@ jobs:
   # Windows: продукт поставляется как Windows-EXE, а остальные задания идут на ubuntu. launcher.py, infra_registry.spec,
   # резервная копия SQLite перед миграцией (os.replace, блокировки файлов), запуск экспорта .vsdx в дочернем процессе (spawn) и пути вида
   # C:\... проверяются только здесь. Набор намеренно узкий — только то, что зависит от платформы: полный набор тестов уже идёт на Linux.
+  # Нужна ли этому запуску проверка под Windows. Сборка EXE занимает до 30 минут на Windows-раннере и бессмысленна, если в PR правились только
+  # документация, docker-compose и т. п. Фильтр `paths:` на уровне workflow отключил бы ВСЕ задания (и оставил бы обязательные проверки
+  # «в ожидании»), поэтому решение принимает это дешёвое задание, а Windows-задания пропускаются условием `if` — пропущенное задание
+  # считается пройденным. Для push, расписания и ручного запуска Windows-задания идут всегда. Любая правка этого файла тоже их запускает.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      windows: ${{ steps.filter.outputs.windows }}
+    steps:
+      # Для pull_request выгружается merge-коммит (HEAD^1 — вершина main, HEAD^2 — ветка PR); глубины 2 хватает для обоих родителей.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Затронуты ли файлы, от которых зависит EXE
+        id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -eu
+          windows=true
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            windows=false
+            if ! git rev-parse --verify --quiet HEAD^1 > /dev/null; then
+              windows=true  # нет базы для сравнения — безопаснее проверить
+            else
+              changed="$(mktemp)"
+              git -c core.quotepath=false diff --name-only HEAD^1 HEAD > "$changed"
+              while IFS= read -r file; do
+                case "$file" in
+                  launcher.py | infra_registry.spec | installer/* | backend/* | frontend-vue/* | .github/workflows/ci.yml) windows=true ;;
+                esac
+              done < "$changed"
+            fi
+          fi
+          echo "windows=$windows" >> "$GITHUB_OUTPUT"
+          echo "Проверка под Windows: $windows"
+
   windows-smoke:
-    if: github.event_name != 'schedule'
+    needs: changes
+    if: github.event_name != 'schedule' && needs.changes.outputs.windows == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
@@ -434,6 +475,8 @@ jobs:
   # по requirements-build.lock только сообщает (как одноимённые шаги job test). Linux-job test проверяет те же lock-файлы, но не
   # может проверить, что EXE вообще собирается и что скрипт работает под cmd.
   build-windows:
+    needs: changes
+    if: needs.changes.outputs.windows == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
