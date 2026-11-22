@@ -31,7 +31,9 @@ REPO_ROOT = BACKEND_DIR.parent
 
 def _clean_environment(**extra: str) -> dict[str, str]:
     """Окружение дочернего процесса без настроек приложения, которые conftest выставил для самих тестов."""
-    env = {key: value for key, value in os.environ.items() if not key.startswith(("INFRA_REGISTRY_", "POSTGRES_")) and key != "DATABASE_URL"}
+    env = {
+        key: value for key, value in os.environ.items() if not key.startswith(("INFRA_REGISTRY_", "POSTGRES_")) and key != "DATABASE_URL"
+    }
     env.update(extra)
     return env
 
@@ -61,7 +63,8 @@ class TestImportHasNoSideEffects:
         assert Path(report["reports"]) == (data_dir / "reports").resolve()
 
     def test_alembic_cli_creates_the_data_directory_for_the_default_sqlite_file(self, tmp_path):
-        """Docker: `alembic upgrade head` из docker-entrypoint.sh запускается до приложения; каталог данных раньше создавал импорт app.config."""
+        """Docker: `alembic upgrade head` из docker-entrypoint.sh запускается до приложения; каталог данных раньше создавал импорт
+        app.config."""
         data_dir = tmp_path / "fresh" / "data"
         result = subprocess.run(
             [sys.executable, "-m", "alembic", "upgrade", "head"],

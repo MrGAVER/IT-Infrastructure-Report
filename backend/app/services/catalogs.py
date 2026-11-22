@@ -40,8 +40,30 @@ DEFAULT_NAMES = {
         "400 Gbps",
         "Auto",
     ],
-    InterfaceType: ["Ethernet", "SFP", "SFP+", "SFP28", "QSFP", "QSFP28", "Management", "Console", "Fiber", "Virtual", "Loopback", "Wi-Fi", "Другое"],
-    ConnectionType: ["Витая пара", "Оптическое волокно", "Медный патч-корд", "Оптический патч-корд", "Прямая связь", "Агрегированный канал", "Другое"],
+    InterfaceType: [
+        "Ethernet",
+        "SFP",
+        "SFP+",
+        "SFP28",
+        "QSFP",
+        "QSFP28",
+        "Management",
+        "Console",
+        "Fiber",
+        "Virtual",
+        "Loopback",
+        "Wi-Fi",
+        "Другое",
+    ],
+    ConnectionType: [
+        "Витая пара",
+        "Оптическое волокно",
+        "Медный патч-корд",
+        "Оптический патч-корд",
+        "Прямая связь",
+        "Агрегированный канал",
+        "Другое",
+    ],
     OperatingSystemCategory: ["Гипервизор", "Серверная ОС", "Клиентская ОС", "Сетевая ОС", "ОС средства защиты", "Мобильная ОС", "Другое"],
 }
 # Стандартные записи, для которых при ПЕРВОМ создании (см. _seed_name_only_catalogs) нужно
@@ -80,7 +102,13 @@ DEVICE_CATEGORY_HIERARCHY = [
     ("Маршрутизаторы", "Сетевая инфраструктура", "Маршрутизаторы", "router", None),
     ("Средства защиты информации", None, "Межсетевые экраны и программно-аппаратные комплексы защиты", "firewall", "#d9534f"),
     ("Рабочие места", None, "Рабочие станции и администраторские ПК", "workstation", "#8a8f98"),
-    ("Администраторские рабочие места", "Рабочие места", "Рабочие ПК системного/сетевого администратора и администратора безопасности", None, None),
+    (
+        "Администраторские рабочие места",
+        "Рабочие места",
+        "Рабочие ПК системного/сетевого администратора и администратора безопасности",
+        None,
+        None,
+    ),
     ("Периферия и вспомогательное оборудование", None, "IP-телефоны, ИБП, принтеры/МФУ", "peripheral", "#b08b3a"),
     ("Другое оборудование", None, "Технический fallback для типов устройств без сопоставленной категории", "generic", None),
 ]
@@ -199,7 +227,9 @@ def _seed_device_categories(session: Session) -> None:
         if name in by_name:
             continue
         parent = by_name.get(parent_name) if parent_name else None
-        obj = DeviceCategory(name=name, parent_id=parent.id if parent else None, description=description, diagram_shape=shape, diagram_color=color)
+        obj = DeviceCategory(
+            name=name, parent_id=parent.id if parent else None, description=description, diagram_shape=shape, diagram_color=color
+        )
         session.add(obj)
         session.flush()
         by_name[name] = obj
@@ -252,7 +282,19 @@ def _seed_protocols(session: Session) -> None:
 
 
 def _seed_manufacturers(session: Session) -> None:
-    manufacturer_names = ["Cisco", "Dell", "HPE", "Huawei", "VMware", "Microsoft", "Proxmox", "MikroTik", "Fortinet", "Lenovo", "Supermicro"]
+    manufacturer_names = [
+        "Cisco",
+        "Dell",
+        "HPE",
+        "Huawei",
+        "VMware",
+        "Microsoft",
+        "Proxmox",
+        "MikroTik",
+        "Fortinet",
+        "Lenovo",
+        "Supermicro",
+    ]
     existing = {x.name for x in session.scalars(select(Manufacturer)).all()}
     for name in manufacturer_names:
         if name not in existing:

@@ -1,8 +1,10 @@
 """
-Настройки аудита по HTTP, A-05 код-ревью main @ b375f58: GET/PUT /api/v1/audit-log/settings, разграничение прав и ленивый запуск очистки при открытии журнала.
+Настройки аудита по HTTP, A-05 код-ревью main @ b375f58: GET/PUT /api/v1/audit-log/settings, разграничение прав и ленивый запуск
+очистки при открытии журнала.
 
-Права: при включённой аутентификации настройки (как и сам журнал) — только администратору, viewer получает 403 и на чтение, и на запись, без токена — 401;
-пока аутентификация выключена, пользователь один и настройки открыты (как журнал). Доступ задан на весь роутер журнала, поэтому ниже
+Права: при включённой аутентификации настройки (как и сам журнал) — только администратору, viewer получает 403 и на чтение, и на
+запись, без токена — 401; пока аутентификация выключена, пользователь один и настройки открыты (как журнал). Доступ задан на весь
+роутер журнала, поэтому ниже
 проверяются все его маршруты.
 
 Запуск: pytest backend/tests/test_audit_settings_api.py -v
@@ -27,7 +29,11 @@ def _seed_old(session, count: int, *, days: int = 400) -> None:
     now = utcnow_naive()
     session.add_all(
         AuditLog(
-            entity_type="devices", entity_id=f"old-{index}", action="UPDATE", details=f"старая {index}", created_at=now - timedelta(days=days, minutes=index)
+            entity_type="devices",
+            entity_id=f"old-{index}",
+            action="UPDATE",
+            details=f"старая {index}",
+            created_at=now - timedelta(days=days, minutes=index),
         )
         for index in range(count)
     )
@@ -89,7 +95,13 @@ class TestReadAndWrite:
         response = client.get(URL)
 
         assert response.status_code == 200
-        assert response.json() == {"retention_days": 0, "is_default": True, "default_retention_days": 0, "max_retention_days": 3650, "last_cleanup_at": None}
+        assert response.json() == {
+            "retention_days": 0,
+            "is_default": True,
+            "default_retention_days": 0,
+            "max_retention_days": 3650,
+            "last_cleanup_at": None,
+        }
 
     def test_saved_period_is_returned_and_remembered(self, client):
         response = client.put(URL, json={"retention_days": 90})

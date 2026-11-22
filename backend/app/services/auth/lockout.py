@@ -63,7 +63,10 @@ def account_locked(locked_until: datetime, now: datetime) -> HTTPException:
     return HTTPException(
         423,
         {
-            "message": f"Учётная запись временно заблокирована после серии неудачных попыток входа. Повторите попытку через {remaining_minutes} мин.",
+            "message": (
+                "Учётная запись временно заблокирована после серии неудачных попыток входа. Повторите попытку через "
+                f"{remaining_minutes} мин."
+            ),
             "code": ErrorCode.ACCOUNT_LOCKED,
         },
     )
@@ -95,6 +98,8 @@ def register_failed_password(
             )
         )
         session.commit()
-    audit(session, "auth", user.id, AuditAction.LOGIN_FAILED, details + (" — учётная запись заблокирована" if locked_now else ""), actor=actor)
+    audit(
+        session, "auth", user.id, AuditAction.LOGIN_FAILED, details + (" — учётная запись заблокирована" if locked_now else ""), actor=actor
+    )
     session.commit()
     return locked_now

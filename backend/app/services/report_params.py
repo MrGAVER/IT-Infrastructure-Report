@@ -50,8 +50,8 @@ def reject_non_finite_numbers(value: Any, field: str) -> None:
 
 
 def parse_config_object(raw: Any) -> dict[str, Any]:
-    """`config` предпросмотра и шаблона: не прислан или `null` — пустой объект (его отклонит валидатор шаблона с понятным текстом), иначе объект
-    без ``NaN``/``Infinity``."""
+    """`config` предпросмотра и шаблона: не прислан или `null` — пустой объект (его отклонит валидатор шаблона с понятным
+    текстом), иначе объект без ``NaN``/``Infinity``."""
     if raw is None:
         return {}
     if not isinstance(raw, dict):
@@ -64,7 +64,11 @@ def parse_structural_unit_ids(raw: Any) -> list[str] | None:
     """`structural_unit_ids`: `null` или пустой список — без фильтра (None), иначе список непустых строк-идентификаторов."""
     if raw is None:
         return None
-    valid = isinstance(raw, list) and len(raw) <= MAX_STRUCTURAL_UNIT_IDS and all(isinstance(item, str) and 0 < len(item) <= MAX_ID_LENGTH for item in raw)
+    valid = (
+        isinstance(raw, list)
+        and len(raw) <= MAX_STRUCTURAL_UNIT_IDS
+        and all(isinstance(item, str) and 0 < len(item) <= MAX_ID_LENGTH for item in raw)
+    )
     if not valid:
         raise HTTPException(422, "structural_unit_ids должен быть списком идентификаторов")
     return raw or None

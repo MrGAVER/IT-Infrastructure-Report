@@ -168,7 +168,9 @@ def test_the_bypass_can_be_switched_off(setup, db_session, monkeypatch):
     assert response.status_code == 423 and response.json()["detail"]["code"] == "ACCOUNT_LOCKED"
 
 
-@pytest.mark.parametrize(("raw", "expected"), [("", True), ("1", True), ("true", True), ("0", False), ("false", False), ("No", False), ("OFF", False)])
+@pytest.mark.parametrize(
+    ("raw", "expected"), [("", True), ("1", True), ("true", True), ("0", False), ("false", False), ("No", False), ("OFF", False)]
+)
 def test_environment_variable_parsing(monkeypatch, raw, expected):
     import importlib
 

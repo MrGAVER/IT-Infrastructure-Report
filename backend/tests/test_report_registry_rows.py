@@ -190,7 +190,9 @@ def _seed_rich_dataset(session):
         room_id=room.id,
         siem_enabled=True,
     )
-    dev2 = PhysicalDevice(device_type_id=dtype.id, manufacturer_id=manufacturer.id, serial_number="SN-002", system_name="sw-01", embedded_os_id=embedded_os.id)
+    dev2 = PhysicalDevice(
+        device_type_id=dtype.id, manufacturer_id=manufacturer.id, serial_number="SN-002", system_name="sw-01", embedded_os_id=embedded_os.id
+    )
     session.add_all([dev1, dev2])
     session.flush()
 
@@ -220,7 +222,12 @@ def _seed_rich_dataset(session):
     session.add(OpenPort(owner_type="physical_device", owner_id=dev1.id, transport_protocol="TCP", protocol_catalog_id=ssh_catalog.id))
 
     isys = InformationSystem(
-        name="ИС Бухгалтерия", description="Учётная система", purpose="Учёт", localization="ЦОД-1", siem_enabled=True, crypto_protection_enabled=True
+        name="ИС Бухгалтерия",
+        description="Учётная система",
+        purpose="Учёт",
+        localization="ЦОД-1",
+        siem_enabled=True,
+        crypto_protection_enabled=True,
     )
     session.add(isys)
     session.flush()
@@ -328,7 +335,12 @@ class ExactParityTestCase(unittest.TestCase):
                 orig_path = build_report(session, tmp_path, structural_unit_ids=[unit.id])
                 wb_orig = openpyxl.load_workbook(orig_path)
                 grid_path = build_xlsx_grid(
-                    session, default_registry_template_config(), tmp_path, template_name=TEMPLATE_NAME, params={}, structural_unit_ids=[unit.id]
+                    session,
+                    default_registry_template_config(),
+                    tmp_path,
+                    template_name=TEMPLATE_NAME,
+                    params={},
+                    structural_unit_ids=[unit.id],
                 )
                 wb_grid = openpyxl.load_workbook(grid_path)
 

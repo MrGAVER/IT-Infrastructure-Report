@@ -44,7 +44,11 @@ INVALID = [
     ("colspan_beyond_sheet", [static_row([cell(2, colspan=2)])], "объединение выходит за границы листа"),
     ("rowspan_in_repeat_row", [repeat_row([cell(0, rowspan=2)])], "объединение по вертикали недопустимо в повторяющейся строке"),
     ("rowspan_beyond_last_row", [static_row([cell(0, rowspan=3)]), static_row([cell(1)])], "объединение выходит за последнюю строку листа"),
-    ("rowspan_over_repeat_row", [static_row([cell(0, rowspan=2)]), repeat_row([cell(1, "field", path="name")])], "не может охватывать повторяющуюся строку"),
+    (
+        "rowspan_over_repeat_row",
+        [static_row([cell(0, rowspan=2)]), repeat_row([cell(1, "field", path="name")])],
+        "не может охватывать повторяющуюся строку",
+    ),
     ("column_taken_from_above", [static_row([cell(0, rowspan=2)]), static_row([cell(0)])], "уже занята объединением из строки выше"),
     ("overlapping_cells", [static_row([cell(0, colspan=2), cell(1)])], "ячейки в колонке 1 перекрываются"),
     ("unknown_kind", [static_row([cell(0, "волшебная")])], "неизвестный тип ячейки 'волшебная'"),

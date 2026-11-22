@@ -113,4 +113,6 @@ def test_eviction_cost_does_not_grow_with_the_table_size():
     evictions = 300
     small = min(_eviction_seconds(1_000, evictions) for _ in range(3))
     large = min(_eviction_seconds(50_000, evictions) for _ in range(3))
-    assert large < max(small, 1e-4) * 10, f"вытеснение стало зависеть от размера таблицы: {small:.4f} с на 1 000 ключей и {large:.4f} с на 50 000"
+    assert large < max(small, 1e-4) * 10, (
+        f"вытеснение стало зависеть от размера таблицы: {small:.4f} с на 1 000 ключей и {large:.4f} с на 50 000"
+    )

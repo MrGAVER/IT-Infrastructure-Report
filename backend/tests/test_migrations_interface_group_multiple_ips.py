@@ -66,7 +66,8 @@ def _insert_groups(conn: sqlite3.Connection) -> dict[str, str]:
         (ids["С IP"], dev_id, _NOW, _NOW),
     )
     conn.execute(
-        "INSERT INTO interface_groups (id, physical_device_id, name, manage_open_ports, created_at, updated_at) VALUES (?, ?, 'Без IP', 0, ?, ?)",
+        "INSERT INTO interface_groups (id, physical_device_id, name, manage_open_ports, created_at, "
+        "updated_at) VALUES (?, ?, 'Без IP', 0, ?, ?)",
         (ids["Без IP"], dev_id, _NOW, _NOW),
     )
     conn.commit()

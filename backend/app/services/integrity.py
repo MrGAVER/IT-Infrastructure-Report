@@ -93,7 +93,8 @@ def integrity_error_response(resource: str, exc: IntegrityError) -> HTTPExceptio
             detail={
                 "code": ErrorCode.RACK_POSITION_OCCUPIED,
                 "message": (
-                    "Позиция в стойке уже занята другим устройством (возможно, его только что сохранил другой пользователь). Обновите данные и повторите."
+                    "Позиция в стойке уже занята другим устройством (возможно, его только что сохранил другой "
+                    "пользователь). Обновите данные и повторите."
                 ),
             },
         )
@@ -107,12 +108,14 @@ def integrity_error_response(resource: str, exc: IntegrityError) -> HTTPExceptio
             detail={
                 "code": ErrorCode.PORT_ALREADY_CONNECTED,
                 "message": (
-                    "Порт уже участвует в другом активном подключении (возможно, его только что подключил другой пользователь). Обновите данные и повторите."
+                    "Порт уже участвует в другом активном подключении (возможно, его только что подключил другой "
+                    "пользователь). Обновите данные и повторите."
                 ),
             },
         )
     return HTTPException(
-        409, detail={"code": ErrorCode.INTEGRITY_ERROR, "message": "Нарушение целостности данных: операция противоречит существующим записям."}
+        409,
+        detail={"code": ErrorCode.INTEGRITY_ERROR, "message": "Нарушение целостности данных: операция противоречит существующим записям."},
     )
 
 
@@ -219,13 +222,19 @@ def find_orphaned_owner_references(session: Session) -> list[dict[str, Any]]:
 
     for child in _POLYMORPHIC_CHILD_MODELS:
         for owner_type, owner_model in _OWNER_MODEL_BY_TYPE.items():
-            rows = session.execute(select(child.id, child.owner_id).where(child.owner_type == owner_type, ~child.owner_id.in_(select(owner_model.id)))).all()
+            rows = session.execute(
+                select(child.id, child.owner_id).where(child.owner_type == owner_type, ~child.owner_id.in_(select(owner_model.id)))
+            ).all()
             orphans.extend(
-                {"table": child.__tablename__, "id": r.id, "owner_type": owner_type, "owner_id": r.owner_id, "reason": "owner_missing"} for r in rows
+                {"table": child.__tablename__, "id": r.id, "owner_type": owner_type, "owner_id": r.owner_id, "reason": "owner_missing"}
+                for r in rows
             )
-        rows = session.execute(select(child.id, child.owner_type, child.owner_id).where(child.owner_type.not_in(list(_OWNER_MODEL_BY_TYPE)))).all()
+        rows = session.execute(
+            select(child.id, child.owner_type, child.owner_id).where(child.owner_type.not_in(list(_OWNER_MODEL_BY_TYPE)))
+        ).all()
         orphans.extend(
-            {"table": child.__tablename__, "id": r.id, "owner_type": r.owner_type, "owner_id": r.owner_id, "reason": "unknown_owner_type"} for r in rows
+            {"table": child.__tablename__, "id": r.id, "owner_type": r.owner_type, "owner_id": r.owner_id, "reason": "unknown_owner_type"}
+            for r in rows
         )
 
     for owner_model, source_type in SOURCE_TYPE_BY_MODEL.items():
@@ -237,7 +246,13 @@ def find_orphaned_owner_references(session: Session) -> list[dict[str, Any]]:
             )
         ).all()
         orphans.extend(
-            {"table": InformationSystemSource.__tablename__, "id": r.id, "owner_type": source_type, "owner_id": r.owner_id, "reason": "owner_missing"}
+            {
+                "table": InformationSystemSource.__tablename__,
+                "id": r.id,
+                "owner_type": source_type,
+                "owner_id": r.owner_id,
+                "reason": "owner_missing",
+            }
             for r in rows
         )
     return orphans
@@ -339,11 +354,15 @@ def find_stale_subinterfaces(session: Session, vlan_id: str | None = None) -> li
         used_vlans = used_vlans.where(DeviceSubinterface.vlan_id == vlan_id)
     assigned = {
         (r.physical_device_id, r.vlan_id)
-        for r in session.execute(select(PhysicalDeviceVLAN.physical_device_id, PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.vlan_id.in_(used_vlans)))
+        for r in session.execute(
+            select(PhysicalDeviceVLAN.physical_device_id, PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.vlan_id.in_(used_vlans))
+        )
     }
     by_type = {
         (r.device_type_id, r.vlan_id)
-        for r in session.execute(select(DeviceTypeVLAN.device_type_id, DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.vlan_id.in_(used_vlans)))
+        for r in session.execute(
+            select(DeviceTypeVLAN.device_type_id, DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.vlan_id.in_(used_vlans))
+        )
     }
 
     stale = [
@@ -507,7 +526,10 @@ def _interface_names(session: Session, ids: set[str]) -> dict[str, str]:
 def _subinterface_names(session: Session, ids: set[str]) -> dict[str, str]:
     """Подинтерфейс: «устройство / подинтерфейс». Три запроса: подинтерфейсы, их порты, устройства."""
     subinterfaces = session.scalars(select(DeviceSubinterface).where(DeviceSubinterface.id.in_(ids))).all()
-    parents = {i.id: i for i in session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_({s.parent_interface_id for s in subinterfaces})))}
+    parents = {
+        i.id: i
+        for i in session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_({s.parent_interface_id for s in subinterfaces})))
+    }
     devices = _devices_by_id(session, {p.physical_device_id for p in parents.values()})
     names: dict[str, str] = {}
     for sub in subinterfaces:

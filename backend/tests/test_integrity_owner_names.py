@@ -64,7 +64,9 @@ def _selects(statements: list[str]) -> int:
         (OwnerType.DEVICE_SUBINTERFACE, "sub", "srv-01 / Gi0/1.10", 3),
     ],
 )
-def test_each_owner_type_gets_its_name_with_a_fixed_number_of_queries(db_session, sql_log, data, owner_type, key, expected_name, expected_queries):
+def test_each_owner_type_gets_its_name_with_a_fixed_number_of_queries(
+    db_session, sql_log, data, owner_type, key, expected_name, expected_queries
+):
     sql_log.clear()
     names = _owner_names(db_session, {(owner_type, data[key])})
     assert names == {(owner_type, data[key]): expected_name}
@@ -72,7 +74,9 @@ def test_each_owner_type_gets_its_name_with_a_fixed_number_of_queries(db_session
 
 
 def test_device_without_name_and_serial_is_labelled_by_id(db_session, data):
-    assert _owner_names(db_session, {(OwnerType.PHYSICAL_DEVICE, data["broken"])}) == {(OwnerType.PHYSICAL_DEVICE, data["broken"]): data["broken"]}
+    assert _owner_names(db_session, {(OwnerType.PHYSICAL_DEVICE, data["broken"])}) == {
+        (OwnerType.PHYSICAL_DEVICE, data["broken"]): data["broken"]
+    }
 
 
 def test_queries_depend_on_owner_types_not_on_rows(db_session, sql_log, data):

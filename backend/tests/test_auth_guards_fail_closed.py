@@ -23,7 +23,9 @@ from app.services.auth.guards import require_admin, require_admin_if_auth_enable
 
 def _request(*, auth_enabled: bool | None = None, user: User | None = None, client_host: str = "127.0.0.1") -> Request:
     """Request без шлюза: флаг и пользователь появляются в state, только если их передали (None — «шлюз не отработал»)."""
-    request = Request({"type": "http", "method": "GET", "path": "/api/v1/probe", "headers": [], "query_string": b"", "client": (client_host, 50000)})
+    request = Request(
+        {"type": "http", "method": "GET", "path": "/api/v1/probe", "headers": [], "query_string": b"", "client": (client_host, 50000)}
+    )
     if auth_enabled is not None:
         request.state.auth_enabled = auth_enabled
     if user is not None:

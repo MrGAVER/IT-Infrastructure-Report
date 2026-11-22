@@ -41,10 +41,19 @@ def _port(
     assigned = {f"v{n}" for n in numbers} if vlan_ids is None else vlan_ids
     allowed_ids = {f"v{a}" if isinstance(a, int) else a for a in allowed}
     facts = PortFacts(role=role, mode=mode, vlans=frozenset(numbers), all_vlans=all_vlans)
-    return _Port(iface=DeviceInterface(id=port_id, name=f"Gi0/{port_id}"), device=None, group=group, vlan_ids=assigned, allowed_ids=allowed_ids, facts=facts)
+    return _Port(
+        iface=DeviceInterface(id=port_id, name=f"Gi0/{port_id}"),
+        device=None,
+        group=group,
+        vlan_ids=assigned,
+        allowed_ids=allowed_ids,
+        facts=facts,
+    )
 
 
-def _plan(changes: Changes, target: _Port, source: _Port, *, apply_to: str = APPLY_TO_SOURCE, claimed: set[str] | None = None) -> _TargetPlan:
+def _plan(
+    changes: Changes, target: _Port, source: _Port, *, apply_to: str = APPLY_TO_SOURCE, claimed: set[str] | None = None
+) -> _TargetPlan:
     """Подключение a (источник) — b (назначение); apply_to выбирает, какой из них целевой порт."""
     a, b = (target, source) if apply_to == APPLY_TO_SOURCE else (source, target)
     connection = Connection(id="c1", source_interface_id=a.iface.id, destination_interface_id=b.iface.id)
@@ -75,7 +84,9 @@ class TestTargetSelection:
     def test_planned_record_carries_the_connection_rule_and_what_to_write(self):
         target, other = _port("a", mode="trunk", role=PortRole.NONE, allowed=(10, 20)), _port("b", numbers=(10, 20))
         connection = Connection(id="c1", source_interface_id="a", destination_interface_id="b")
-        plan = _plan_with(connection, APPLY_TO_SOURCE, Changes(role=PortRole.DATA, mode="access", vlans=frozenset({10})), {"a": target, "b": other}, None)
+        plan = _plan_with(
+            connection, APPLY_TO_SOURCE, Changes(role=PortRole.DATA, mode="access", vlans=frozenset({10})), {"a": target, "b": other}, None
+        )
         planned = plan.planned
         assert planned is not None
         assert (planned.connection, planned.rule, planned.role, planned.mode, planned.vlan_ids, planned.all_vlans) == (
@@ -215,7 +226,9 @@ class TestBlocking:
 
     @pytest.mark.parametrize("changes", [Changes(mode="access"), Changes(vlans=frozenset({10})), Changes(all_vlans=True)])
     def test_group_that_sets_mode_and_vlans_blocks_individual_changes(self, changes):
-        plan = _plan(changes, _port("a", allowed=(10,), group=_group("Магистраль")), _port("b", numbers=(10,), all_vlans=True), claimed={"a"})
+        plan = _plan(
+            changes, _port("a", allowed=(10,), group=_group("Магистраль")), _port("b", numbers=(10,), all_vlans=True), claimed={"a"}
+        )
         assert plan.blocked == "Порт входит в группу «Магистраль», которая задаёт режим и VLAN, — измените группу"
         assert plan.planned is None
 
@@ -230,16 +243,24 @@ class TestBlocking:
 
     def test_access_port_cannot_receive_several_vlans(self):
         message = "В режиме access у порта может быть не более одного VLAN"
-        assert _plan(Changes(vlans=frozenset({10, 20})), _port("a", mode="access", allowed=(10, 20)), _port("b", numbers=(10, 20))).blocked == message
         assert (
-            _plan(Changes(mode="access", vlans=frozenset({10, 20})), _port("a", mode="trunk", allowed=(10, 20)), _port("b", numbers=(10, 20))).blocked
+            _plan(Changes(vlans=frozenset({10, 20})), _port("a", mode="access", allowed=(10, 20)), _port("b", numbers=(10, 20))).blocked
+            == message
+        )
+        assert (
+            _plan(
+                Changes(mode="access", vlans=frozenset({10, 20})), _port("a", mode="trunk", allowed=(10, 20)), _port("b", numbers=(10, 20))
+            ).blocked
             == message
         )
 
     def test_access_port_may_receive_one_vlan_and_a_trunk_may_receive_several(self):
         assert _plan(Changes(vlans=frozenset({10})), _port("a", mode="access", allowed=(10, 20)), _port("b", numbers=(10,))).blocked is None
         assert (
-            _plan(Changes(mode="trunk", vlans=frozenset({10, 20})), _port("a", mode="access", allowed=(10, 20)), _port("b", numbers=(10, 20))).blocked is None
+            _plan(
+                Changes(mode="trunk", vlans=frozenset({10, 20})), _port("a", mode="access", allowed=(10, 20)), _port("b", numbers=(10, 20))
+            ).blocked
+            is None
         )
 
     def test_access_check_counts_vlans_left_after_skipping(self):
@@ -253,18 +274,25 @@ class TestBlocking:
         assert claimed == {"a"}  # `claimed` функция только читает
 
     def test_other_ports_claimed_do_not_matter(self):
-        assert _plan(Changes(vlans=frozenset({10})), _port("a", allowed=(10,)), _port("b", numbers=(10,)), claimed={"b", "x"}).blocked is None
+        assert (
+            _plan(Changes(vlans=frozenset({10})), _port("a", allowed=(10,)), _port("b", numbers=(10,)), claimed={"b", "x"}).blocked is None
+        )
 
     def test_reasons_are_checked_in_a_fixed_order(self):
         grouped = _port("a", allowed=(10, 20), mode="access", group=_group("Г"))
-        assert "Порт входит в группу" in (_plan(Changes(vlans=frozenset({10, 20})), grouped, _port("b", numbers=(10, 20)), claimed={"a"}).blocked or "")
+        assert "Порт входит в группу" in (
+            _plan(Changes(vlans=frozenset({10, 20})), grouped, _port("b", numbers=(10, 20)), claimed={"a"}).blocked or ""
+        )
         plain = _port("a", allowed=(10, 20), mode="access")
         assert (
             _plan(Changes(vlans=frozenset({10, 20})), plain, _port("b", numbers=(10, 20)), claimed={"a"}).blocked
             == "В режиме access у порта может быть не более одного VLAN"
         )
         assert (
-            _plan(Changes(vlans=frozenset({10})), _port("a", allowed=(10,), numbers=(10,)), _port("b", numbers=(10,)), claimed={"a"}).blocked == "Изменений нет"
+            _plan(
+                Changes(vlans=frozenset({10})), _port("a", allowed=(10,), numbers=(10,)), _port("b", numbers=(10,)), claimed={"a"}
+            ).blocked
+            == "Изменений нет"
         )
         assert (
             _plan(Changes(vlans=frozenset({20})), _port("a", allowed=(20,)), _port("b", numbers=(20,)), claimed={"a"}).blocked

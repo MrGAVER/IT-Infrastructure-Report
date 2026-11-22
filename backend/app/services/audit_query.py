@@ -56,7 +56,9 @@ def list_audit_log(session: Session, query: AuditQuery, *, offset: int, limit: i
     ВСЕМУ журналу (не зависят от поиска и фильтров)."""
     where = _conditions(query)
     total = session.scalar(select(func.count(AuditLog.id)).where(*where)) or 0
-    rows = session.scalars(select(AuditLog).where(*where).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).offset(offset).limit(limit)).all()
+    rows = session.scalars(
+        select(AuditLog).where(*where).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).offset(offset).limit(limit)
+    ).all()
     return {
         "items": [serialize(row) for row in rows],
         "total": total,
@@ -70,7 +72,10 @@ def list_audit_log(session: Session, query: AuditQuery, *, offset: int, limit: i
 def summarize_audit_log(session: Session) -> dict[str, Any]:
     """Сколько записей в журнале всего и по каждому действию (`by_action`: CREATE, UPDATE, DELETE,
     SYNC, LOGIN…). Один запрос по индексу action."""
-    counts = {action: int(count) for action, count in session.execute(select(AuditLog.action, func.count(AuditLog.id)).group_by(AuditLog.action)).all()}
+    counts = {
+        action: int(count)
+        for action, count in session.execute(select(AuditLog.action, func.count(AuditLog.id)).group_by(AuditLog.action)).all()
+    }
     return {"total": sum(counts.values()), "by_action": counts}
 
 

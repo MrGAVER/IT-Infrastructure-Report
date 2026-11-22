@@ -211,7 +211,14 @@ class PhysicalDevice(TimestampMixin, Base):
     # Индекс частичный: устройства без стойки или без позиции ограничением не затрагиваются (миграция
     # b5d2f8a1c673). Переназначение занятого слота делает services/crud/validators.py:_release_rack_slot.
     __table_args__ = (
-        Index("uq_device_rack_slot", "rack_id", "rack_position", unique=True, sqlite_where=text(_RACK_SLOT_FILLED), postgresql_where=text(_RACK_SLOT_FILLED)),
+        Index(
+            "uq_device_rack_slot",
+            "rack_id",
+            "rack_position",
+            unique=True,
+            sqlite_where=text(_RACK_SLOT_FILLED),
+            postgresql_where=text(_RACK_SLOT_FILLED),
+        ),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     device_type_id: Mapped[str] = mapped_column(ForeignKey("device_types.id"), index=True)
@@ -814,8 +821,8 @@ class InformationSystemSource(TimestampMixin, Base):
     ИС на уже не существующем оборудовании). Раньше это обеспечивал сам FK на уровне БД; owner_id
     настоящим FK не является (ссылается на одну из трёх разных таблиц в зависимости от source_type
     — единая FK-колонка не может ссылаться на разные таблицы), поэтому защита воссоздана вручную в
-    services/crud/deletion.py:assert_deletable() (вызывается из delete_resource; плюс before_delete и триггеры БД, см. services/integrity.py) — решение
-    заказчика по итогам рассмотрения архитектурной развилки (убрать защиту было неприемлемо для
+    services/crud/deletion.py:assert_deletable() (вызывается из delete_resource; плюс before_delete и триггеры БД, см.
+    services/integrity.py) — решение заказчика по итогам рассмотрения архитектурной развилки (убрать защиту было неприемлемо для
     точности отчёта)."""
 
     __tablename__ = "information_system_sources"
@@ -1014,7 +1021,9 @@ class AuditSettings(Base):
     AppPreference: настройки интерфейса читает любая роль (GET /preferences), а эти — только администратор."""
 
     __tablename__ = "audit_settings"
-    __table_args__ = (CheckConstraint("retention_days IS NULL OR retention_days >= 0", name="ck_audit_settings_retention_days_non_negative"),)
+    __table_args__ = (
+        CheckConstraint("retention_days IS NULL OR retention_days >= 0", name="ck_audit_settings_retention_days_non_negative"),
+    )
     id: Mapped[str] = mapped_column(String(20), primary_key=True, default="singleton")
     retention_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     last_cleanup_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

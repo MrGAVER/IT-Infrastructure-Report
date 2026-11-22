@@ -55,7 +55,9 @@ def _incoming_vlan_id(item: Any, incoming: set[str]) -> str:
     return vlan_id
 
 
-def _apply_device_vlan_item(device_id: str, vlan_id: str, item: dict[str, Any], existing: dict[str, PhysicalDeviceVLAN], session: Session) -> str | None:
+def _apply_device_vlan_item(
+    device_id: str, vlan_id: str, item: dict[str, Any], existing: dict[str, PhysicalDeviceVLAN], session: Session
+) -> str | None:
     """Создаёт или обновляет назначение VLAN; возвращает 'added', 'updated' или None, если запись не изменилась."""
     values = _normalize_device_vlan_item(item)
     _validate_physical_device_vlan({"physical_device_id": device_id, "vlan_id": vlan_id}, session)
@@ -91,7 +93,9 @@ def sync_device_vlans(device_id: str, payload: dict[str, Any], session: Session)
     items = payload.get("vlans", [])
     if not isinstance(items, list):
         raise HTTPException(422, "Поле vlans должно быть массивом")
-    existing = {x.vlan_id: x for x in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id == device_id)).all()}
+    existing = {
+        x.vlan_id: x for x in session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id == device_id)).all()
+    }
     incoming: set[str] = set()
     added = updated = 0
     try:
@@ -109,7 +113,13 @@ def sync_device_vlans(device_id: str, payload: dict[str, Any], session: Session)
                 session.delete(obj)
                 removed += 1
         session.flush()
-        audit(session, "device-vlans", device_id, AuditAction.SYNC, f"Синхронизация VLAN устройства: добавлено {added}, изменено {updated}, удалено {removed}")
+        audit(
+            session,
+            "device-vlans",
+            device_id,
+            AuditAction.SYNC,
+            f"Синхронизация VLAN устройства: добавлено {added}, изменено {updated}, удалено {removed}",
+        )
         session.commit()
         result = session.scalars(select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id == device_id)).all()
         return {"items": [serialize(x) for x in result]}

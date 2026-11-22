@@ -40,7 +40,9 @@ def clock(monkeypatch) -> FakeClock:
     monkeypatch.setattr(
         guards_module,
         "setup_token_throttle",
-        LoginThrottle(free_attempts=FREE, base_delay=guards_module.SETUP_TOKEN_BASE_DELAY, max_delay=guards_module.SETUP_TOKEN_MAX_DELAY, clock=fake),
+        LoginThrottle(
+            free_attempts=FREE, base_delay=guards_module.SETUP_TOKEN_BASE_DELAY, max_delay=guards_module.SETUP_TOKEN_MAX_DELAY, clock=fake
+        ),
     )
     return fake
 

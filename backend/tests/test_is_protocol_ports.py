@@ -46,7 +46,11 @@ class TestDetailsSync:
         http, proxy = _catalog(client, 80, "HTTP"), _catalog(client, 80, "HTTP-Proxy-Test")
         ssh = _catalog(client, 22, "SSH")
 
-        r = _put_details(client, system["id"], [{"protocol_catalog_id": http["id"]}, {"protocol_catalog_id": ssh["id"]}, {"protocol_catalog_id": proxy["id"]}])
+        r = _put_details(
+            client,
+            system["id"],
+            [{"protocol_catalog_id": http["id"]}, {"protocol_catalog_id": ssh["id"]}, {"protocol_catalog_id": proxy["id"]}],
+        )
 
         assert r.status_code == 422, r.text
         assert "ИС с портами" in r.json()["detail"] and "80" in r.json()["detail"]
@@ -61,7 +65,9 @@ class TestDetailsSync:
     def test_placeholder_rows_are_skipped_and_cleared_rows_are_removed(self, client):
         system = _system(client)
         ssh, http = _catalog(client, 22, "SSH"), _catalog(client, 80, "HTTP")
-        saved = _put_details(client, system["id"], [{"protocol_catalog_id": ssh["id"]}, {"protocol_catalog_id": http["id"]}]).json()["protocols"]
+        saved = _put_details(client, system["id"], [{"protocol_catalog_id": ssh["id"]}, {"protocol_catalog_id": http["id"]}]).json()[
+            "protocols"
+        ]
         ssh_row = next(p for p in saved if p["protocol_catalog_id"] == ssh["id"])
         http_row = next(p for p in saved if p["protocol_catalog_id"] == http["id"])
 
@@ -69,7 +75,11 @@ class TestDetailsSync:
         r = _put_details(
             client,
             system["id"],
-            [{"id": ssh_row["id"], "protocol_catalog_id": ssh["id"]}, {"id": http_row["id"], "protocol_catalog_id": ""}, {"protocol_catalog_id": ""}],
+            [
+                {"id": ssh_row["id"], "protocol_catalog_id": ssh["id"]},
+                {"id": http_row["id"], "protocol_catalog_id": ""},
+                {"protocol_catalog_id": ""},
+            ],
         )
 
         assert r.status_code == 200, r.text
@@ -88,9 +98,9 @@ class TestDetailsSync:
     def test_rows_are_updated_in_place_and_numbers_can_be_swapped(self, client):
         system = _system(client)
         ssh, http = _catalog(client, 22, "SSH"), _catalog(client, 80, "HTTP")
-        first = _put_details(client, system["id"], [{"protocol_catalog_id": ssh["id"], "description": "админка"}, {"protocol_catalog_id": http["id"]}]).json()[
-            "protocols"
-        ]
+        first = _put_details(
+            client, system["id"], [{"protocol_catalog_id": ssh["id"], "description": "админка"}, {"protocol_catalog_id": http["id"]}]
+        ).json()["protocols"]
         by_catalog = {p["protocol_catalog_id"]: p for p in first}
 
         # Две строки меняются номерами за один запрос — это не повтор, записи остаются теми же.
@@ -115,12 +125,16 @@ class TestDetailsSync:
 
         _put_details(client, system["id"], [{"protocol_catalog_id": e["id"]} for e in entries])
 
-        assert [p["protocol_catalog_id"] for p in _stored(client, system["id"])] == [e["id"] for e in sorted(entries, key=lambda e: e["port"])]
+        assert [p["protocol_catalog_id"] for p in _stored(client, system["id"])] == [
+            e["id"] for e in sorted(entries, key=lambda e: e["port"])
+        ]
 
 
 class TestGenericResource:
     def _protocol(self, client, system_id: str, catalog_id: str, **extra):
-        return client.post(f"{API}/resources/is-protocols", json={"information_system_id": system_id, "protocol_catalog_id": catalog_id, **extra})
+        return client.post(
+            f"{API}/resources/is-protocols", json={"information_system_id": system_id, "protocol_catalog_id": catalog_id, **extra}
+        )
 
     def test_second_protocol_with_same_number_is_rejected(self, client):
         system = _system(client)
@@ -169,7 +183,9 @@ class TestDiagnostics:
         r = client.get(f"{API}/integrity/open-port-duplicates")
 
         assert r.status_code == 200, r.text
-        assert r.json()["duplicates"] == [{"owner_type": "information_system", "owner_id": system["id"], "owner_name": "ИС с дублями", "port": 80, "count": 2}]
+        assert r.json()["duplicates"] == [
+            {"owner_type": "information_system", "owner_id": system["id"], "owner_name": "ИС с дублями", "port": 80, "count": 2}
+        ]
 
 
 class TestGroupManagedPorts:
@@ -186,7 +202,9 @@ class TestGroupManagedPorts:
         return client.put(f"{API}/devices/{device_id}/interfaces", json={"interfaces": [iface], "groups": [group]})
 
     def _ports(self, client, iface_id: str) -> list[dict]:
-        return client.get(f"{API}/resources/open-ports", params={"owner_type": "device_interface", "owner_id": iface_id, "limit": 100}).json()["items"]
+        return client.get(
+            f"{API}/resources/open-ports", params={"owner_type": "device_interface", "owner_id": iface_id, "limit": 100}
+        ).json()["items"]
 
     def test_changed_group_port_reuses_the_existing_row(self, client):
         dev = self._device(client)
@@ -229,10 +247,16 @@ class TestGroupManagedPorts:
         def apply(ports):
             group = {"id": group_id, "key": group_id, "name": "Серверные", "manage_open_ports": True, "open_ports": ports}
             return client.put(
-                f"{API}/devices/{dev['id']}/interfaces", json={"interfaces": [{"id": iface_id, "name": "Gi0/1", "group_key": group_id}], "groups": [group]}
+                f"{API}/devices/{dev['id']}/interfaces",
+                json={"interfaces": [{"id": iface_id, "name": "Gi0/1", "group_key": group_id}], "groups": [group]},
             )
 
-        assert apply([{"protocol_catalog_id": ssh["id"]}, {"protocol_catalog_id": telnet["id"]}, {"protocol_catalog_id": http["id"]}]).status_code == 200
+        assert (
+            apply(
+                [{"protocol_catalog_id": ssh["id"]}, {"protocol_catalog_id": telnet["id"]}, {"protocol_catalog_id": http["id"]}]
+            ).status_code
+            == 200
+        )
         assert {p["protocol_catalog_id"] for p in self._ports(client, iface_id)} == {ssh["id"], telnet["id"], http["id"]}
 
         assert apply([{"protocol_catalog_id": http["id"]}]).status_code == 200

@@ -39,7 +39,9 @@ def _domain(client, name: str, source: dict | None = None, members: tuple[dict, 
 
 
 def _vlan(client, number: int, domain: dict | None = None) -> dict:
-    r = client.post(f"{API}/resources/vlans", json={"vlan_id": number, "name": f"VLAN {number}", **({"domain_id": domain["id"]} if domain else {})})
+    r = client.post(
+        f"{API}/resources/vlans", json={"vlan_id": number, "name": f"VLAN {number}", **({"domain_id": domain["id"]} if domain else {})}
+    )
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -49,7 +51,10 @@ def _move(client, vlan: dict, domain: dict | None):
 
 
 def _assigned(client, device: dict) -> list[str]:
-    return [row["vlan_id"] for row in client.get(f"{API}/resources/device-vlans", params={"physical_device_id": device["id"], "limit": 1000}).json()["items"]]
+    return [
+        row["vlan_id"]
+        for row in client.get(f"{API}/resources/device-vlans", params={"physical_device_id": device["id"], "limit": 1000}).json()["items"]
+    ]
 
 
 def _port(client, device: dict, name: str, vlan: dict, group_key: str | None = None) -> None:
@@ -140,7 +145,9 @@ class TestVlanMovedBetweenDomains:
         _move(client, vlan, new_domain)
 
         assert _port_vlans(client, former) == []
-        assert _port_vlans(client, kept) == [vlan["id"]] and _group_vlans(client, kept) == [vlan["id"]]  # устройство осталось в новом домене
+        assert _port_vlans(client, kept) == [vlan["id"]] and _group_vlans(client, kept) == [
+            vlan["id"]
+        ]  # устройство осталось в новом домене
 
     def test_group_of_former_member_loses_the_vlan(self, client):
         dt = _device_type(client, "Тип групп")
@@ -210,7 +217,10 @@ class TestVlanMovedBetweenDomains:
         r = client.put(
             f"{API}/devices/{former['id']}/interfaces",
             json={
-                "interfaces": [{"id": p["id"], "name": p["name"], "vlan_mode": p["vlan_mode"], "vlan_ids": _port_vlans(client, former)} for p in saved_ports]
+                "interfaces": [
+                    {"id": p["id"], "name": p["name"], "vlan_mode": p["vlan_mode"], "vlan_ids": _port_vlans(client, former)}
+                    for p in saved_ports
+                ]
             },
         )
         assert r.status_code == 200, r.text
@@ -225,7 +235,9 @@ class TestVlanMovedBetweenDomains:
 
         _move(client, vlan, new_domain)
 
-        details = db_session.scalars(select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])).all()
+        details = db_session.scalars(
+            select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])
+        ).all()
         assert "VLAN снят с устройств прежнего домена: 2" in details
 
 
@@ -246,7 +258,9 @@ class TestSubinterfacesOnMovedVlan:
                         "name": "Gi0/0",
                         "vlan_mode": "trunk",
                         "all_vlans": True,
-                        "subinterfaces": [{"name": "Gi0/0.10", "vlan_id": vlan["id"], "ips": [{"ip_address": "10.0.10.1", "prefix_length": 24}]}],
+                        "subinterfaces": [
+                            {"name": "Gi0/0.10", "vlan_id": vlan["id"], "ips": [{"ip_address": "10.0.10.1", "prefix_length": 24}]}
+                        ],
                     },
                 ]
             },
@@ -265,7 +279,9 @@ class TestSubinterfacesOnMovedVlan:
 
         _move(client, vlan, new_domain)
 
-        details = db_session.scalars(select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])).all()
+        details = db_session.scalars(
+            select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])
+        ).all()
         stale = [d for d in details if d.startswith("Подинтерфейсы остались на VLAN, не разрешённом устройству")]
         assert stale and "MV-SUB-RTR / Gi0/0 / Gi0/0.10" in stale[0]
         # подинтерфейс не удалён и не перенесён
@@ -281,7 +297,9 @@ class TestSubinterfacesOnMovedVlan:
 
         _move(client, vlan, new_domain)
 
-        details = db_session.scalars(select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])).all()
+        details = db_session.scalars(
+            select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])
+        ).all()
         assert not [d for d in details if d.startswith("Подинтерфейсы остались")]
 
     def test_audit_lists_group_subinterface_templates_left_on_the_vlan_the_group_lost(self, client, db_session):
@@ -315,7 +333,9 @@ class TestSubinterfacesOnMovedVlan:
 
         _move(client, vlan, new_domain)
 
-        details = db_session.scalars(select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])).all()
+        details = db_session.scalars(
+            select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])
+        ).all()
         noted = [d for d in details if d.startswith("Подинтерфейсы групп портов остались")]
         assert noted and "(1)" in noted[0] and "MV-GRP-RTR / Серверные" in noted[0]
         # VLAN у группы снят вместе с устройством, шаблон не удалён и не перенесён
@@ -349,5 +369,7 @@ class TestSubinterfacesOnMovedVlan:
 
         _move(client, vlan, new_domain)
 
-        details = db_session.scalars(select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])).all()
+        details = db_session.scalars(
+            select(AuditLog.details).where(AuditLog.entity_type == "vlans", AuditLog.entity_id == vlan["id"])
+        ).all()
         assert not [d for d in details if d.startswith("Подинтерфейсы групп портов остались")]

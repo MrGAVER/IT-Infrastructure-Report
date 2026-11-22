@@ -45,7 +45,9 @@ def test_harmless_attribute_values_with_script_inside_are_accepted(attribute, va
 
 def test_a_use_reference_to_an_element_with_such_an_id_is_accepted():
     # Реальная форма из редакторов: id со словом «description» и ссылка на него внутри документа.
-    validate_svg_markup('<svg><defs><g id="description"><rect width="5" height="5"/></g></defs><use href="#description"/><use href="#a"/></svg>')
+    validate_svg_markup(
+        '<svg><defs><g id="description"><rect width="5" height="5"/></g></defs><use href="#description"/><use href="#a"/></svg>'
+    )
 
 
 # --- исполняемые схемы по-прежнему отвергаются, в том числе спрятанные от подстрочного сравнения ------------------------------

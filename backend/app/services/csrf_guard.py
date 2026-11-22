@@ -158,14 +158,17 @@ class SameOriginGuardMiddleware:
                 allow_any_origin=self.allow_any_origin,
                 trust_forwarded_host=self.trust_forwarded_host,
             ):
-                _log_blocked_origin((headers.get("origin") or f"Sec-Fetch-Site: {headers.get('sec-fetch-site', '')}")[:_MAX_LOGGED_ORIGIN_LENGTH])
+                _log_blocked_origin(
+                    (headers.get("origin") or f"Sec-Fetch-Site: {headers.get('sec-fetch-site', '')}")[:_MAX_LOGGED_ORIGIN_LENGTH]
+                )
                 response = JSONResponse(
                     status_code=403,
                     content={
                         "detail": {
                             "code": ErrorCode.CROSS_ORIGIN_BLOCKED,
                             "message": (
-                                "Запрос с другого сайта отклонён: адрес страницы не совпадает с адресом приложения. Если реестр работает за "
+                                "Запрос с другого сайта отклонён: адрес страницы не совпадает с адресом приложения. Если реестр "
+                                "работает за "
                                 "обратным прокси, см. раздел «Безопасность» в README."
                             ),
                         }

@@ -64,7 +64,8 @@ def test_vsdx_and_drawpyo_data_files_are_actually_discoverable():
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 ALEMBIC_DIR = BACKEND_DIR / "alembic"
-# env.py тоже грузится как ДАННЫЕ и тоже импортирует модули app (`app.alembic_filters`, R1-02): страж, смотревший только versions/, их не видел.
+# env.py тоже грузится как ДАННЫЕ и тоже импортирует модули app (`app.alembic_filters`, R1-02): страж, смотревший только
+# versions/, их не видел.
 ALEMBIC_SCRIPTS = [ALEMBIC_DIR / "env.py", *sorted((ALEMBIC_DIR / "versions").glob("*.py"))]
 
 
@@ -83,7 +84,8 @@ def _app_modules_on_disk() -> set[str]:
 
 
 def _app_modules_imported_by_alembic_scripts() -> dict[str, set[str]]:
-    """{модуль app.*: {файлы env.py / миграций}} — импорты и на верхнем уровне, и внутри функций (ленивые, как в миграциях с шаблонами отчётов)."""
+    """{модуль app.*: {файлы env.py / миграций}} — импорты и на верхнем уровне, и внутри функций (ленивые, как в миграциях с
+    шаблонами отчётов)."""
     found: dict[str, set[str]] = {}
     for path in ALEMBIC_SCRIPTS:
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -109,7 +111,8 @@ def test_every_app_module_imported_by_alembic_scripts_is_in_hiddenimports(monkey
     hiddenimports = set(evaluate_spec(monkeypatch)["hiddenimports"])
     missing = {module: sorted(files) for module, files in _app_modules_imported_by_alembic_scripts().items() if module not in hiddenimports}
     assert not missing, (
-        f"модули app импортируются из alembic/env.py или миграций (PyInstaller эти файлы не анализирует) и должны быть в hiddenimports: {missing}"
+        "модули app импортируются из alembic/env.py или миграций (PyInstaller эти файлы не анализирует) и "
+        f"должны быть в hiddenimports: {missing}"
     )
 
 
@@ -130,7 +133,8 @@ def test_hiddenimports_do_not_list_nonexistent_modules(monkeypatch):
 
 
 def test_hiddenimports_guard_sees_env_py_and_the_lazy_migration_imports():
-    """Страж не должен тихо ослепнуть: импорт из env.py и известные ленивые импорты шаблонов отчётов (внутри функций миграций) он обязан находить."""
+    """Страж не должен тихо ослепнуть: импорт из env.py и известные ленивые импорты шаблонов отчётов (внутри функций миграций) он
+    обязан находить."""
     found = _app_modules_imported_by_alembic_scripts()
     assert {"app.alembic_filters", "app.services.report_seed_templates", "app.services.report_seed_word_template"} <= set(found)
     assert "env.py" in found["app.alembic_filters"]

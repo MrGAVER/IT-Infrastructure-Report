@@ -46,7 +46,8 @@ def _declared(*files: str) -> set[str]:
 
 
 def _imports_of_tests() -> dict[str, set[str]]:
-    """{верхнеуровневое имя модуля: файлы тестов} — по `import x`, `from x import …` и `pytest.importorskip("x")`; свои и стандартные модули отброшены."""
+    """{верхнеуровневое имя модуля: файлы тестов} — по `import x`, `from x import …` и `pytest.importorskip("x")`; свои и
+    стандартные модули отброшены."""
     local = {path.stem for path in TESTS.glob("*.py")} | {path.name for path in TESTS.iterdir() if path.is_dir()}
     found: dict[str, set[str]] = {}
     for path in TESTS.glob("*.py"):
@@ -55,7 +56,12 @@ def _imports_of_tests() -> dict[str, set[str]]:
                 names = [alias.name for alias in node.names]
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                 names = [node.module]
-            elif isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "importorskip" and node.args and isinstance(node.args[0], ast.Constant):
+            elif (
+                isinstance(node, ast.Call)
+                and getattr(node.func, "attr", "") == "importorskip"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+            ):
                 names = [str(node.args[0].value)]
             else:
                 continue
@@ -98,7 +104,12 @@ def test_importorskip_is_only_used_for_what_is_not_a_runtime_dependency():
     skipped_runtime = {}
     for path in TESTS.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "importorskip" and node.args and isinstance(node.args[0], ast.Constant):
+            if (
+                isinstance(node, ast.Call)
+                and getattr(node.func, "attr", "") == "importorskip"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+            ):
                 module = str(node.args[0].value).split(".")[0]
                 if _distributions(module) & runtime:
                     skipped_runtime.setdefault(module, []).append(path.name)

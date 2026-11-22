@@ -105,7 +105,8 @@ def test_upgrade_does_not_touch_copies_and_other_templates(alembic_config):
     with _connect(db_path) as conn:
         seeded = _template(conn)
         conn.execute(
-            "INSERT INTO report_templates (id, name, description, format, config, created_at, updated_at) VALUES (?, ?, NULL, 'docx', ?, ?, ?)",
+            "INSERT INTO report_templates (id, name, description, format, config, created_at, updated_at) VALUES "
+            "(?, ?, NULL, 'docx', ?, ?, ?)",
             (str(uuid.uuid4()), f"{TEMPLATE_NAME} (копия)", seeded["config"], _now(), _now()),
         )
         before = conn.execute("SELECT COUNT(*) FROM report_templates").fetchone()[0]

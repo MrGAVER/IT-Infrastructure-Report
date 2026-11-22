@@ -21,7 +21,13 @@ def audit(session: Session, entity_type: str, entity_id: str, action: str, detai
     who = actor or current_actor.get()
     session.add(
         AuditLog(
-            entity_type=entity_type, entity_id=entity_id, action=action, details=details, actor_id=who.user_id, actor_username=who.username, actor_ip=who.ip
+            entity_type=entity_type,
+            entity_id=entity_id,
+            action=action,
+            details=details,
+            actor_id=who.user_id,
+            actor_username=who.username,
+            actor_ip=who.ip,
         )
     )
 
@@ -51,7 +57,9 @@ def _describe_update(before: dict[str, Any], after: dict[str, Any]) -> str:
     списка changes в services/auth/users.py:update_user (там модель всегда одна — User).
     Сортировка по строке diff'а, а не порядок allowed_columns() (это set(), не гарантированно
     стабильный порядок) — для детерминированного и читаемого результата."""
-    changes = sorted(f"{key}: {_fmt_audit_value(before[key])} → {_fmt_audit_value(after[key])}" for key in after if before.get(key) != after.get(key))
+    changes = sorted(
+        f"{key}: {_fmt_audit_value(before[key])} → {_fmt_audit_value(after[key])}" for key in after if before.get(key) != after.get(key)
+    )
     return "; ".join(changes) if changes else "Изменение записи (переданные значения совпадают с текущими)"
 
 

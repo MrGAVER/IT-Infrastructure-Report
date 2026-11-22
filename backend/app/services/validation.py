@@ -129,7 +129,9 @@ def validate_container_host(data: dict[str, Any]) -> None:
     приём для open_ports/information_system_protocols в миграции b7f2c1e5a904), а для одной пары
     nullable-колонок это несоразмерно тяжеловесно по сравнению с проверкой здесь."""
     if data.get("physical_device_id") and data.get("virtual_machine_id"):
-        raise HTTPException(422, "Контейнер можно разместить либо на физическом устройстве, либо на виртуальной машине, но не на обоих сразу")
+        raise HTTPException(
+            422, "Контейнер можно разместить либо на физическом устройстве, либо на виртуальной машине, но не на обоих сразу"
+        )
 
 
 def duplicate_system_name(session: Session, value: str | None, current_id: str | None = None):
@@ -226,7 +228,9 @@ def lock_interfaces(session: Session, interface_ids: Iterable[str | None]) -> No
         session.execute(lock)
 
 
-def validate_connection(data: dict[str, Any], session: Session, current_connection_id: str | None = None, ignore_connection_ids: Iterable[str] = ()) -> None:
+def validate_connection(
+    data: dict[str, Any], session: Session, current_connection_id: str | None = None, ignore_connection_ids: Iterable[str] = ()
+) -> None:
     """Проверяет пару портов подключения. ``current_connection_id`` — редактируемое подключение
     (его занятость не считается). ``ignore_connection_ids`` — дополнительные подключения, которые
     тот же запрос переставляет на другие порты (форма устройства: обмен соседями между портами) —
@@ -287,7 +291,9 @@ def validate_unique_open_port_numbers(catalog_ids: Iterable[Any], session: Sessi
     ids = [i for i in catalog_ids if i]
     if len(ids) < 2:
         return
-    port_by_id = dict(session.execute(select(ProtocolPortCatalog.id, ProtocolPortCatalog.port).where(ProtocolPortCatalog.id.in_(set(ids)))).all())
+    port_by_id = dict(
+        session.execute(select(ProtocolPortCatalog.id, ProtocolPortCatalog.port).where(ProtocolPortCatalog.id.in_(set(ids)))).all()
+    )
     counts = Counter(port_by_id[i] for i in ids if i in port_by_id)
     duplicates = sorted(port for port, count in counts.items() if count > 1)
     if duplicates:

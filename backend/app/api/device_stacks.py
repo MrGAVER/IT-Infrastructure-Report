@@ -41,7 +41,9 @@ def add_device_stack_member(stack_id: str, payload: DeviceStackMemberRequest, se
 
 
 @router.get("/api/v1/device-stacks/{stack_id}/members/preview")
-def preview_device_stack_member(stack_id: str, physical_device_id: str = Query(...), position: int = Query(1, ge=1), session: Session = Depends(get_db)):
+def preview_device_stack_member(
+    stack_id: str, physical_device_id: str = Query(...), position: int = Query(1, ge=1), session: Session = Depends(get_db)
+):
     """Что произойдёт с данными устройства при добавлении в стек: какие VLAN общих настроек будут назначены ему
     ('add') и у каких заменятся значения ('update', before → after). Ничего не записывает — для окна подтверждения."""
     return preview_member_addition(session, stack_id, physical_device_id, position)

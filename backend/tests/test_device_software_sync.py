@@ -38,7 +38,9 @@ def _sw(asset: dict, **extra) -> dict:
 
 
 def _stored(client, owner_type: str, owner_id: str) -> list[dict]:
-    return client.get(f"{API}/resources/deployed-software", params={"owner_type": owner_type, "owner_id": owner_id, "limit": 1000}).json()["items"]
+    return client.get(f"{API}/resources/deployed-software", params={"owner_type": owner_type, "owner_id": owner_id, "limit": 1000}).json()[
+        "items"
+    ]
 
 
 class TestSyncDeviceDeployedSoftware:
@@ -131,7 +133,9 @@ class TestSyncDeviceDeployedSoftwareAudit:
 
         def entries() -> list[str]:
             rows = db_session.scalars(
-                select(AuditLog).where(AuditLog.entity_type == "devices", AuditLog.entity_id == device["id"], AuditLog.details.like("Программные активы:%"))
+                select(AuditLog).where(
+                    AuditLog.entity_type == "devices", AuditLog.entity_id == device["id"], AuditLog.details.like("Программные активы:%")
+                )
             ).all()
             return [r.details for r in rows]
 

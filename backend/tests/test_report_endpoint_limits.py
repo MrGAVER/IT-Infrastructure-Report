@@ -29,7 +29,12 @@ VALID_CONFIG = {
             "title": "Лист1",
             "columns": [{"width": 25}],
             "rows": [
-                {"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}
+                {
+                    "height": 18,
+                    "repeat": True,
+                    "data_source": {"root_entity": "information-systems"},
+                    "cells": [{"col": 0, "kind": "field", "path": "name"}],
+                }
             ],
         }
     ]
@@ -86,11 +91,20 @@ class TestPreviewLimit:
         monkeypatch.setattr(report_builder, "preview_grid", must_not_run)
         monkeypatch.setattr(report_builder, "preview_rows", must_not_run)
         for fmt in ("xlsx", "docx"):
-            assert client.post(f"{API}/report-builder/preview", json={"format": fmt, "config": VALID_CONFIG, "limit": 10**9}).status_code == 422
+            assert (
+                client.post(f"{API}/report-builder/preview", json={"format": fmt, "config": VALID_CONFIG, "limit": 10**9}).status_code
+                == 422
+            )
 
     def test_docx_preview_uses_the_same_limit_rule(self, client):
         config = {
-            "blocks": [{"type": "table", "root_entity": "information-systems", "columns": [{"header": "Наименование", "source": "field", "path": "name"}]}]
+            "blocks": [
+                {
+                    "type": "table",
+                    "root_entity": "information-systems",
+                    "columns": [{"header": "Наименование", "source": "field", "path": "name"}],
+                }
+            ]
         }
         assert client.post(f"{API}/report-builder/preview", json={"format": "docx", "config": config, "limit": 20}).status_code == 200
         assert client.post(f"{API}/report-builder/preview", json={"format": "docx", "config": config, "limit": 0}).status_code == 422
@@ -120,7 +134,19 @@ class TestPreviewConfigAndPayload:
 # ---------------------------------------------------------------------------------------------------------------------
 # Формирование отчётов: structural_unit_ids и params во всех трёх POST-эндпоинтах
 # ---------------------------------------------------------------------------------------------------------------------
-BAD_UNIT_IDS = ["строка", 5, True, {"a": 1}, [1, 2], ["ok", 5], [None], [""], [["nested"]], ["я" * 65], ["x"] * (MAX_STRUCTURAL_UNIT_IDS + 1)]
+BAD_UNIT_IDS = [
+    "строка",
+    5,
+    True,
+    {"a": 1},
+    [1, 2],
+    ["ok", 5],
+    [None],
+    [""],
+    [["nested"]],
+    ["я" * 65],
+    ["x"] * (MAX_STRUCTURAL_UNIT_IDS + 1),
+]
 
 
 class TestStructuralUnitIds:
@@ -189,7 +215,14 @@ class TestReportParams:
         assert client.post(f"{API}/report-templates/{template_id}/generate", json={"params": long}).status_code == 422
 
     def test_scalars_and_null_are_accepted(self, client, report_dir, template_id):
-        params = {"report_date": "23.10.2026", "number": 5, "ratio": 1.5, "flag": True, "empty": None, "limit_text": "я" * MAX_PARAM_VALUE_LENGTH}
+        params = {
+            "report_date": "23.10.2026",
+            "number": 5,
+            "ratio": 1.5,
+            "flag": True,
+            "empty": None,
+            "limit_text": "я" * MAX_PARAM_VALUE_LENGTH,
+        }
         response = client.post(f"{API}/report-templates/{template_id}/generate", json={"params": params})
         assert response.status_code == 200, response.text
         assert len(_files(report_dir)) == 1
@@ -234,6 +267,12 @@ class TestParsers:
 
     def test_parse_report_params(self):
         assert parse_report_params(None) == {}
-        assert parse_report_params({"k": None, "n": 1, "s": "t", "b": False, "f": 0.5}) == {"k": None, "n": 1, "s": "t", "b": False, "f": 0.5}
+        assert parse_report_params({"k": None, "n": 1, "s": "t", "b": False, "f": 0.5}) == {
+            "k": None,
+            "n": 1,
+            "s": "t",
+            "b": False,
+            "f": 0.5,
+        }
         for bad in ([], "x", 3, {"k": {}}, {"k": [1]}, {1: "int-key"}):
             self._raises(parse_report_params, bad)

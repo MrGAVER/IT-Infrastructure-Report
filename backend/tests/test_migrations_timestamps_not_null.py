@@ -63,7 +63,8 @@ def schema_snapshot(engine: sa.engine.Engine) -> dict[str, dict]:
     snapshot: dict[str, dict] = {}
     for table in sorted(inspector.get_table_names()):
         columns = [
-            (c["name"], str(c["type"]), None if _relaxed(table, c["name"]) else c["nullable"], str(c.get("default"))) for c in inspector.get_columns(table)
+            (c["name"], str(c["type"]), None if _relaxed(table, c["name"]) else c["nullable"], str(c.get("default")))
+            for c in inspector.get_columns(table)
         ]
         foreign_keys = sorted(
             (
@@ -89,7 +90,10 @@ def schema_snapshot(engine: sa.engine.Engine) -> dict[str, dict]:
 
 def row_counts(engine: sa.engine.Engine) -> dict[str, int]:
     with engine.connect() as connection:
-        return {table: connection.execute(sa.text(f'SELECT COUNT(*) FROM "{table}"')).scalar() for table in sorted(sa.inspect(connection).get_table_names())}
+        return {
+            table: connection.execute(sa.text(f'SELECT COUNT(*) FROM "{table}"')).scalar()
+            for table in sorted(sa.inspect(connection).get_table_names())
+        }
 
 
 def nullability(engine: sa.engine.Engine) -> dict[tuple[str, str], bool]:
@@ -151,7 +155,9 @@ def run_scenario(url: str) -> None:
         assert not [key for key, nullable in nullability(engine).items() if nullable]
 
         # 2. NULL заполнены, заполненное сохранено.
-        user, session, layout = (_fetch(engine, t, ids[k]) for t, k in (("users", "user"), ("auth_sessions", "session"), ("diagram_layouts", "layout")))
+        user, session, layout = (
+            _fetch(engine, t, ids[k]) for t, k in (("users", "user"), ("auth_sessions", "session"), ("diagram_layouts", "layout"))
+        )
         for value in (user["created_at"], session["created_at"], layout["created_at"]):
             assert started - timedelta(seconds=1) <= _as_datetime(value) <= finished + timedelta(seconds=1)
         assert _as_datetime(user["updated_at"]) == _as_datetime(user["created_at"])
@@ -160,7 +166,11 @@ def run_scenario(url: str) -> None:
         assert _as_datetime(diagram["created_at"]) == T0 and _as_datetime(diagram["updated_at"]) == T0
         kept = _fetch(engine, "support_methods", ids["method_kept"])
         assert (_as_datetime(kept["created_at"]), _as_datetime(kept["updated_at"])) == (T0, T0 + timedelta(days=3))
-        assert started - timedelta(seconds=1) <= _as_datetime(_fetch(engine, "auth_settings", ids["settings"])["updated_at"]) <= finished + timedelta(seconds=1)
+        assert (
+            started - timedelta(seconds=1)
+            <= _as_datetime(_fetch(engine, "auth_settings", ids["settings"])["updated_at"])
+            <= finished + timedelta(seconds=1)
+        )
 
         # 3. Ни одна строка не пропала (в том числе дочерние), схема не изменилась ничем, кроме NOT NULL.
         assert row_counts(engine) == counts_before

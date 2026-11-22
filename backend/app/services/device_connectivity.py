@@ -59,7 +59,10 @@ def _active_connections_of_device(device_id: str, session: Session) -> list[Conn
     own_ids = select(DeviceInterface.id).where(DeviceInterface.physical_device_id == device_id)
     stmt = (
         select(Connection)
-        .where(Connection.is_active.is_not(False), or_(Connection.source_interface_id.in_(own_ids), Connection.destination_interface_id.in_(own_ids)))
+        .where(
+            Connection.is_active.is_not(False),
+            or_(Connection.source_interface_id.in_(own_ids), Connection.destination_interface_id.in_(own_ids)),
+        )
         .order_by(Connection.created_at, Connection.id)
     )
     return list(session.scalars(stmt).all())
@@ -125,11 +128,16 @@ def list_interface_connections(device_id: str, session: Session) -> dict[str, An
     peer_ids = {pid for c in connections for pid in (c.source_interface_id, c.destination_interface_id)}
     peers = {p.id: p for p in session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_(peer_ids))).all()} if peer_ids else {}
     device_ids = {p.physical_device_id for p in peers.values()}
-    devices = {d.id: d for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(device_ids))).all()} if device_ids else {}
+    devices = (
+        {d.id: d for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(device_ids))).all()} if device_ids else {}
+    )
 
     items: list[dict[str, Any]] = []
     for conn in connections:
-        for own_id, peer_id in ((conn.source_interface_id, conn.destination_interface_id), (conn.destination_interface_id, conn.source_interface_id)):
+        for own_id, peer_id in (
+            (conn.source_interface_id, conn.destination_interface_id),
+            (conn.destination_interface_id, conn.source_interface_id),
+        ):
             if own_id not in own_ids:
                 continue
             peer = peers.get(peer_id)

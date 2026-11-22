@@ -92,7 +92,10 @@ class TestGenericOpenPorts:
 
         http = _catalog(client, 80, "HTTP")
         proxy = _catalog(client, 80, "HTTP-Proxy-Test")
-        legacy = [OpenPort(owner_type="virtual_machine", owner_id="vm-legacy", protocol_catalog_id=c["id"], transport_protocol="TCP") for c in (http, proxy)]
+        legacy = [
+            OpenPort(owner_type="virtual_machine", owner_id="vm-legacy", protocol_catalog_id=c["id"], transport_protocol="TCP")
+            for c in (http, proxy)
+        ]
         db_session.add_all(legacy)
         db_session.commit()
 
@@ -111,7 +114,16 @@ class TestInterfaceSync:
         r = _put_interfaces(
             client,
             dev["id"],
-            [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": http["id"]}, {"protocol_catalog_id": ssh["id"]}, {"protocol_catalog_id": proxy["id"]}]}],
+            [
+                {
+                    "name": "Gi0/1",
+                    "open_ports": [
+                        {"protocol_catalog_id": http["id"]},
+                        {"protocol_catalog_id": ssh["id"]},
+                        {"protocol_catalog_id": proxy["id"]},
+                    ],
+                }
+            ],
         )
 
         assert r.status_code == 422, r.text
@@ -125,7 +137,10 @@ class TestInterfaceSync:
         r = _put_interfaces(
             client,
             dev["id"],
-            [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": http["id"]}]}, {"name": "Gi0/2", "open_ports": [{"protocol_catalog_id": http["id"]}]}],
+            [
+                {"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": http["id"]}]},
+                {"name": "Gi0/2", "open_ports": [{"protocol_catalog_id": http["id"]}]},
+            ],
         )
 
         assert r.status_code == 200, r.text
@@ -133,7 +148,9 @@ class TestInterfaceSync:
 
     def test_placeholder_rows_without_catalog_entry_do_not_count(self, client):
         dev = _device(client)
-        r = _put_interfaces(client, dev["id"], [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": ""}, {"protocol_catalog_id": ""}]}])
+        r = _put_interfaces(
+            client, dev["id"], [{"name": "Gi0/1", "open_ports": [{"protocol_catalog_id": ""}, {"protocol_catalog_id": ""}]}]
+        )
         assert r.status_code == 200, r.text
 
 
@@ -204,7 +221,13 @@ class TestDuplicatesDiagnostics:
         body = r.json()
         assert body["ok"] is False and body["total"] == 2
         by_type = {d["owner_type"]: d for d in body["duplicates"]}
-        assert by_type["virtual_machine"] == {"owner_type": "virtual_machine", "owner_id": vm.id, "owner_name": "app-server-01", "port": 80, "count": 2}
+        assert by_type["virtual_machine"] == {
+            "owner_type": "virtual_machine",
+            "owner_id": vm.id,
+            "owner_name": "app-server-01",
+            "port": 80,
+            "count": 2,
+        }
         assert by_type["interface_group"]["owner_id"] == group.id
         assert by_type["interface_group"]["owner_name"] == "Серверные"
         assert (by_type["interface_group"]["port"], by_type["interface_group"]["count"]) == (22, 2)

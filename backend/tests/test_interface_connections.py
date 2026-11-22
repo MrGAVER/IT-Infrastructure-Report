@@ -189,7 +189,11 @@ def test_removing_a_connected_port_gives_a_clear_409_and_works_after_disconnect(
     assert len(_ports(client, dev["id"])) == 2  # ничего не удалено
 
     assert (
-        _sync(client, dev["id"], [{"id": ports["eth0"]["id"], "name": "eth0", "connection": None}, {"id": ports["eth1"]["id"], "name": "eth1"}]).status_code
+        _sync(
+            client,
+            dev["id"],
+            [{"id": ports["eth0"]["id"], "name": "eth0", "connection": None}, {"id": ports["eth1"]["id"], "name": "eth1"}],
+        ).status_code
         == 200
     )
     assert _sync(client, dev["id"], [{"id": ports["eth1"]["id"], "name": "eth1"}]).status_code == 200
@@ -238,7 +242,10 @@ def test_connection_has_no_incoming_references():
     from app.models import Base
 
     referencing = sorted(
-        f"{table.name}.{fk.parent.name}" for table in Base.metadata.tables.values() for fk in table.foreign_keys if fk.column.table.name == "connections"
+        f"{table.name}.{fk.parent.name}"
+        for table in Base.metadata.tables.values()
+        for fk in table.foreign_keys
+        if fk.column.table.name == "connections"
     )
     assert referencing == []
 
@@ -451,7 +458,11 @@ def test_peer_row_pointing_at_a_busy_saved_port_still_returns_409(client):
     ct = _connection_type(client)
     peer = _peer_port(client, "SW-BUSY")
     dev, own = _device_with_ports(client, "SRV-BUSY", ["eth0", "eth1"])
-    _sync(client, dev["id"], [{"id": own["eth1"]["id"], "name": "eth1", "connection": _conn(peer, ct)}, {"id": own["eth0"]["id"], "name": "eth0"}])
+    _sync(
+        client,
+        dev["id"],
+        [{"id": own["eth1"]["id"], "name": "eth1", "connection": _conn(peer, ct)}, {"id": own["eth0"]["id"], "name": "eth0"}],
+    )
 
     r = _sync(
         client,

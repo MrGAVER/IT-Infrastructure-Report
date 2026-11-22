@@ -41,7 +41,9 @@ _OPEN_PORT_OWNER_LABELS = {
 }
 
 
-def _ensure_port_number_is_free(model: type, owner_filters: list[Any], catalog_id: Any, label: str, session: Session, current_id: str | None) -> None:
+def _ensure_port_number_is_free(
+    model: type, owner_filters: list[Any], catalog_id: Any, label: str, session: Session, current_id: str | None
+) -> None:
     """Общая проверка «номер порта записи справочника ещё не занят другой записью model с теми же
     owner_filters» — для открытых портов (OpenPort, владелец — ВМ/порт) и протоколов ИС (ISProtocol).
     Сверяется только эта запись с остальными (current_id исключается), а не весь список владельца."""
@@ -213,7 +215,14 @@ def sync_owner_ip_addresses(
         }
 
     return _sync_owned_rows(
-        IPAddress, owner_type, owner_id, ip_addresses, session, normalize=normalize, array_error=array_error, foreign_id_error=foreign_id_error
+        IPAddress,
+        owner_type,
+        owner_id,
+        ip_addresses,
+        session,
+        normalize=normalize,
+        array_error=array_error,
+        foreign_id_error=foreign_id_error,
     )
 
 
@@ -240,7 +249,14 @@ def sync_owner_deployed_software(
         return {"software_asset_id": software_data["software_asset_id"], "version": version}
 
     return _sync_owned_rows(
-        DeployedSoftware, owner_type, owner_id, deployed_software, session, normalize=normalize, array_error=array_error, foreign_id_error=foreign_id_error
+        DeployedSoftware,
+        owner_type,
+        owner_id,
+        deployed_software,
+        session,
+        normalize=normalize,
+        array_error=array_error,
+        foreign_id_error=foreign_id_error,
     )
 
 
@@ -278,7 +294,12 @@ def _sync_owner_collection(
 
 
 def _sync_vm_collection(
-    vm_id: str, session: Session, *, label: str, sync: Callable[[VirtualMachine], tuple[int, int, int]], load: Callable[[VirtualMachine], list[dict[str, Any]]]
+    vm_id: str,
+    session: Session,
+    *,
+    label: str,
+    sync: Callable[[VirtualMachine], tuple[int, int, int]],
+    load: Callable[[VirtualMachine], list[dict[str, Any]]],
 ) -> dict[str, Any]:
     """Список ВМ (порты, IP-адреса, ПО) — см. _sync_owner_collection."""
     return _sync_owner_collection(VirtualMachine, "vms", "Виртуальная машина не найдена", vm_id, session, label=label, sync=sync, load=load)
@@ -324,7 +345,9 @@ def sync_vm_ip_addresses(vm_id: str, payload: dict[str, Any], session: Session) 
 
     def load(vm: VirtualMachine) -> list[dict[str, Any]]:
         rows = session.scalars(
-            select(IPAddress).where(IPAddress.owner_type == OwnerType.VIRTUAL_MACHINE, IPAddress.owner_id == vm.id).order_by(IPAddress.ip_address, IPAddress.id)
+            select(IPAddress)
+            .where(IPAddress.owner_type == OwnerType.VIRTUAL_MACHINE, IPAddress.owner_id == vm.id)
+            .order_by(IPAddress.ip_address, IPAddress.id)
         ).all()
         return [serialize(row) for row in rows]
 

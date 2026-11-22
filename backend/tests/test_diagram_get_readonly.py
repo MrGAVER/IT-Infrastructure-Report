@@ -28,7 +28,10 @@ WRITE_PREFIXES = ("INSERT", "UPDATE", "DELETE")
 
 def _add_devices(db_session, building, count: int) -> list[PhysicalDevice]:
     server_type = db_session.query(DeviceType).filter_by(name="Сервер").one()
-    devices = [PhysicalDevice(device_type_id=server_type.id, serial_number=f"SN-A13-{building.name}-{i}", building_id=building.id) for i in range(count)]
+    devices = [
+        PhysicalDevice(device_type_id=server_type.id, serial_number=f"SN-A13-{building.name}-{i}", building_id=building.id)
+        for i in range(count)
+    ]
     db_session.add_all(devices)
     db_session.commit()
     return devices

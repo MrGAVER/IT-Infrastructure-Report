@@ -40,8 +40,9 @@ services.diagram_graph.build_graph) и воспроизводят одну и т
     vsdx.py      export_vsdx и постобработка пакета .vsdx
 
 Зависимости идут только вниз (`_common` → `_icons` → `svg`/`drawio`/`vsdx`), экспортёры друг о друге не знают. Новый формат — новый модуль и
-запись в реестр `EXPORT_FORMATS` (api/diagrams.py). Код приложения импортирует функции отсюда, `from app.services.diagram_export import export_svg`;
-подменять (monkeypatch) в тестах нужно имя в модуле, где оно используется (например, `diagram_export.vsdx._rasterize_glyph_png`), а не
+запись в реестр `EXPORT_FORMATS` (api/diagrams.py). Код приложения импортирует функции отсюда, `from app.services.diagram_export
+import export_svg`; подменять (monkeypatch) в тестах нужно имя в модуле, где оно используется (например,
+`diagram_export.vsdx._rasterize_glyph_png`), а не
 реэкспортированное здесь: подмена на уровне пакета на код подмодулей не действует.
 """
 
@@ -60,8 +61,9 @@ from .drawio import export_drawio
 from .svg import export_svg
 from .vsdx import export_vsdx
 
-# Приватные функции, которые импортируют существующие тесты (перенос не должен был их менять). Новому коду они не нужны — импортируйте из подмодулей.
-# Намеренно НЕ реэкспортируется `_rasterize_glyph_png`: его подменяет тест, а подмена имени на уровне пакета ничего бы не меняла.
+# Приватные функции, которые импортируют существующие тесты (перенос не должен был их менять). Новому коду они не нужны —
+# импортируйте из подмодулей. Намеренно НЕ реэкспортируется `_rasterize_glyph_png`: его подменяет тест, а подмена имени на уровне
+# пакета ничего бы не меняла.
 from ._common import _device_fill_color, _vlan_label  # noqa: F401
 from ._icons import _custom_icon_tile_svg, _rasterize_custom_icon_png, _standalone_custom_svg  # noqa: F401
 from .drawio import _drawio_edge_anchors  # noqa: F401

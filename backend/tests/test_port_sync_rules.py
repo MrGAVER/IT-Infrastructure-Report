@@ -87,7 +87,12 @@ def test_side_conditions(condition, port, expected):
         (Side(mode="differs"), facts(mode="trunk"), facts(mode="access"), True),
         (Side(vlans="differs"), facts(vlans=(10,)), facts(vlans=(10,)), False),
         (Side(vlans="same"), facts(vlans=(10, 20)), facts(vlans=(20, 10)), True),
-        (Side(role="differs", mode="differs"), facts(PortRole.DATA, "trunk"), facts(PortRole.MANAGEMENT, "trunk"), False),  # все отношения должны выполняться
+        (
+            Side(role="differs", mode="differs"),
+            facts(PortRole.DATA, "trunk"),
+            facts(PortRole.MANAGEMENT, "trunk"),
+            False,
+        ),  # все отношения должны выполняться
     ],
 )
 def test_relations(relation, a, b, expected):

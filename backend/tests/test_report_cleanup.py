@@ -24,7 +24,9 @@ API = "/api/v1"
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
-def _make_reports(directory: Path, count: int, *, prefix: str = "r", suffix: str = ".xlsx", newest_age: float = 0.0, step: float = 10.0) -> list[Path]:
+def _make_reports(
+    directory: Path, count: int, *, prefix: str = "r", suffix: str = ".xlsx", newest_age: float = 0.0, step: float = 10.0
+) -> list[Path]:
     """count файлов; i-й тем старше, чем меньше i (r00 — самый старый). Возраст в секундах от «сейчас»."""
     now = time.time()
     paths = []
@@ -64,7 +66,9 @@ class TestAuditSubdirectory:
             os.utime(path, (now - age, now - age))
         removed = cleanup_old_reports(tmp_path, max_age_days=30, max_files=2)
         assert removed == 2
-        assert _names(tmp_path) == ["root_new.xlsx"] and _names(tmp_path / "audit") == ["audit_new.xlsx"], "самые старые удалены и в корне, и в подкаталоге"
+        assert _names(tmp_path) == ["root_new.xlsx"] and _names(tmp_path / "audit") == ["audit_new.xlsx"], (
+            "самые старые удалены и в корне, и в подкаталоге"
+        )
 
     def test_stale_audit_reports_are_removed_by_age(self, tmp_path):
         (tmp_path / "audit").mkdir()
@@ -342,7 +346,12 @@ class TestConfig:
         if value is not None:
             env["INFRA_REGISTRY_REPORT_MAX_FILES"] = value
         return subprocess.run(
-            [sys.executable, "-c", "import app.config as c; print(c.REPORT_MAX_FILES)"], env=env, capture_output=True, text=True, cwd=tmp_path, timeout=120
+            [sys.executable, "-c", "import app.config as c; print(c.REPORT_MAX_FILES)"],
+            env=env,
+            capture_output=True,
+            text=True,
+            cwd=tmp_path,
+            timeout=120,
         )
 
     @pytest.mark.parametrize(("value", "expected"), [(None, "200"), ("", "200"), ("   ", "200"), ("50", "50"), ("0", "0")])

@@ -328,7 +328,9 @@ class MergedBlockHeightTestCase(unittest.TestCase):
     def test_apply_sheet_layout_stretches_blocks_after_merging(self):
         ws = self._sheet(self.TEXT)
         apply_sheet_layout(ws, spans=[(2, 3)], merge_columns=(2,))
-        self.assertEqual(ws.row_dimensions[2].height + ws.row_dimensions[3].height, wrap_lines(self.TEXT, text_capacity(14)) * LINE_HEIGHT_PT)
+        self.assertEqual(
+            ws.row_dimensions[2].height + ws.row_dimensions[3].height, wrap_lines(self.TEXT, text_capacity(14)) * LINE_HEIGHT_PT
+        )
 
 
 class ReportLayoutTestCase(unittest.TestCase):
@@ -426,7 +428,10 @@ class ReportLayoutTestCase(unittest.TestCase):
                     C["InformationSystem"](id="is1", name="ИС-1", crypto_protection_enabled=False),
                     C["InformationSystem"](id="is2", name="ИС-2", crypto_protection_enabled=False),
                 ],
-                "VirtualMachine": [C["VirtualMachine"](id="v1", name="VM-1", purpose=""), C["VirtualMachine"](id="v2", name="VM-2", purpose="")],
+                "VirtualMachine": [
+                    C["VirtualMachine"](id="v1", name="VM-1", purpose=""),
+                    C["VirtualMachine"](id="v2", name="VM-2", purpose=""),
+                ],
             }
         )
         wb = self.build("is_vm")

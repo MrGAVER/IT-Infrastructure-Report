@@ -114,7 +114,11 @@ def enrich_open_ports(items: Sequence[OpenPort], session: Session) -> list[dict[
     if not items:
         return []
     catalog_ids = {x.protocol_catalog_id for x in items if x.protocol_catalog_id}
-    catalog_map = {x.id: x for x in session.scalars(select(ProtocolPortCatalog).where(ProtocolPortCatalog.id.in_(catalog_ids))).all()} if catalog_ids else {}
+    catalog_map = (
+        {x.id: x for x in session.scalars(select(ProtocolPortCatalog).where(ProtocolPortCatalog.id.in_(catalog_ids))).all()}
+        if catalog_ids
+        else {}
+    )
     result = []
     for obj in items:
         data = serialize(obj)
@@ -197,7 +201,9 @@ def _device_computed_fields(device: PhysicalDevice, lk: _DeviceLookups) -> dict[
         "interface_count": len(ports),
         "embedded_os_name": embedded.name if embedded else "",
         "embedded_os_version": embedded.version if embedded else "",
-        "vlan_summary": _unique_joined(f"{lk.vlan_map[x.vlan_id].vlan_id} {lk.vlan_map[x.vlan_id].name}" for x in vlan_links if x.vlan_id in lk.vlan_map),
+        "vlan_summary": _unique_joined(
+            f"{lk.vlan_map[x.vlan_id].vlan_id} {lk.vlan_map[x.vlan_id].name}" for x in vlan_links if x.vlan_id in lk.vlan_map
+        ),
         "stack_id": member.stack_id if member else None,
         "stack_name": stack.name if stack else None,
         "stack_position": member.position if member else None,
@@ -265,14 +271,23 @@ def enrich_interface_groups(groups: Sequence[InterfaceGroup], session: Session) 
     if flagged:
         derived = effective_group_vlan_ids(flagged, session)
         wanted = set().union(*derived.values()) if derived else set()
-        number_of = {vlan_id: number for vlan_id, number in session.execute(select(VLAN.id, VLAN.vlan_id).where(VLAN.id.in_(wanted))).all()} if wanted else {}
+        number_of = (
+            {vlan_id: number for vlan_id, number in session.execute(select(VLAN.id, VLAN.vlan_id).where(VLAN.id.in_(wanted))).all()}
+            if wanted
+            else {}
+        )
         for g in flagged:
             vlans_by_group[g.id] = sorted(derived.get(g.id, ()), key=lambda v: (number_of.get(v, 0), v))
     ports_by_group: dict[str, list[dict[str, Any]]] = {}
     for port in ports:
         ports_by_group.setdefault(port.group_id, []).append(serialize(port))
     return [
-        {**serialize(g), "vlan_ids": vlans_by_group.get(g.id, []), "ips": ips_by_group.get(g.id, []), "open_ports": ports_by_group.get(g.id, [])}
+        {
+            **serialize(g),
+            "vlan_ids": vlans_by_group.get(g.id, []),
+            "ips": ips_by_group.get(g.id, []),
+            "open_ports": ports_by_group.get(g.id, []),
+        }
         for g in groups
     ]
 
@@ -382,14 +397,25 @@ def _load_information_systems_links(items: Sequence[InformationSystem], session:
     vm_map = _by_id(_select_in(session, VirtualMachine, VirtualMachine.id, _owner_ids(sources, SourceType.VM)))
     return _InformationSystemLinks(
         support_map=_by_id(
-            _select_in(session, SupportOrganization, SupportOrganization.id, {x.support_organization_id for x in items if x.support_organization_id})
+            _select_in(
+                session,
+                SupportOrganization,
+                SupportOrganization.id,
+                {x.support_organization_id for x in items if x.support_organization_id},
+            )
         ),
-        method_map=_by_id(_select_in(session, SupportMethod, SupportMethod.id, {x.support_method_id for x in items if x.support_method_id})),
+        method_map=_by_id(
+            _select_in(session, SupportMethod, SupportMethod.id, {x.support_method_id for x in items if x.support_method_id})
+        ),
         placement_map=_by_id(_select_in(session, PlacementAsset, PlacementAsset.id, {x.placement_asset_id for x in placements})),
         placement_by_is=_group_by(placements, lambda x: x.information_system_id),
         dep_map=_by_id(_select_in(session, Department, Department.id, {x.department_id for x in deps})),
         dep_by_is=_group_by(deps, lambda x: x.information_system_id),
-        proto_map=_by_id(_select_in(session, ProtocolPortCatalog, ProtocolPortCatalog.id, {x.protocol_catalog_id for x in protocols if x.protocol_catalog_id})),
+        proto_map=_by_id(
+            _select_in(
+                session, ProtocolPortCatalog, ProtocolPortCatalog.id, {x.protocol_catalog_id for x in protocols if x.protocol_catalog_id}
+            )
+        ),
         proto_by_is=_group_by(protocols, lambda x: x.information_system_id),
         source_by_is=_group_by(sources, lambda x: x.information_system_id),
         device_map=_by_id(_select_in(session, PhysicalDevice, PhysicalDevice.id, _owner_ids(sources, SourceType.DEVICE))),
@@ -438,9 +464,13 @@ def _enrich_single_information_system(obj: InformationSystem, ln: _InformationSy
         "support_organization_name": _name_in(ln.support_map, obj.support_organization_id),
         "support_method_name": _name_in(ln.method_map, obj.support_method_id),
         "placement_assets_summary": _unique_joined(
-            ln.placement_map[x.placement_asset_id].name for x in ln.placement_by_is.get(obj.id, []) if x.placement_asset_id in ln.placement_map
+            ln.placement_map[x.placement_asset_id].name
+            for x in ln.placement_by_is.get(obj.id, [])
+            if x.placement_asset_id in ln.placement_map
         ),
-        "departments_summary": _unique_joined(ln.dep_map[x.department_id].name for x in ln.dep_by_is.get(obj.id, []) if x.department_id in ln.dep_map),
+        "departments_summary": _unique_joined(
+            ln.dep_map[x.department_id].name for x in ln.dep_by_is.get(obj.id, []) if x.department_id in ln.dep_map
+        ),
         # Список — для экрана (по строке на адрес), строка — для отчётов и конструктора.
         "ip_addresses": ip_addresses,
         "ip_addresses_summary": "; ".join(ip_addresses),

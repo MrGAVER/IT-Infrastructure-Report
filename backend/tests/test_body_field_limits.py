@@ -42,7 +42,12 @@ CONFIG = {
             "title": "Лист1",
             "columns": [{"width": 25}],
             "rows": [
-                {"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}
+                {
+                    "height": 18,
+                    "repeat": True,
+                    "data_source": {"root_entity": "information-systems"},
+                    "cells": [{"col": 0, "kind": "field", "path": "name"}],
+                }
             ],
         }
     ]
@@ -168,7 +173,8 @@ def test_every_string_field_is_bounded_or_listed(model):
         if _is_plain_string(field.annotation) and not _has_max_length(field) and f"{model.__qualname__}.{name}" not in UNBOUNDED_ON_PURPOSE
     ]
     assert not unbounded, (
-        f"{model.__qualname__}: строковые поля без max_length: {unbounded}. Ограничьте длину по колонке БД или внесите поле в UNBOUNDED_ON_PURPOSE с причиной."
+        f"{model.__qualname__}: строковые поля без max_length: {unbounded}. Ограничьте длину по колонке БД "
+        "или внесите поле в UNBOUNDED_ON_PURPOSE с причиной."
     )
 
 
@@ -179,10 +185,13 @@ def test_every_number_field_has_both_bounds_or_is_listed(model):
     unbounded = [
         name
         for name, field in model.model_fields.items()
-        if _is_plain_number(field.annotation) and _bound_kinds(field) != {"lower", "upper"} and f"{model.__qualname__}.{name}" not in NUMBER_BOUNDS_OPTIONAL
+        if _is_plain_number(field.annotation)
+        and _bound_kinds(field) != {"lower", "upper"}
+        and f"{model.__qualname__}.{name}" not in NUMBER_BOUNDS_OPTIONAL
     ]
     assert not unbounded, (
-        f"{model.__qualname__}: числовые поля без обеих границ: {unbounded}. Задайте ge/le по колонке БД или внесите поле в NUMBER_BOUNDS_OPTIONAL с причиной."
+        f"{model.__qualname__}: числовые поля без обеих границ: {unbounded}. Задайте ge/le по колонке БД или "
+        "внесите поле в NUMBER_BOUNDS_OPTIONAL с причиной."
     )
 
 

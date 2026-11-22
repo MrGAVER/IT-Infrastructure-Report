@@ -79,7 +79,9 @@ def _describe(item) -> str:
 def schema_drift(engine: sa.engine.Engine, metadata: sa.MetaData = Base.metadata) -> set[str]:
     """Расхождения между базой и metadata; compare_type — как в alembic/env.py."""
     with engine.connect() as connection:
-        context = MigrationContext.configure(connection, opts={"compare_type": True, "include_object": make_include_object(connection.dialect.name)})
+        context = MigrationContext.configure(
+            connection, opts={"compare_type": True, "include_object": make_include_object(connection.dialect.name)}
+        )
         return {_describe(item) for item in _flatten(compare_metadata(context, metadata))}
 
 
@@ -88,11 +90,13 @@ def _assert_matches_whitelist(drift: set[str], expected: set[str]) -> None:
     problems = []
     if new:
         problems.append(
-            "Схема из миграций разошлась с models.py. Нужна миграция (alembic revision) или правка модели — НЕ дописывайте строки в EXPECTED_DRIFT:\n  "
-            + "\n  ".join(new)
+            "Схема из миграций разошлась с models.py. Нужна миграция (alembic revision) или правка модели — НЕ "
+            "дописывайте строки в EXPECTED_DRIFT:\n  " + "\n  ".join(new)
         )
     if fixed:
-        problems.append("Эти расхождения уже исправлены — удалите их из EXPECTED_DRIFT, чтобы страж не молчал о новых:\n  " + "\n  ".join(fixed))
+        problems.append(
+            "Эти расхождения уже исправлены — удалите их из EXPECTED_DRIFT, чтобы страж не молчал о новых:\n  " + "\n  ".join(fixed)
+        )
     assert not problems, "\n\n".join(problems)
 
 
@@ -183,7 +187,11 @@ def _uniqueness_declared_by_models(metadata: sa.MetaData) -> dict[str, set[froze
     """Таблица → наборы колонок, которые модели объявляют уникальными (UniqueConstraint, `unique=True`, unique-индексы)."""
     result: dict[str, set[frozenset[str]]] = {}
     for table in metadata.tables.values():
-        keys = {frozenset(column.name for column in constraint.columns) for constraint in table.constraints if isinstance(constraint, sa.UniqueConstraint)}
+        keys = {
+            frozenset(column.name for column in constraint.columns)
+            for constraint in table.constraints
+            if isinstance(constraint, sa.UniqueConstraint)
+        }
         keys |= {frozenset(column.name for column in index.columns) for index in table.indexes if index.unique}
         if keys:
             result[table.name] = keys

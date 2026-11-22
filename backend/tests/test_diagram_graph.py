@@ -164,7 +164,14 @@ def test_device_node_ip_addresses_merge_interface_and_vlan_ips_without_duplicate
     device = _make_device(db_session, server_type.id, "SN-IP")
     iface = _make_interface(db_session, device.id, "eth0")
     db_session.add(
-        IPAddress(owner_type="device_interface", owner_id=iface.id, ip_address="10.0.0.1", prefix_length=24, purpose="управление", is_management=True)
+        IPAddress(
+            owner_type="device_interface",
+            owner_id=iface.id,
+            ip_address="10.0.0.1",
+            prefix_length=24,
+            purpose="управление",
+            is_management=True,
+        )
     )
     domain = VLANDomain(name="Домен")
     db_session.add(domain)
@@ -172,7 +179,9 @@ def test_device_node_ip_addresses_merge_interface_and_vlan_ips_without_duplicate
     vlan = VLAN(vlan_id=10, name="mgmt", domain_id=domain.id)
     db_session.add(vlan)
     db_session.flush()
-    db_session.add(PhysicalDeviceVLAN(physical_device_id=device.id, vlan_id=vlan.id, ip_address="10.0.0.1", prefix_length=24, is_management=True))
+    db_session.add(
+        PhysicalDeviceVLAN(physical_device_id=device.id, vlan_id=vlan.id, ip_address="10.0.0.1", prefix_length=24, is_management=True)
+    )
     diagram = SavedDiagram(name="Диаграмма 5", scope_filter="{}", group_by="building", collapse_threshold=20)
     db_session.add(diagram)
     db_session.commit()
@@ -200,7 +209,9 @@ def test_edge_vlans_merge_without_duplicate_vlan_id_and_keeps_interfaces_across_
     server_ifaces = [_make_interface(db_session, s.id, "eth0") for s in servers]
 
     conn_type = db_session.query(ConnectionType).filter_by(name="Витая пара").one()
-    connection = Connection(source_interface_id=switch_iface.id, destination_interface_id=server_ifaces[0].id, connection_type_id=conn_type.id, is_active=True)
+    connection = Connection(
+        source_interface_id=switch_iface.id, destination_interface_id=server_ifaces[0].id, connection_type_id=conn_type.id, is_active=True
+    )
     db_session.add(connection)
 
     domain = VLANDomain(name="Домен 2")
@@ -285,7 +296,9 @@ def test_port_index_omitted_when_device_itself_is_collapsed_into_a_group(db_sess
     server_iface = _make_interface(db_session, server.id, "eth0")
 
     conn_type = db_session.query(ConnectionType).filter_by(name="Витая пара").one()
-    connection = Connection(source_interface_id=switch_ifaces[0].id, destination_interface_id=server_iface.id, connection_type_id=conn_type.id, is_active=True)
+    connection = Connection(
+        source_interface_id=switch_ifaces[0].id, destination_interface_id=server_iface.id, connection_type_id=conn_type.id, is_active=True
+    )
     db_session.add(connection)
 
     diagram = SavedDiagram(name="Диаграмма 7", scope_filter="{}", group_by="building", collapse_threshold=2)
@@ -314,7 +327,9 @@ def test_internal_group_edge_is_not_drawn(db_session):
     conn_type = ConnectionType(name="Витая пара 2")
     db_session.add(conn_type)
     db_session.flush()
-    connection = Connection(source_interface_id=ifaces[0].id, destination_interface_id=ifaces[1].id, connection_type_id=conn_type.id, is_active=True)
+    connection = Connection(
+        source_interface_id=ifaces[0].id, destination_interface_id=ifaces[1].id, connection_type_id=conn_type.id, is_active=True
+    )
     db_session.add(connection)
     diagram = SavedDiagram(name="Диаграмма 7", scope_filter="{}", group_by="building", collapse_threshold=5)
     db_session.add(diagram)
@@ -337,8 +352,12 @@ def test_edge_excluded_when_other_end_outside_scope_filter(db_session):
     conn_type = ConnectionType(name="Витая пара 3")
     db_session.add(conn_type)
     db_session.flush()
-    db_session.add(Connection(source_interface_id=iface_in.id, destination_interface_id=iface_out.id, connection_type_id=conn_type.id, is_active=True))
-    diagram = SavedDiagram(name="Диаграмма 8", scope_filter=json.dumps({"building_ids": [building_in.id]}), group_by="building", collapse_threshold=20)
+    db_session.add(
+        Connection(source_interface_id=iface_in.id, destination_interface_id=iface_out.id, connection_type_id=conn_type.id, is_active=True)
+    )
+    diagram = SavedDiagram(
+        name="Диаграмма 8", scope_filter=json.dumps({"building_ids": [building_in.id]}), group_by="building", collapse_threshold=20
+    )
     db_session.add(diagram)
     db_session.commit()
 
@@ -357,7 +376,9 @@ def _router_with_subinterfaces(db_session):
     router_port = _make_interface(db_session, router.id, "Gi0/0")
     switch_port = _make_interface(db_session, switch.id, "Gi1/0/1")
     conn_type = db_session.query(ConnectionType).filter_by(name="Витая пара").one()
-    connection = Connection(source_interface_id=router_port.id, destination_interface_id=switch_port.id, connection_type_id=conn_type.id, is_active=True)
+    connection = Connection(
+        source_interface_id=router_port.id, destination_interface_id=switch_port.id, connection_type_id=conn_type.id, is_active=True
+    )
     domain = VLANDomain(name="Домен подинтерфейсов")
     db_session.add_all([connection, domain])
     db_session.flush()
@@ -369,9 +390,18 @@ def _router_with_subinterfaces(db_session):
     db_session.add_all([sub10, sub20])
     db_session.flush()
     db_session.add(
-        IPAddress(owner_type="device_subinterface", owner_id=sub10.id, ip_address="10.0.10.1", prefix_length=24, purpose="Шлюз", is_management=False)
+        IPAddress(
+            owner_type="device_subinterface",
+            owner_id=sub10.id,
+            ip_address="10.0.10.1",
+            prefix_length=24,
+            purpose="Шлюз",
+            is_management=False,
+        )
     )
-    db_session.add(IPAddress(owner_type="device_subinterface", owner_id=sub20.id, ip_address="10.0.20.1", prefix_length=24, is_management=True))
+    db_session.add(
+        IPAddress(owner_type="device_subinterface", owner_id=sub20.id, ip_address="10.0.20.1", prefix_length=24, is_management=True)
+    )
     return router, switch, connection
 
 
@@ -419,8 +449,12 @@ def _edge_for_port_modes(db_session, source_mode: str, destination_mode: str) ->
     destination = _make_interface(db_session, server.id, "eth0")
     source.vlan_mode, destination.vlan_mode = source_mode, destination_mode
     conn_type = db_session.query(ConnectionType).filter_by(name="Витая пара").one()
-    connection = Connection(source_interface_id=source.id, destination_interface_id=destination.id, connection_type_id=conn_type.id, is_active=True)
-    diagram = SavedDiagram(name=f"Диаграмма режимов {source_mode}/{destination_mode}", scope_filter="{}", group_by="building", collapse_threshold=20)
+    connection = Connection(
+        source_interface_id=source.id, destination_interface_id=destination.id, connection_type_id=conn_type.id, is_active=True
+    )
+    diagram = SavedDiagram(
+        name=f"Диаграмма режимов {source_mode}/{destination_mode}", scope_filter="{}", group_by="building", collapse_threshold=20
+    )
     db_session.add_all([connection, diagram])
     db_session.commit()
     return next(e for e in build_graph(db_session, diagram)["edges"] if e["id"] == connection.id)

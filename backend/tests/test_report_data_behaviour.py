@@ -195,9 +195,23 @@ class TestOrderingAndMaps:
         assert sorted(_ids(d.containers)) == ["ct-a", "ct-b", "ct-c", "ct-d", "ct-e"]
         assert sorted(_ids(d.deployed_software)) == ["ds1", "ds2", "ds3"]
         assert sorted(_ids(d.is_deps)) == ["isd1"] and sorted(_ids(d.is_protocols)) == ["isp1"]
-        assert sorted(_ids(d.is_sources)) == ["src-ct", "src-ct2", "src-ct3", "src-ct4", "src-dev", "src-dup", "src-gone", "src-lost", "src-vm", "src-vm3"]
+        assert sorted(_ids(d.is_sources)) == [
+            "src-ct",
+            "src-ct2",
+            "src-ct3",
+            "src-ct4",
+            "src-dev",
+            "src-dup",
+            "src-gone",
+            "src-lost",
+            "src-vm",
+            "src-vm3",
+        ]
         assert sorted(_ids(d.protocols)) == ["cat-22", "cat-443", "cat-80"] and sorted(_ids(d.open_ports)) == ["op1", "op2", "op3", "op4"]
-        assert sorted(_ids(d.iface_vlans)) == ["iv1", "iv2", "iv3", "iv4", "iv5", "iv6"] and sorted(_ids(d.device_vlan_rows)) == ["pdv1", "pdv2"]
+        assert sorted(_ids(d.iface_vlans)) == ["iv1", "iv2", "iv3", "iv4", "iv5", "iv6"] and sorted(_ids(d.device_vlan_rows)) == [
+            "pdv1",
+            "pdv2",
+        ]
         assert sorted(_ids(d.subinterfaces)) == ["s-a", "s-b", "s-c"]
 
 
@@ -213,7 +227,12 @@ class TestGroupings:
 
     def test_interfaces_open_ports_and_device_vlans_are_grouped_by_owner(self, registry):
         d = _load(registry)
-        assert _ids(d.ifaces_by_device) == {"rt1": ["r1"], "sw2": ["q1", "q2", "q3"], "sw1": ["p1", "p2", "p3", "p4", "p5", "p6"], "srv1": ["n1"]}
+        assert _ids(d.ifaces_by_device) == {
+            "rt1": ["r1"],
+            "sw2": ["q1", "q2", "q3"],
+            "sw1": ["p1", "p2", "p3", "p4", "p5", "p6"],
+            "srv1": ["n1"],
+        }
         assert _ids(d.open_ports_by_owner) == {
             ("device_interface", "p1"): ["op1"],
             ("device_subinterface", "s-a"): ["op2"],
@@ -224,7 +243,11 @@ class TestGroupings:
 
     def test_information_system_links_are_grouped_by_system_in_insertion_order(self, registry):
         d = _load(registry)
-        assert _ids(d.dep_by_is) == {"is1": ["isd1"]} and _ids(d.protocol_by_is) == {"is1": ["isp1"]} and _ids(d.placement_by_is) == {"is1": ["isa1"]}
+        assert (
+            _ids(d.dep_by_is) == {"is1": ["isd1"]}
+            and _ids(d.protocol_by_is) == {"is1": ["isp1"]}
+            and _ids(d.placement_by_is) == {"is1": ["isa1"]}
+        )
         assert _ids(d.source_by_is) == {
             "is1": ["src-dev", "src-vm", "src-ct", "src-dup", "src-gone"],
             "is2": ["src-ct2"],
@@ -266,7 +289,12 @@ class TestSubinterfaces:
     def test_subinterfaces_are_ordered_by_vlan_number_then_name_and_gathered_per_device(self, registry):
         d = _load(registry)
         assert _ids(d.subs_by_iface) == {"p5": ["s-b", "s-a"], "p1": ["s-c"]}  # у p5: сначала VLAN 10, потом VLAN 20
-        assert _ids(d.subs_by_device) == {"rt1": [], "sw2": [], "sw1": ["s-c", "s-b", "s-a"], "srv1": []}  # устройства без подинтерфейсов — с пустым списком
+        assert _ids(d.subs_by_device) == {
+            "rt1": [],
+            "sw2": [],
+            "sw1": ["s-c", "s-b", "s-a"],
+            "srv1": [],
+        }  # устройства без подинтерфейсов — с пустым списком
 
     def test_name_decides_between_subinterfaces_of_the_same_vlan_ignoring_case(self, registry):
         from app.models import DeviceSubinterface
@@ -279,7 +307,12 @@ class TestSubinterfaces:
         )
         registry.commit()
         d = _load(registry)
-        assert _ids(d.subs_by_iface["p5"]) == ["s-b", "s-e", "s-d", "s-a"]  # VLAN 10: «Gi1/0/5.10» < «gi1/0/5.dup-a» < «Gi1/0/5.dup-b»; затем VLAN 20
+        assert _ids(d.subs_by_iface["p5"]) == [
+            "s-b",
+            "s-e",
+            "s-d",
+            "s-a",
+        ]  # VLAN 10: «Gi1/0/5.10» < «gi1/0/5.dup-a» < «Gi1/0/5.dup-b»; затем VLAN 20
 
     def test_vlan_number_outranks_the_name(self, registry):
         from app.models import DeviceSubinterface
@@ -322,8 +355,8 @@ class TestStructuralUnitFilter:
 
     def test_systems_are_kept_when_any_linked_object_sits_on_an_allowed_device(self, registry):
         d = _load(registry, units=["u-root"])
-        # is1 — устройство SW-1; is5 — контейнер на ВМ, хост которой в выбранной единице; is7 — сама такая ВМ; is6 — контейнер прямо на устройстве.
-        # Не попали: is2 (контейнер на ВМ с хостом вне единицы), is3 (ВМ без хоста), is4 (без источников).
+        # is1 — устройство SW-1; is5 — контейнер на ВМ, хост которой в выбранной единице; is7 — сама такая ВМ; is6 — контейнер
+        # прямо на устройстве. Не попали: is2 (контейнер на ВМ с хостом вне единицы), is3 (ВМ без хоста), is4 (без источников).
         assert _ids(d.systems) == ["is1", "is5", "is7", "is6"]
 
     def test_lookup_maps_stay_complete_so_neighbors_and_hosts_can_still_be_found(self, registry):

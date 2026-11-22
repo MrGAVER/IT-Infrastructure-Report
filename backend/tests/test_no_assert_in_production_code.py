@@ -30,7 +30,10 @@ def _asserts_in(path: Path) -> list[int]:
 
 def test_production_code_has_no_assert_statements():
     found = {
-        str(path.relative_to(BACKEND_DIR)): lines for directory in PRODUCTION_DIRS for path in sorted(directory.rglob("*.py")) if (lines := _asserts_in(path))
+        str(path.relative_to(BACKEND_DIR)): lines
+        for directory in PRODUCTION_DIRS
+        for path in sorted(directory.rglob("*.py"))
+        if (lines := _asserts_in(path))
     }
     assert found == {}, "assert в боевом коде исчезает при `python -O`; нужна явная проверка с понятной ошибкой"
 

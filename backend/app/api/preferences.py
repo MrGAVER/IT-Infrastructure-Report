@@ -37,7 +37,9 @@ def get_preferences(request: Request, session: Session = Depends(get_db)) -> dic
 def update_user_preferences(payload: UserPreferencesUpdate, request: Request, session: Session = Depends(get_db)) -> dict:
     user = _current_user(request)
     if user is None:
-        raise HTTPException(400, "Личные настройки хранятся на сервере только для учётных записей; при выключенной аутентификации они остаются в браузере.")
+        raise HTTPException(
+            400, "Личные настройки хранятся на сервере только для учётных записей; при выключенной аутентификации они остаются в браузере."
+        )
     update_preferences(session, user_owner(user), payload.model_dump(exclude_unset=True))
     return read_preferences(session, user)
 

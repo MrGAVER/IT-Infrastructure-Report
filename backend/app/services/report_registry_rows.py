@@ -181,7 +181,9 @@ VIRTUAL_ENTITIES: dict[str, VirtualEntity] = {
     for e in [
         VirtualEntity("registry-is-rows", "Регистр — Перечень ИС (как в регл. отчёте)", _IS_FIELDS, _load_is_rows),
         VirtualEntity("registry-device-rows", "Регистр — Инвентаризация устройств (как в регл. отчёте)", _DEVICE_FIELDS, _load_device_rows),
-        VirtualEntity("registry-connection-rows", "Регистр — Организация подключений (как в регл. отчёте)", _CONNECTION_FIELDS, _load_connection_rows),
+        VirtualEntity(
+            "registry-connection-rows", "Регистр — Организация подключений (как в регл. отчёте)", _CONNECTION_FIELDS, _load_connection_rows
+        ),
         VirtualEntity("registry-vm-rows", "Регистр — Управление ВМ (как в регл. отчёте)", _VM_FIELDS, _load_vm_rows),
     ]
 }

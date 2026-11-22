@@ -5,7 +5,8 @@
 таблицы в будущей SQLite-миграции молча удаляет её триггеры, и только такой тест это ловит.
 
 Главная защита — тест полноты: каждое значение `app.constants.OwnerType` обязано (а) иметь владельца в integrity._OWNER_MODEL_BY_TYPE,
-(б) быть описано в реестре очистки deletion._POLYMORPHIC_OWNER_CLEANUP, (в) удалять потомков триггером. Новый тип владельца без защиты роняет тест.
+(б) быть описано в реестре очистки deletion._POLYMORPHIC_OWNER_CLEANUP, (в) удалять потомков триггером. Новый тип владельца без
+защиты роняет тест.
 
 Базы: SQLite — файл во временном каталоге (маркер sqlite_only), PostgreSQL — временная база на сервере из INFRA_REGISTRY_TEST_DATABASE_URL
 (маркер postgres_only). Схема строится цепочкой миграций, а не create_all: триггеры существуют только в ней.
@@ -122,7 +123,9 @@ def _migration_module():
 
 
 def test_owner_type_values_are_found():
-    assert {"physical_device", "virtual_machine", "device_interface", "device_subinterface", "information_system_source"} <= set(OWNER_TYPES)
+    assert {"physical_device", "virtual_machine", "device_interface", "device_subinterface", "information_system_source"} <= set(
+        OWNER_TYPES
+    )
 
 
 def test_migration_covers_exactly_the_owner_types_and_tables_of_the_application():
@@ -142,7 +145,9 @@ def test_every_owner_type_is_described_for_the_integrity_diagnostics():
 def test_every_owner_type_has_a_cleanup_registry_entry():
     """Прикладная очистка (deletion.py) — первая линия защиты, триггер — последний рубеж; новый тип нельзя оставить только на одном."""
     in_registry = {owner_type for entries in _POLYMORPHIC_OWNER_CLEANUP.values() for _, owner_type in entries}
-    in_registry.add(OwnerType.DEVICE_SUBINTERFACE)  # подинтерфейсы чистит purge_subinterfaces_of_interfaces (services/crud/subinterfaces.py)
+    in_registry.add(
+        OwnerType.DEVICE_SUBINTERFACE
+    )  # подинтерфейсы чистит purge_subinterfaces_of_interfaces (services/crud/subinterfaces.py)
     assert set(OWNER_TYPES) <= in_registry, f"нет прикладной очистки для: {sorted(set(OWNER_TYPES) - in_registry)}"
 
 
@@ -232,11 +237,21 @@ def migration_run(request, tmp_path_factory):
                 "alien_type": insert_row(connection, "open_ports", owner_type="alien_owner", owner_id="no-such-owner"),
             }
             orphans = {
-                "port_of_missing_device": insert_row(connection, "open_ports", owner_type=OwnerType.PHYSICAL_DEVICE, owner_id="missing-device"),
-                "port_of_missing_interface": insert_row(connection, "open_ports", owner_type=OwnerType.DEVICE_INTERFACE, owner_id="missing-interface"),
-                "software_of_missing_vm": insert_row(connection, "deployed_software", owner_type=OwnerType.VIRTUAL_MACHINE, owner_id="missing-vm"),
-                "ip_of_missing_subinterface": insert_row(connection, "ip_addresses", owner_type=OwnerType.DEVICE_SUBINTERFACE, owner_id="missing-subinterface"),
-                "ip_of_missing_source": insert_row(connection, "ip_addresses", owner_type=OwnerType.INFORMATION_SYSTEM_SOURCE, owner_id="missing-source"),
+                "port_of_missing_device": insert_row(
+                    connection, "open_ports", owner_type=OwnerType.PHYSICAL_DEVICE, owner_id="missing-device"
+                ),
+                "port_of_missing_interface": insert_row(
+                    connection, "open_ports", owner_type=OwnerType.DEVICE_INTERFACE, owner_id="missing-interface"
+                ),
+                "software_of_missing_vm": insert_row(
+                    connection, "deployed_software", owner_type=OwnerType.VIRTUAL_MACHINE, owner_id="missing-vm"
+                ),
+                "ip_of_missing_subinterface": insert_row(
+                    connection, "ip_addresses", owner_type=OwnerType.DEVICE_SUBINTERFACE, owner_id="missing-subinterface"
+                ),
+                "ip_of_missing_source": insert_row(
+                    connection, "ip_addresses", owner_type=OwnerType.INFORMATION_SYSTEM_SOURCE, owner_id="missing-source"
+                ),
             }
         tables = {"open_ports", "deployed_software", "ip_addresses"}
         database.upgrade("head")
@@ -249,7 +264,8 @@ def migration_run(request, tmp_path_factory):
                 if _row_in(connection, table, row_id)
             }
             audit = connection.execute(
-                sa.text("SELECT entity_type, action, details FROM audit_log WHERE entity_id = :revision ORDER BY entity_type"), {"revision": REVISION}
+                sa.text("SELECT entity_type, action, details FROM audit_log WHERE entity_id = :revision ORDER BY entity_type"),
+                {"revision": REVISION},
             ).all()
         triggers_at_head = database.triggers()
         database.downgrade(PREVIOUS_REVISION)
@@ -270,7 +286,9 @@ def _row_in(connection, table: str, row_id: str) -> bool:
 
 
 def test_migration_removes_orphans_and_keeps_everything_else(migration_run):
-    assert migration_run["present"] == migration_run["kept"], "удалены только сироты: живые записи и запись с неизвестным owner_type остаются"
+    assert migration_run["present"] == migration_run["kept"], (
+        "удалены только сироты: живые записи и запись с неизвестным owner_type остаются"
+    )
 
 
 def test_migration_logs_what_it_removed_in_the_audit_log(migration_run):

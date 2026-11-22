@@ -86,7 +86,8 @@ class TestIndexes:
 
 
 class TestNeighbourSwapKeepsWorkingUnderTheIndexes:
-    """Обмен соседями в одном запросе: в промежутке порт занят двумя подключениями, индекс этого не допускает — отсюда выключение на время применения."""
+    """Обмен соседями в одном запросе: в промежутке порт занят двумя подключениями, индекс этого не допускает — отсюда выключение
+    на время применения."""
 
     def test_two_ports_swap_their_neighbours_and_connections_stay_active(self, client):
         _, theirs = _device_with_ports(client, "SW-U-SWAP", ["g1", "g2"])
@@ -121,7 +122,9 @@ class TestNeighbourSwapKeepsWorkingUnderTheIndexes:
             return [{"id": own[name]["id"], "name": name, "connection": _conn(theirs[peer], ct)} for name, peer in zip(names, order)]
 
         assert _sync(client, dev["id"], payload(["g1", "g2", "g3"])).status_code == 200
-        response = _sync(client, dev["id"], payload(["g2", "g3", "g1"]))  # циклический сдвиг: каждый занимает порт, который освобождает другой
+        response = _sync(
+            client, dev["id"], payload(["g2", "g3", "g1"])
+        )  # циклический сдвиг: каждый занимает порт, который освобождает другой
 
         assert response.status_code == 200, response.text
         expected = {frozenset((own[name]["id"], theirs[peer]["id"])) for name, peer in zip(names, ["g2", "g3", "g1"])}
@@ -136,7 +139,11 @@ class TestNeighbourSwapKeepsWorkingUnderTheIndexes:
         for remote, local in (("g1", "eth0"), ("g2", "eth1")):
             created = client.post(
                 f"{API}/resources/connections",
-                json={"source_interface_id": theirs[remote]["id"], "destination_interface_id": own[local]["id"], "connection_type_id": ct["id"]},
+                json={
+                    "source_interface_id": theirs[remote]["id"],
+                    "destination_interface_id": own[local]["id"],
+                    "connection_type_id": ct["id"],
+                },
             )
             assert created.status_code in (200, 201), created.text
 
@@ -233,7 +240,9 @@ class TestIndexProtectsEvenWithoutTheLockOnPostgres:
             thread.start()
             deadline = time.monotonic() + self.WAIT_SECONDS
             while time.monotonic() < deadline and thread.is_alive():
-                if observer.execute(text("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'")).scalar():
+                if observer.execute(
+                    text("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'")
+                ).scalar():
                     break
                 time.sleep(0.05)
             assert thread.is_alive(), f"вторая вставка не дождалась первой: {outcome}"

@@ -33,6 +33,8 @@ def test_git_ignores_the_artifact(path):
 
 @pytest.mark.skipif(shutil.which("git") is None or not (ROOT / ".git").exists(), reason="нужны git и рабочая копия репозитория")
 def test_coverage_artifact_is_not_tracked_any_more():
-    result = subprocess.run(["git", "ls-files", "--", "backend/.coverage", ".coverage"], cwd=ROOT, capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        ["git", "ls-files", "--", "backend/.coverage", ".coverage"], cwd=ROOT, capture_output=True, text=True, check=False
+    )
     assert result.returncode == 0
     assert result.stdout.strip() == "", "backend/.coverage снова отслеживается git"

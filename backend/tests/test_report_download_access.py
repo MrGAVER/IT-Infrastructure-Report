@@ -37,9 +37,15 @@ def _generate(client, url: str, headers: dict | None = None) -> dict:
 
 @pytest.fixture()
 def reports(client):
-    """Аутентификация включена; готовы отчёт аудита и обычный отчёт. Возвращает (токен admin, токен viewer, имя аудит-отчёта, имя обычного)."""
+    """Аутентификация включена; готовы отчёт аудита и обычный отчёт. Возвращает (токен admin, токен viewer, имя аудит-отчёта, имя
+    обычного)."""
     admin, viewer = _enable_auth_with_viewer(client)
-    return admin, viewer, _generate(client, AUDIT_URL, _headers(admin))["file_name"], _generate(client, INVENTORY_URL, _headers(admin))["file_name"]
+    return (
+        admin,
+        viewer,
+        _generate(client, AUDIT_URL, _headers(admin))["file_name"],
+        _generate(client, INVENTORY_URL, _headers(admin))["file_name"],
+    )
 
 
 # --- Где лежит отчёт аудита и какой адрес скачивания получает клиент ---------------------------------------------------------------
@@ -111,7 +117,9 @@ _NAME_FORMS = {
 
 @pytest.mark.parametrize("form", sorted(_NAME_FORMS))
 def test_the_general_endpoint_gives_404_for_a_file_that_lives_in_the_audit_subdirectory(client, form):
-    audit_name = _generate(client, AUDIT_URL)["file_name"]  # аутентификация выключена: проверка роли пройдена, значит, отказывает именно поиск файла
+    audit_name = _generate(client, AUDIT_URL)[
+        "file_name"
+    ]  # аутентификация выключена: проверка роли пройдена, значит, отказывает именно поиск файла
     assert client.get(DOWNLOAD.format(_NAME_FORMS[form](audit_name))).status_code == 404
 
 
@@ -119,7 +127,9 @@ def test_the_general_endpoint_gives_404_for_a_file_that_lives_in_the_audit_subdi
 def test_viewer_cannot_bypass_the_name_check_by_changing_the_name_form(client, reports, form):
     _, viewer, audit_name, _ = reports
     response = client.get(DOWNLOAD.format(_NAME_FORMS[form](audit_name)), headers=_headers(viewer))
-    assert response.status_code == 403, "проверка по имени — второй слой: она срабатывает до поиска файла и не зависит от регистра файловой системы"
+    assert response.status_code == 403, (
+        "проверка по имени — второй слой: она срабатывает до поиска файла и не зависит от регистра файловой системы"
+    )
 
 
 def test_a_leftover_audit_report_in_the_root_stays_admin_only(client, reports):

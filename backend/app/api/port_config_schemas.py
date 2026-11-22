@@ -69,8 +69,12 @@ class PortConfigUpdate(RequestBody):
     model_config = ConfigDict(extra="forbid")
 
     role: str | None = Field(default=None, description="Роль порта: management, data, both или none.")
-    vlan_ids: list[str] | None = Field(default=None, max_length=MAX_VLAN_IDS, description="Полный набор VLAN порта (id записей справочника).")
-    all_vlans: bool | None = Field(default=None, description="«Все VLAN» устройства порта; тогда vlan_ids игнорируется. Только в режиме trunk.")
+    vlan_ids: list[str] | None = Field(
+        default=None, max_length=MAX_VLAN_IDS, description="Полный набор VLAN порта (id записей справочника)."
+    )
+    all_vlans: bool | None = Field(
+        default=None, description="«Все VLAN» устройства порта; тогда vlan_ids игнорируется. Только в режиме trunk."
+    )
     mode: PortMode | None = Field(default=None, description="Режим, под который выбран набор VLAN; у порта другой режим — 409.")
 
     _request: PortConfigRequest = PrivateAttr()
@@ -132,7 +136,9 @@ class CascadePreviewRequest(RequestBody):
 class CascadeApplyRequest(CascadePreviewRequest):
     """POST /api/v1/interfaces/{id}/vlan-mode-cascade — применение плана из предпросмотра (mode, edited и port те же)."""
 
-    plan_hash: str | None = Field(default=None, max_length=MAX_PLAN_HASH_LENGTH, description="Hash плана из предпросмотра; план изменился — 409.")
+    plan_hash: str | None = Field(
+        default=None, max_length=MAX_PLAN_HASH_LENGTH, description="Hash плана из предпросмотра; план изменился — 409."
+    )
     confirm: bool | None = Field(default=None, description="Должно быть true — явное подтверждение применения.")
 
     @field_validator("confirm", mode="before")
@@ -153,14 +159,17 @@ class ApproveMatch(RequestBody):
 class ApprovePortConfigRequest(RequestBody):
     """POST /api/v1/connections/port-config/approve — одобрить расхождение конфигурации портов.
 
-    Ровно одно из полей: ``connection_ids`` (перечисленные подключения) или ``match`` (все подключения с расхождением под условиями поиска)."""
+    Ровно одно из полей: ``connection_ids`` (перечисленные подключения) или ``match`` (все подключения с расхождением под
+    условиями поиска)."""
 
     connection_ids: list[str] | None = Field(
         default=None,
         max_length=MAX_APPROVE_BATCH,
         description=f"Идентификаторы подключений; от 1 до {MAX_APPROVE_BATCH} за запрос.",
     )
-    match: ApproveMatch | None = Field(default=None, description="Условия поиска: одобрить ВСЕ подключения с расхождением, а не только показанную страницу.")
+    match: ApproveMatch | None = Field(
+        default=None, description="Условия поиска: одобрить ВСЕ подключения с расхождением, а не только показанную страницу."
+    )
 
     @model_validator(mode="before")
     @classmethod

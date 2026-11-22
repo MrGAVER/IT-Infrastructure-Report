@@ -174,7 +174,10 @@ def test_upgrade_fixes_description_even_if_template_config_was_edited(alembic_co
 
     with _connect(db_path) as conn:
         assert LEAKED_PATH not in _description(conn)
-        assert conn.execute("SELECT config FROM report_templates WHERE name=?", (TEMPLATE_NAME,)).fetchone()["config"] == '{"params": [], "sheets": []}'
+        assert (
+            conn.execute("SELECT config FROM report_templates WHERE name=?", (TEMPLATE_NAME,)).fetchone()["config"]
+            == '{"params": [], "sheets": []}'
+        )
 
 
 def test_upgrade_is_noop_when_template_is_already_gone(alembic_config):

@@ -77,7 +77,10 @@ def _seed_pre_migration(db_path: Path) -> dict[str, str]:
     conn.execute("INSERT INTO connection_types (id, name, created_at, updated_at) VALUES (?, 'Кабель', ?, ?)", (_uid(), _now(), _now()))
     ids = {
         "preset": _insert_connection(
-            conn, src=_insert_interface(conn, management=0, data=1), dst=_insert_interface(conn, management=0, data=1), purpose="Передача данных"
+            conn,
+            src=_insert_interface(conn, management=0, data=1),
+            dst=_insert_interface(conn, management=0, data=1),
+            purpose="Передача данных",
         ),
         "custom": _insert_connection(
             conn,
@@ -89,7 +92,9 @@ def _seed_pre_migration(db_path: Path) -> dict[str, str]:
         "custom_no_description": _insert_connection(
             conn, src=_insert_interface(conn, management=0, data=1), dst=_insert_interface(conn, management=0, data=1), purpose="Резерв"
         ),
-        "empty": _insert_connection(conn, src=_insert_interface(conn, management=0, data=1), dst=_insert_interface(conn, management=0, data=1), purpose=None),
+        "empty": _insert_connection(
+            conn, src=_insert_interface(conn, management=0, data=1), dst=_insert_interface(conn, management=0, data=1), purpose=None
+        ),
     }
     conn.commit()
     conn.close()

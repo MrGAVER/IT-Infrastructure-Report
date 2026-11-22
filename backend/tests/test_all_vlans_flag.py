@@ -42,7 +42,9 @@ class Lab:
         return self.vlans[number]
 
     def device(self, serial: str, *, type_vlans: tuple[int, ...] = (), own_vlans: tuple[int, ...] = ()) -> str:
-        device_type = self.client.post(f"{API}/resources/device-types", json={"name": f"Тип {serial}", "category_id": self.category}).json()["id"]
+        device_type = self.client.post(
+            f"{API}/resources/device-types", json={"name": f"Тип {serial}", "category_id": self.category}
+        ).json()["id"]
         for number in type_vlans:
             self.db.add(DeviceTypeVLAN(device_type_id=device_type, vlan_id=self.vlan(number).id))
         self.db.commit()
@@ -274,7 +276,9 @@ def test_cascade_to_access_drops_the_flag_and_keeps_at_most_one_vlan(lab, client
     (port,) = lab.save(device, [_trunk(all_vlans=True)])["items"]
     plan = client.post(f"{API}/interfaces/{port['id']}/vlan-mode-cascade/preview", json={"mode": "access"}).json()
 
-    response = client.post(f"{API}/interfaces/{port['id']}/vlan-mode-cascade", json={"mode": "access", "plan_hash": plan["hash"], "confirm": True})
+    response = client.post(
+        f"{API}/interfaces/{port['id']}/vlan-mode-cascade", json={"mode": "access", "plan_hash": plan["hash"], "confirm": True}
+    )
 
     assert response.status_code == 200, response.text
     assert lab.flag(port["id"]) is False

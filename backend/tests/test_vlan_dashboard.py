@@ -1,6 +1,6 @@
 """
-A-06 (приоритет 1, код-ревью main @ b375f58): GET /api/v1/vlan-dashboard — основной источник данных экрана VLAN (frontend-vue/src/stores/vlans.ts), а на бэкенде
-функцию build_vlan_dashboard не вызывал ни один тест.
+A-06 (приоритет 1, код-ревью main @ b375f58): GET /api/v1/vlan-dashboard — основной источник данных экрана VLAN
+(frontend-vue/src/stores/vlans.ts), а на бэкенде функцию build_vlan_dashboard не вызывал ни один тест.
 
 Контракт ответа: `{"items": [{"vlan_id": N, "definitions": [{id, vlan_id, name, description, domain_id, domain_name, devices: [...]}]}]}`.
 Один номер VLAN может иметь несколько определений (в разных доменах и локальное); группы идут по возрастанию номера, определения внутри
@@ -72,7 +72,9 @@ def test_the_same_vlan_number_keeps_separate_definitions_with_their_own_devices(
 
     assert [group["vlan_id"] for group in items] == [2, 10], "группы — по возрастанию номера VLAN"
     reserve = items[0]["definitions"]
-    assert [d["name"] for d in reserve] == ["Резерв"] and reserve[0]["devices"] == [], "VLAN без устройств остаётся в списке с пустым перечнем"
+    assert [d["name"] for d in reserve] == ["Резерв"] and reserve[0]["devices"] == [], (
+        "VLAN без устройств остаётся в списке с пустым перечнем"
+    )
     assert reserve[0]["domain_name"] == "Кампус"
 
     labs, servers = items[1]["definitions"]  # внутри группы — по имени: «Лаборатория» раньше «Серверы»

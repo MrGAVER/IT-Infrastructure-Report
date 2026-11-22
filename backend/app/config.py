@@ -9,7 +9,8 @@ from typing import Any, Callable
 
 from .constants import AUDIT_RETENTION_MAX_DAYS
 
-# Переменные окружения как отображение: настройки читаются из os.environ, а тесты и вызывающий код могут передать свой словарь, не меняя процесс.
+# Переменные окружения как отображение: настройки читаются из os.environ, а тесты и вызывающий код могут передать свой словарь, не
+# меняя процесс.
 Environ = Mapping[str, str]
 
 
@@ -17,7 +18,9 @@ def _environ(env: Environ | None) -> Environ:
     return os.environ if env is None else env
 
 
-def _number_env(name: str, default: Any, cast: Callable[[str], Any], *, minimum: Any = None, maximum: Any = None, env: Environ | None = None) -> Any:
+def _number_env(
+    name: str, default: Any, cast: Callable[[str], Any], *, minimum: Any = None, maximum: Any = None, env: Environ | None = None
+) -> Any:
     """Число из переменной окружения: не задана, пуста или из одних пробелов — ``default``; нечисловое значение или меньше ``minimum`` —
     явная ошибка запуска с ИМЕНЕМ переменной (а не молчаливое игнорирование опечатки и не безымянный ``invalid literal for int()``).
 
@@ -54,7 +57,8 @@ def _csv_env(name: str, default: str = "", *, env: Environ | None = None) -> lis
 
 
 def _flag_env(name: str, *, env: Environ | None = None) -> bool:
-    """Булев переключатель из переменной окружения: «1», «true», «yes», «on» (регистр и пробелы не важны) — включено, всё остальное и пусто — выключено."""
+    """Булев переключатель из переменной окружения: «1», «true», «yes», «on» (регистр и пробелы не важны) — включено, всё
+    остальное и пусто — выключено."""
     return _environ(env).get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -101,8 +105,9 @@ class Settings:
     """Настройки приложения из переменных окружения: неизменяемый снимок, собираемый одним местом (``from_env``).
 
     Разбор окружения ничего не создаёт на диске: каталоги создаёт ``ensure_data_dirs()`` — при старте приложения (lifespan), в launcher.py и
-    в alembic/env.py. Прежние имена ``config.APP_DATA_DIR``, ``config.DATABASE_URL`` и т. д. остались псевдонимами значений этого объекта: на них
-    ссылаются десятки модулей, а тесты подменяют их через monkeypatch. Менять настройки в рантайме нельзя и не нужно — для тестов
+    в alembic/env.py. Прежние имена ``config.APP_DATA_DIR``, ``config.DATABASE_URL`` и т. д. остались псевдонимами значений этого
+    объекта: на них ссылаются десятки модулей, а тесты подменяют их через monkeypatch. Менять настройки в рантайме нельзя и не
+    нужно — для тестов
     ``Settings.from_env({...})`` собирает объект из своего словаря, не трогая ``os.environ``."""
 
     data_dir: Path
@@ -149,7 +154,9 @@ class Settings:
             report_dir=data_dir / "reports",
             # minimum намеренно не задан: 0 и меньше — не удалять (report_cleanup.py)
             report_retention_days=_number_env("INFRA_REGISTRY_REPORT_RETENTION_DAYS", 30, int, env=variables),
-            audit_retention_days=_number_env("INFRA_REGISTRY_AUDIT_RETENTION_DAYS", 0, int, minimum=0, maximum=AUDIT_RETENTION_MAX_DAYS, env=variables),
+            audit_retention_days=_number_env(
+                "INFRA_REGISTRY_AUDIT_RETENTION_DAYS", 0, int, minimum=0, maximum=AUDIT_RETENTION_MAX_DAYS, env=variables
+            ),
             database_url=_database_url(data_dir, env=variables),
             report_max_files=200 if report_max_files is None else report_max_files,
             db_pool_options=MappingProxyType(pool_options),
@@ -173,8 +180,8 @@ class Settings:
         )
 
 
-# Единственный разбор окружения при импорте модуля. Каталоги здесь НЕ создаются (раньше mkdir стоял прямо в теле модуля, и любой скрипт или тест,
-# импортировавший app.config, оставлял папки в текущем каталоге): см. ensure_data_dirs().
+# Единственный разбор окружения при импорте модуля. Каталоги здесь НЕ создаются (раньше mkdir стоял прямо в теле модуля, и любой
+# скрипт или тест, импортировавший app.config, оставлял папки в текущем каталоге): см. ensure_data_dirs().
 settings = Settings.from_env()
 
 APP_DATA_DIR = settings.data_dir
@@ -186,13 +193,15 @@ def ensure_data_dirs(*directories: Path) -> None:
 
     Вызывается явно: из lifespan приложения, launcher.py (EXE) и alembic/env.py (миграции из командной строки и из docker-entrypoint.sh,
     где SQLite-файл лежит в каталоге данных). Значения по умолчанию читаются при вызове, а не при импорте: тесты подменяют
-    ``config.REPORT_DIR``. Нельзя создать каталог (нет прав, диск только для чтения) — ``OSError`` с путём в тексте, а не молчаливое продолжение."""
+    ``config.REPORT_DIR``. Нельзя создать каталог (нет прав, диск только для чтения) — ``OSError`` с путём в тексте, а не
+    молчаливое продолжение."""
     for directory in directories or (APP_DATA_DIR, REPORT_DIR):
         directory.mkdir(parents=True, exist_ok=True)
 
 
 # Подкаталог REPORT_DIR для отчётов журнала аудита: в них логины, адреса и неудачные входы, поэтому их скачивает только
-# администратор, а общий эндпоинт скачивания ищет файлы лишь в корне REPORT_DIR и до этого подкаталога не дотянется. Создаётся при первом отчёте.
+# администратор, а общий эндпоинт скачивания ищет файлы лишь в корне REPORT_DIR и до этого подкаталога не дотянется. Создаётся при
+# первом отчёте.
 AUDIT_REPORT_SUBDIR = "audit"
 # Сколько дней хранятся сгенерированные отчёты: файл нужен только пока его скачивают, а каталог без
 # очистки рос бы бесконечно. 0 — не удалять никогда.
@@ -244,7 +253,8 @@ ALLOWED_HOSTS = list(settings.allowed_hosts)
 # Принимать заголовок Host в виде IP-адреса (http://10.0.0.5:8000) независимо от списка ALLOWED_HOSTS. При DNS-rebinding в Host всегда
 # стоит имя домена злоумышленника — IP-адрес подменить через DNS нельзя, поэтому такой доступ безопасен и не требует перечислять адрес
 # сервера в настройках. Включено в docker-compose.yml (там сервер открывают по адресу компьютера); вне compose по умолчанию выключено:
-# запуск из исходников и EXE слушают только 127.0.0.1, а при клиентах из сети IP-адрес принимается и без этого флага (см. main.install_http_security).
+# запуск из исходников и EXE слушают только 127.0.0.1, а при клиентах из сети IP-адрес принимается и без этого флага (см.
+# main.install_http_security).
 ACCEPT_IP_HOSTS = settings.accept_ip_hosts
 
 # Адреса и подсети клиентов, которым разрешено подключаться (через запятую: 192.168.1.15,10.0.5.0/24).

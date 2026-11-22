@@ -160,7 +160,9 @@ class TestFormatterTable:
         assert CYRILLIC.search(message) and SENTINEL not in message
 
     def test_broken_json(self, client):
-        response = client.post("/api/v1/auth/login", content=b'{"username": ' + SENTINEL.encode(), headers={"content-type": "application/json"})
+        response = client.post(
+            "/api/v1/auth/login", content=b'{"username": ' + SENTINEL.encode(), headers={"content-type": "application/json"}
+        )
         assert response.status_code == 422
         assert response.json()["detail"] == "Тело запроса не является корректным JSON"
 
@@ -248,7 +250,11 @@ def test_every_422_is_russian_and_formatters_do_not_echo_the_value(client, db_se
             problems.append(f"{label} → нет русского текста: {detail[:160]}")
         if ENGLISH_PYDANTIC.search(detail):
             problems.append(f"{label} → английский текст Pydantic: {detail[:160]}")
-        problems += [f"{label} → эхо значения в {kind}: {message[:160]}" for kind, message in described if kind != "value_error" and SENTINEL in message]
+        problems += [
+            f"{label} → эхо значения в {kind}: {message[:160]}"
+            for kind, message in described
+            if kind != "value_error" and SENTINEL in message
+        ]
     assert not problems, f"{method.upper()} {path}:\n" + "\n".join(dict.fromkeys(problems))
 
 

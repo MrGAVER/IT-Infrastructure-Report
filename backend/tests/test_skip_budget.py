@@ -2,8 +2,9 @@
 Код-ревью r3, ИА-08: бюджет «неожиданных» пропусков тестов (backend/tests/skip_budget.py).
 
 Штатный отбор по базе (SQLite / PostgreSQL) пропусками «неожиданными» не считается; любой другой пропуск при заданной
-INFRA_REGISTRY_MAX_UNEXPECTED_SKIPS сверх бюджета роняет прогон. Без переменной проверка выключена. Часть тестов запускает вложенный pytest —
-так проверяется настоящее поведение хука, в том числе под xdist (воркеры не должны проверять сами, главный процесс видит все пропуски).
+INFRA_REGISTRY_MAX_UNEXPECTED_SKIPS сверх бюджета роняет прогон. Без переменной проверка выключена. Часть тестов запускает
+вложенный pytest — так проверяется настоящее поведение хука, в том числе под xdist (воркеры не должны проверять сами, главный
+процесс видит все пропуски).
 
 Запуск: pytest backend/tests/test_skip_budget.py -v
 """
@@ -28,7 +29,8 @@ def _report(nodeid: str, longrepr) -> SimpleNamespace:
     return SimpleNamespace(nodeid=nodeid, longrepr=longrepr)
 
 
-# --- Чистые функции --------------------------------------------------------------------------------------------------------------------------
+# --- Чистые функции
+# --------------------------------------------------------------------------------------------------------------------------
 def test_skip_reason_reads_the_reason_from_a_longrepr_tuple():
     assert skip_budget.skip_reason(_report("a", ("f.py", 3, "Skipped: нет soffice"))) == "нет soffice"
 
@@ -63,7 +65,8 @@ def test_conftest_uses_the_same_reasons_as_the_budget_plugin():
     assert "reason=SQLITE_ONLY_REASON" in source and "reason=POSTGRES_ONLY_REASON" in source
 
 
-# --- Вложенный pytest ------------------------------------------------------------------------------------------------------------------------
+# --- Вложенный pytest
+# ------------------------------------------------------------------------------------------------------------------------
 SAMPLE = (
     """
 import pytest
@@ -122,7 +125,9 @@ def test_a_run_over_the_budget_fails_and_names_the_culprit(tmp_path):
     assert result.returncode == 1, result.stdout
     assert "Бюджет неожиданных пропусков превышен: 1 при допустимых 0" in result.stdout
     assert "test_skipped_without_reason_in_the_selection_list" in result.stdout and "нет нужной утилиты" in result.stdout
-    assert "test_skipped_by_database_selection:" not in result.stdout.split("Бюджет")[1], "отбор по базе в списке нарушителей быть не должен"
+    assert "test_skipped_by_database_selection:" not in result.stdout.split("Бюджет")[1], (
+        "отбор по базе в списке нарушителей быть не должен"
+    )
 
 
 def test_the_budget_is_enforced_by_the_main_process_under_xdist(tmp_path):
@@ -131,7 +136,8 @@ def test_the_budget_is_enforced_by_the_main_process_under_xdist(tmp_path):
     assert "Бюджет неожиданных пропусков превышен" in result.stdout
 
 
-# --- Проводка в CI ---------------------------------------------------------------------------------------------------------------------------
+# --- Проводка в CI
+# ---------------------------------------------------------------------------------------------------------------------------
 CI_FILE = TESTS_DIR.parents[1] / ".github" / "workflows" / "ci.yml"
 CI_BUDGET = 2  # PyInstaller нет в requirements-dev.lock + дымовой тест LibreOffice, если на раннере нет soffice; рост — только осознанно
 
@@ -160,13 +166,16 @@ def test_every_pytest_command_in_ci_prints_the_skip_reasons():
     assert [command for command in commands if " -rs" not in command] == []
 
 
-# --- Настоящий conftest.py -------------------------------------------------------------------------------------------------------------------
+# --- Настоящий conftest.py
+# -------------------------------------------------------------------------------------------------------------------
 # Выбор базы для тестов (conftest.py): вложенный прогон должен идти на SQLite независимо от того, на чём идёт родитель.
 DATABASE_SELECTION_ENV = ("INFRA_REGISTRY_TEST_DATABASE_URL", "INFRA_REGISTRY_TEST_SCHEMA")
 
 
 def _run_real_suite(budget: str, *tests: str) -> subprocess.CompletedProcess:
-    env = {k: v for k, v in os.environ.items() if k != skip_budget.ENV_VAR and k not in DATABASE_SELECTION_ENV and not k.startswith("PYTEST_")}
+    env = {
+        k: v for k, v in os.environ.items() if k != skip_budget.ENV_VAR and k not in DATABASE_SELECTION_ENV and not k.startswith("PYTEST_")
+    }
     env[skip_budget.ENV_VAR] = budget
     command = [sys.executable, "-m", "pytest", "-q", "-rs", "-p", "no:cacheprovider", "-p", "no:xdist", *tests]
     return subprocess.run(command, cwd=TESTS_DIR.parents[1], env=env, capture_output=True, text=True, encoding="utf-8", timeout=300)
@@ -177,8 +186,8 @@ def test_real_suite_run_does_not_inherit_the_database_selection(monkeypatch):
 
     Тест ниже проверяет поведение на SQLite («тесты только для PostgreSQL пропускаются штатно»). Но в `test-postgres` и
     `test-postgres-migrations` задан INFRA_REGISTRY_TEST_DATABASE_URL (во втором ещё и INFRA_REGISTRY_TEST_SCHEMA), вложенный pytest
-    унаследовал их, пошёл на PostgreSQL, и тесты «только для PostgreSQL» не пропустились, а прошли: в выводе нет слова «skipped», тест падал.
-    В job-е на SQLite (`test`) этого не видно, поэтому наследование проверяется напрямую, подменой запуска.
+    унаследовал их, пошёл на PostgreSQL, и тесты «только для PostgreSQL» не пропустились, а прошли: в выводе нет слова «skipped»,
+    тест падал. В job-е на SQLite (`test`) этого не видно, поэтому наследование проверяется напрямую, подменой запуска.
     """
     monkeypatch.setenv("INFRA_REGISTRY_TEST_DATABASE_URL", "postgresql+psycopg://user:pass@localhost:5432/db")
     monkeypatch.setenv("INFRA_REGISTRY_TEST_SCHEMA", "migrations")

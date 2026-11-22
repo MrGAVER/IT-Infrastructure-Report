@@ -11,7 +11,8 @@
   • downgrade возвращает пустые объекты, повторный upgrade проходит.
 
 Запуск: pytest tests/test_a14_schema_cleanup.py
-PostgreSQL: INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/любая_база pytest tests/test_a14_schema_cleanup.py
+PostgreSQL: INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/любая_база pytest
+tests/test_a14_schema_cleanup.py
 """
 
 from __future__ import annotations
@@ -114,7 +115,14 @@ class TestNotNullTypeForeignKeys:
             device = _insert(connection, "physical_devices", model_id=model, device_type_id=device_type)
             connection_type = _insert(connection, "connection_types")
             link = _insert(connection, "connections", connection_type_id=connection_type if with_type else None)
-        return {"vendor": vendor, "device_type": device_type, "model": model, "device": device, "connection_type": connection_type, "link": link}
+        return {
+            "vendor": vendor,
+            "device_type": device_type,
+            "model": model,
+            "device": device,
+            "connection_type": connection_type,
+            "link": link,
+        }
 
     def test_null_rows_stop_the_migration_before_any_change(self, database):
         database.upgrade(BEFORE)
@@ -159,11 +167,18 @@ class TestNotNullTypeForeignKeys:
         }
         assert after == before
         with database.engine.connect() as connection:
-            assert connection.execute(sa.text("SELECT device_type_id FROM device_models WHERE id = :id"), {"id": ids["model"]}).scalar() == ids["device_type"]
             assert (
-                connection.execute(sa.text("SELECT connection_type_id FROM connections WHERE id = :id"), {"id": ids["link"]}).scalar() == ids["connection_type"]
+                connection.execute(sa.text("SELECT device_type_id FROM device_models WHERE id = :id"), {"id": ids["model"]}).scalar()
+                == ids["device_type"]
             )
-            assert connection.execute(sa.text("SELECT model_id FROM physical_devices WHERE id = :id"), {"id": ids["device"]}).scalar() == ids["model"]
+            assert (
+                connection.execute(sa.text("SELECT connection_type_id FROM connections WHERE id = :id"), {"id": ids["link"]}).scalar()
+                == ids["connection_type"]
+            )
+            assert (
+                connection.execute(sa.text("SELECT model_id FROM physical_devices WHERE id = :id"), {"id": ids["device"]}).scalar()
+                == ids["model"]
+            )
 
     def test_null_is_rejected_after_the_migration_and_downgrade_relaxes_it(self, database):
         database.upgrade(NOT_NULL)
@@ -240,11 +255,14 @@ class TestDropLegacyOsAndPlatformObjects:
             assert after["foreign_keys"] == [fk for fk in before[table]["foreign_keys"] if fk[1] != "virtualization_platforms"]
         with database.engine.connect() as connection:
             vm = connection.execute(
-                sa.text("SELECT name, physical_device_id, operating_system_id, hypervisor_os_id FROM virtual_machines WHERE id = :id"), {"id": ids["vm"]}
+                sa.text("SELECT name, physical_device_id, operating_system_id, hypervisor_os_id FROM virtual_machines WHERE id = :id"),
+                {"id": ids["vm"]},
             ).one()
             assert tuple(vm) == ("vm-a14", ids["device"], ids["guest_os"], ids["hypervisor_os"])
             assert (
-                connection.execute(sa.text("SELECT operating_system_id FROM physical_devices WHERE id = :id"), {"id": ids["device"]}).scalar()
+                connection.execute(
+                    sa.text("SELECT operating_system_id FROM physical_devices WHERE id = :id"), {"id": ids["device"]}
+                ).scalar()
                 == ids["guest_os"]
             )
 
@@ -319,7 +337,9 @@ class TestDropLegacyOsAndPlatformObjects:
     def test_second_run_on_a_clean_schema_changes_nothing(self, database):
         database.upgrade("head")
         before = {table: _snapshot(database, table) for table in LEGACY}
-        module_path = Path(__file__).resolve().parent.parent / "alembic" / "versions" / "e9b4c2a7d136_drop_legacy_os_and_platform_columns.py"
+        module_path = (
+            Path(__file__).resolve().parent.parent / "alembic" / "versions" / "e9b4c2a7d136_drop_legacy_os_and_platform_columns.py"
+        )
         import importlib.util
         from alembic.operations import Operations
         from alembic.runtime.migration import MigrationContext
@@ -369,7 +389,11 @@ class TestSqliteSpecifics:
         database.upgrade(CLEANUP)
         with database.engine.connect() as connection:
             names = set(connection.execute(sa.text("SELECT name FROM sqlite_master WHERE type = 'trigger'")).scalars())
-            indexes = set(connection.execute(sa.text("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'physical_devices'")).scalars())
+            indexes = set(
+                connection.execute(
+                    sa.text("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'physical_devices'")
+                ).scalars()
+            )
         assert "trg_is_source_guard_virtual_machines" in names
         assert "uq_device_rack_slot" in indexes
 

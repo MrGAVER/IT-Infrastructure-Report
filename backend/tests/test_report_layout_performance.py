@@ -47,7 +47,9 @@ def test_layout_is_a_minor_share_of_report_time(db_session, tmp_path):
     _build(db_session, tmp_path)
     profiler.disable()
     stats = pstats.Stats(profiler)
-    layout = sum(cumulative for (_file, _line, name), (_cc, _nc, _tt, cumulative, _callers) in stats.stats.items() if name == "apply_sheet_layout")
+    layout = sum(
+        cumulative for (_file, _line, name), (_cc, _nc, _tt, cumulative, _callers) in stats.stats.items() if name == "apply_sheet_layout"
+    )
     share = layout / stats.total_tt
     assert 0 < share < 0.4, f"оформление листов занимает {share:.0%} времени отчёта (было ~85%, ожидается < 40%)"
 

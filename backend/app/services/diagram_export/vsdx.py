@@ -9,7 +9,9 @@ import os
 import re
 import shutil
 import tempfile
-import xml.etree.ElementTree as ET  # nosec B405 # только запись и сборка (ElementTree.write, SubElement, register_namespace); разбор — через SafeET
+
+# ET — только запись и сборка (ElementTree.write, SubElement, register_namespace); разбор — через SafeET
+import xml.etree.ElementTree as ET  # nosec B405
 import zipfile
 
 from defusedxml import ElementTree as SafeET
@@ -105,7 +107,9 @@ def _finalize_vsdx_package(saved_path: str, template_path: str) -> None:
     for part in _VSDX_CONTENT_PARTS:
         data = entries[part]
         if _SYNTHETIC_NAMESPACE_DECLARATION.search(data):
-            root = SafeET.fromstring(data)  # части пакета формирует само приложение, но разбор — безопасный: DTD-сущности и внешние ссылки запрещены
+            root = SafeET.fromstring(
+                data
+            )  # части пакета формирует само приложение, но разбор — безопасный: DTD-сущности и внешние ссылки запрещены
             if root.tag.startswith("{"):
                 ET.register_namespace("", root.tag[1:].split("}", 1)[0])
             buf = io.BytesIO()
@@ -368,7 +372,9 @@ class _ShapeTemplate:
         from vsdx import namespace as visio_ns
 
         page = self._page
-        new_xml = copy.deepcopy(self._shape.xml)  # то же, что у библиотеки (tostring → разбор), но без разбора XML: см. test_diagram_export_safe_xml
+        new_xml = copy.deepcopy(
+            self._shape.xml
+        )  # то же, что у библиотеки (tostring → разбор), но без разбора XML: см. test_diagram_export_safe_xml
         shapes_tag = page.xml.find(f"{visio_ns}Shapes")
         id_map = page.vis.increment_shape_ids(new_xml, page)
         page.vis.update_ids(new_xml, id_map)

@@ -44,7 +44,13 @@ from .models import (
     VirtualMachine,
 )
 from .constants import OwnerType
-from .services.computed import ip_label, device_management_ports_and_ips, local_timestamp_suffix, port_label_with_subinterfaces, subinterface_ip_values
+from .services.computed import (
+    ip_label,
+    device_management_ports_and_ips,
+    local_timestamp_suffix,
+    port_label_with_subinterfaces,
+    subinterface_ip_values,
+)
 from .services.device_label import device_label
 from .services.excel_layout import apply_sheet_layout, fit_sheet_size, style_header
 from .services.excel_safety import append_safe_row
@@ -55,7 +61,8 @@ HEADERS1 = [
     "Наименование информационной системы (подситемы/информационного ресурса)",
     "Общее описание информационной системы (подситемы/информационного ресурса)",
     "Назначение использования информационной системы (подсистемы/информационного ресурса) для ИС Организация",
-    "Работники, группы работников или подразделения, которые используют в своей работе информационную систему (подсистему/информационный ресурс)",
+    "Работники, группы работников или подразделения, которые используют в своей работе информационную "
+    "систему (подсистему/информационный ресурс)",
     "Локализация информационной системы (подсистемы/информационного ресурса)",
     'Оборудование ООО "Организация", на котором размещается информационная ситема (подсистема/информационный '
     "ресурс), а также прикладное программное обеспечение или интерфейс взаимодействия с внешней информационной "
@@ -77,8 +84,10 @@ HEADERS1 = [
     "(подсистема/информационный ресурс) или установлена виртуальная машина (контейнер), обеспечивающая (ий) функционирование данной "
     "информационной системы (подсистемы/информационного ресурса)",
     "IP-адрес физического сервера, на котором установлена информационная система (подсистема/информационный ресурс)",
-    "Наименование виртуальной машины или контейнера, обеспечивающая (ий) функционирование данной информационной системы (подсистемы/информационного ресурса)",
-    "IP-адрес виртуальной машины (контейнера), обеспечивающая (ий) функционирование данной информационной системы (подсистемы/информационного ресурса)",
+    "Наименование виртуальной машины или контейнера, обеспечивающая (ий) функционирование данной "
+    "информационной системы (подсистемы/информационного ресурса)",
+    "IP-адрес виртуальной машины (контейнера), обеспечивающая (ий) функционирование данной "
+    "информационной системы (подсистемы/информационного ресурса)",
 ]
 HEADERS2 = [
     "№",
@@ -93,7 +102,8 @@ HEADERS2 = [
     "Количество физических портов устройства",
     "Адрес расположения устройства",
     "Наименование здания (условное или официальное), в котором располагается устройство",
-    "Помещение, в котором размещается телекоммуникационный шкаф, в котором размещается устройство или место размещения самого устройства в здании",
+    "Помещение, в котором размещается телекоммуникационный шкаф, в котором размещается устройство или "
+    "место размещения самого устройства в здании",
 ]
 HEADERS3 = [
     "№",
@@ -322,7 +332,9 @@ def _load_device_catalogs(session: Session, d: SimpleNamespace) -> None:
     # Устройства без системного имени — первыми: NULL в SQLite сортируется первым, в PostgreSQL последним, а порядок листов
     # должен быть одинаковым на обоих (отсюда явное «IS NULL DESC», а не полагание на умолчание СУБД).
     d.devices = session.scalars(
-        select(PhysicalDevice).order_by(PhysicalDevice.system_name.is_(None).desc(), PhysicalDevice.system_name, PhysicalDevice.serial_number)
+        select(PhysicalDevice).order_by(
+            PhysicalDevice.system_name.is_(None).desc(), PhysicalDevice.system_name, PhysicalDevice.serial_number
+        )
     ).all()
     d.device_map = _by_id(d.devices)
     d.device_types = _by_id(session.scalars(select(DeviceType)).all())
@@ -346,17 +358,23 @@ def _load_interfaces_and_addresses(session: Session, d: SimpleNamespace) -> None
     в _arrange_subinterfaces, когда загружен справочник VLAN."""
     d.interfaces = session.scalars(select(DeviceInterface).order_by(DeviceInterface.name)).all()
     d.iface_map = _by_id(d.interfaces)
-    d.interface_ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE).order_by(IPAddress.ip_address)).all()
+    d.interface_ips = session.scalars(
+        select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE).order_by(IPAddress.ip_address)
+    ).all()
     d.ips_by_iface = _group_by(d.interface_ips, lambda x: x.owner_id)
     d.ifaces_by_device = _group_by(d.interfaces, lambda x: x.physical_device_id)
     # Подинтерфейсы портов (models.DeviceSubinterface) и их IP (owner_type='device_subinterface'); открытые порты
     # подинтерфейсов лежат в общем d.open_ports_by_owner под ключом ('device_subinterface', id).
     d.subinterfaces = session.scalars(select(DeviceSubinterface).order_by(DeviceSubinterface.name)).all()
     d.ips_by_sub = _group_by(
-        session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE).order_by(IPAddress.ip_address)).all(),
+        session.scalars(
+            select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE).order_by(IPAddress.ip_address)
+        ).all(),
         lambda x: x.owner_id,
     )
-    d.vmips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.VIRTUAL_MACHINE).order_by(IPAddress.ip_address)).all()
+    d.vmips = session.scalars(
+        select(IPAddress).where(IPAddress.owner_type == OwnerType.VIRTUAL_MACHINE).order_by(IPAddress.ip_address)
+    ).all()
     d.vmips_by_vm = _group_by(d.vmips, lambda x: x.owner_id)
     d.source_ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE)).all()
     d.ips_by_source = _group_by(d.source_ips, lambda x: x.owner_id)
@@ -512,7 +530,9 @@ def _management_ip_labels(devices: list, d: SimpleNamespace) -> list:
     """IP управления устройств: адреса портов с ролью «Управление», затем адреса управляющих подинтерфейсов."""
     labels = []
     for dev in devices:
-        labels += [ip_label(ip) for iface in d.ifaces_by_device.get(dev.id, []) if iface.is_management for ip in d.ips_by_iface.get(iface.id, [])]
+        labels += [
+            ip_label(ip) for iface in d.ifaces_by_device.get(dev.id, []) if iface.is_management for ip in d.ips_by_iface.get(iface.id, [])
+        ]
         # Управление может висеть на подинтерфейсе порта (например, Gi0/0.99) — его IP это тоже IP управления устройства.
         labels += [ip_label(ip) for sub in d.subs_by_device.get(dev.id, []) if sub.is_management for ip in d.ips_by_sub.get(sub.id, [])]
     return labels
@@ -658,11 +678,18 @@ class _ConnectionRows:
         # Подинтерфейсы порта выводятся внутри строки порта: открытые порты подинтерфейса — с его именем
         # («Gi0/0.10: TCP/443 HTTPS»), чтобы было видно, на каком логическом интерфейсе порт открыт.
         sub_ports = [
-            (sub, p) for iid in iface_ids for sub in d.subs_by_iface.get(iid, []) for p in d.open_ports_by_owner.get(("device_subinterface", sub.id), [])
+            (sub, p)
+            for iid in iface_ids
+            for sub in d.subs_by_iface.get(iid, [])
+            for p in d.open_ports_by_owner.get(("device_subinterface", sub.id), [])
         ]
         open_text = join_values([_open_port_label(p, d) for p in ports] + [f"{sub.name}: {_open_port_label(p, d)}" for sub, p in sub_ports])
         proto_text = join_values(
-            [d.protocol_catalog[p.protocol_catalog_id].protocol_type for p in ports + [p for _, p in sub_ports] if p.protocol_catalog_id in d.protocol_catalog]
+            [
+                d.protocol_catalog[p.protocol_catalog_id].protocol_type
+                for p in ports + [p for _, p in sub_ports]
+                if p.protocol_catalog_id in d.protocol_catalog
+            ]
         )
         self._open_info_cache[key] = (open_text, proto_text)
         return open_text, proto_text
@@ -683,7 +710,9 @@ class _ConnectionRows:
 
     def port_ip_values(self, iface):
         d = self.d
-        return [ip_label(x) for x in d.ips_by_iface.get(iface.id, [])] + subinterface_ip_values(d.subs_by_iface.get(iface.id, []), d.ips_by_sub)
+        return [ip_label(x) for x in d.ips_by_iface.get(iface.id, [])] + subinterface_ip_values(
+            d.subs_by_iface.get(iface.id, []), d.ips_by_sub
+        )
 
     def port_vlans(self, iface):
         """VLAN порта плюс VLAN его подинтерфейсов (без повторов): подинтерфейс на VLAN 10 — это VLAN 10 на линии."""
@@ -712,7 +741,9 @@ class _ConnectionRows:
     def purpose_text(self, iface):
         """Назначение порта; роли его подинтерфейсов — с именем подинтерфейса («Gi0/0.99: Управление активами»)."""
         parts = [self.link_purpose_label(iface)] + [
-            f"{sub.name}: {self.link_purpose_label(sub)}" for sub in self.d.subs_by_iface.get(iface.id, []) if self.link_purpose_label(sub) != "-"
+            f"{sub.name}: {self.link_purpose_label(sub)}"
+            for sub in self.d.subs_by_iface.get(iface.id, [])
+            if self.link_purpose_label(sub) != "-"
         ]
         return join_values([x for x in parts if x != "-"]) or "-"
 
@@ -877,7 +908,11 @@ def _vm_row_values(v, d: SimpleNamespace) -> list:
     переиспользование в конструкторе отчётов. Хост/гипервизор берётся из ОС физического хоста;
     IP администрирования — все management-IP ВМ."""
     host = d.device_map.get(v.physical_device_id)
-    hyp = d.operating_systems.get(host.operating_system_id) if host and host.operating_system_id else d.operating_systems.get(v.hypervisor_os_id)
+    hyp = (
+        d.operating_systems.get(host.operating_system_id)
+        if host and host.operating_system_id
+        else d.operating_systems.get(v.hypervisor_os_id)
+    )
     ips = d.vmips_by_vm.get(v.id, [])
     containers_for_vm = [c for c in d.containers if c.virtual_machine_id == v.id]
     openp = _open_ports_by_number(d.open_ports_by_owner.get(("virtual_machine", v.id), []), d)

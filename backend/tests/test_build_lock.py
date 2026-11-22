@@ -78,7 +78,9 @@ def test_hashes_are_findable_like_in_the_acceptance_check():
 
 
 def test_pyinstaller_is_pinned_inside_the_declared_range(build_lock):
-    declared = next(Requirement(line) for line in _read(BACKEND / "requirements-build.txt").splitlines() if line.lower().startswith("pyinstaller"))
+    declared = next(
+        Requirement(line) for line in _read(BACKEND / "requirements-build.txt").splitlines() if line.lower().startswith("pyinstaller")
+    )
     assert "pyinstaller" in build_lock
     assert Version(build_lock["pyinstaller"]["version"]) in declared.specifier
 
@@ -124,7 +126,9 @@ def test_bat_installs_from_the_lock_with_hashes_and_stops_on_failure():
     assert len(install) == 1, "в скрипте ровно одна установка пакетов"
     line = commands[install[0]]
     assert "--require-hashes" in line and "backend\\requirements-build.lock" in line and "-r " in line
-    assert commands[install[0] + 1].lower().startswith("if errorlevel 1 exit /b 1"), "сбой установки не должен приводить к сборке из чего придётся"
+    assert commands[install[0] + 1].lower().startswith("if errorlevel 1 exit /b 1"), (
+        "сбой установки не должен приводить к сборке из чего придётся"
+    )
 
 
 def test_bat_no_longer_upgrades_pip_or_reads_unpinned_requirements():
@@ -144,7 +148,10 @@ def test_bat_installs_inside_the_venv_before_pyinstaller_runs():
 # ---------------------------------------------------------------------------------------------------------------------
 def test_ci_checks_that_the_build_lock_is_up_to_date():
     text = _read(CI)
-    assert "uv pip compile requirements-build.txt --universal --generate-hashes --python-version 3.12 -o requirements-build.lock --no-header" in text
+    assert (
+        "uv pip compile requirements-build.txt --universal --generate-hashes --python-version 3.12 -o requirements-build.lock --no-header"
+        in text
+    )
     diff = next(line for line in text.splitlines() if "git diff --exit-code" in line)
     assert "requirements-build.lock" in diff and "requirements.lock" in diff and "requirements-dev.lock" in diff
 

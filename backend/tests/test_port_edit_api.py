@@ -17,7 +17,9 @@ class Lab:
     def __init__(self, client, db_session) -> None:
         self.client, self.db = client, db_session
         category = client.get("/api/v1/resources/device-categories", params={"limit": 1}).json()["items"][0]["id"]
-        self.device_type = client.post("/api/v1/resources/device-types", json={"name": "Тип для правки порта", "category_id": category}).json()["id"]
+        self.device_type = client.post(
+            "/api/v1/resources/device-types", json={"name": "Тип для правки порта", "category_id": category}
+        ).json()["id"]
         self.vlans: dict[int, VLAN] = {}
 
     def vlan(self, number: int) -> VLAN:
@@ -339,7 +341,8 @@ def test_port_does_not_combine_with_an_open_device_form(lab):
     device_id = lab.db.get(DeviceInterface, port).physical_device_id
 
     response = lab.client.post(
-        _cascade_url(port, "/preview"), json={"mode": "access", "edited": {"device_id": device_id, "ports": {}, "groups": {}}, "port": {"role": "data"}}
+        _cascade_url(port, "/preview"),
+        json={"mode": "access", "edited": {"device_id": device_id, "ports": {}, "groups": {}}, "port": {"role": "data"}},
     )
 
     assert response.status_code == 422 and "edited" in response.json()["detail"]

@@ -108,7 +108,9 @@ def test_empty_registry(client):
     assert page["summary"] == {"total": 0, "active": 0, "inactive": 0, "mismatch": 0, "approved": 0}
 
 
-@pytest.mark.parametrize("params", [{"limit": 0}, {"limit": 201}, {"offset": -1}, {"port_config_status": "bogus"}, {"is_active": "maybe"}, {"q": "x" * 201}])
+@pytest.mark.parametrize(
+    "params", [{"limit": 0}, {"limit": 201}, {"offset": -1}, {"port_config_status": "bogus"}, {"is_active": "maybe"}, {"q": "x" * 201}]
+)
 def test_invalid_query_params_are_rejected(client, params):
     assert client.get("/api/v1/connections", params=params).status_code == 422
 
@@ -140,7 +142,10 @@ def test_filter_by_status(client, device_type, cable):
 
 
 def test_filter_by_activity_and_inactive_are_never_mismatch(client, device_type, cable):
-    a, b = _device(client, device_type, "ACT-A", [_port("p1", PortRole.MANAGEMENT)]), _device(client, device_type, "ACT-B", [_port("p1", PortRole.DATA)])
+    a, b = (
+        _device(client, device_type, "ACT-A", [_port("p1", PortRole.MANAGEMENT)]),
+        _device(client, device_type, "ACT-B", [_port("p1", PortRole.DATA)]),
+    )
     inactive = _connect(client, a[0], b[0], cable, is_active=False)
 
     assert _ids(_page(client, is_active="false")) == [inactive["id"]]
@@ -187,7 +192,10 @@ def test_search_matches_devices_ports_cable_type_and_role_labels(client, device_
     (a,) = _device(client, device_type, "F-A", [_port("idrac", PortRole.MANAGEMENT)], system_name="srv-77")
     (b,) = _device(client, device_type, "F-B", [_port("Gi0/9", PortRole.DATA)], system_name="sw-77")
     conn = _connect(client, a, b, cable)
-    c, d = _device(client, device_type, "F-C", [_port("x1", PortRole.DATA)]), _device(client, device_type, "F-D", [_port("x2", PortRole.DATA)])
+    c, d = (
+        _device(client, device_type, "F-C", [_port("x1", PortRole.DATA)]),
+        _device(client, device_type, "F-D", [_port("x2", PortRole.DATA)]),
+    )
     _connect(client, c[0], d[0], cable)
 
     for needle in ("srv-77", "SW-77", "idrac", "gi0/9", "витая пара", "управление"):
@@ -308,7 +316,11 @@ def test_sql_status_matches_python_status_for_all_combinations(client, db_sessio
         src_cfg, dst_cfg = PortConfig(src_role), PortConfig(dst_role)
         signature = {"none": None, "right": approval_signature(src_cfg, dst_cfg), "wrong": "data>none"}[sig_kind]
         conn = Connection(
-            source_interface_id=src_id, destination_interface_id=dst_id, connection_type_id=cable, is_active=active, port_config_approved_signature=signature
+            source_interface_id=src_id,
+            destination_interface_id=dst_id,
+            connection_type_id=cable,
+            is_active=active,
+            port_config_approved_signature=signature,
         )
         db_session.add(conn)
         db_session.flush()
@@ -361,7 +373,9 @@ def test_sql_status_matches_python_status_for_roles_modes_vlans_and_approvals(cl
         configure(dst_id, dst_mode, dst_vlans)
         src_cfg, dst_cfg = PortConfig(src_role, src_mode, frozenset(src_vlans)), PortConfig(dst_role, dst_mode, frozenset(dst_vlans))
         signature = {"none": None, "right": approval_signature(src_cfg, dst_cfg) or None, "wrong": "data>none|mode:trunk>access"}[sig_kind]
-        conn = Connection(source_interface_id=src_id, destination_interface_id=dst_id, connection_type_id=cable, port_config_approved_signature=signature)
+        conn = Connection(
+            source_interface_id=src_id, destination_interface_id=dst_id, connection_type_id=cable, port_config_approved_signature=signature
+        )
         db_session.add(conn)
         db_session.flush()
         expected[conn.id] = evaluate_port_config(src_cfg, dst_cfg, signature)

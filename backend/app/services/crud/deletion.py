@@ -43,7 +43,9 @@ def _find_referencing_counts(model, item_id: str, session: Session) -> list[tupl
             target = next(iter(c.foreign_keys)).target_fullname
             if target.split(".")[0] != target_table:
                 continue
-            subqueries.append(select(literal(len(resource_keys)).label("ord"), func.count().label("cnt")).select_from(other_model).where(c == item_id))
+            subqueries.append(
+                select(literal(len(resource_keys)).label("ord"), func.count().label("cnt")).select_from(other_model).where(c == item_id)
+            )
             resource_keys.append(resource_key)
     if not subqueries:
         return []

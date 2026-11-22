@@ -84,7 +84,8 @@ def _insert_device_software(conn: sqlite3.Connection, device_id: str, asset_id: 
     row_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO device_software (id, physical_device_id, software_asset_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO device_software (id, physical_device_id, software_asset_id, version, created_at, "
+        "updated_at) VALUES (?, ?, ?, ?, ?, ?)",
         (row_id, device_id, asset_id, version, now, now),
     )
     conn.commit()

@@ -54,10 +54,14 @@ def allowed_vlan_ids_by_device(device_ids: Iterable[str], session: Session) -> d
     type_of: dict[str, str] = {}
     own: dict[str, set[str]] = {}
     for chunk in _chunks(ids):
-        for device_id, type_id in session.execute(select(PhysicalDevice.id, PhysicalDevice.device_type_id).where(PhysicalDevice.id.in_(chunk))).all():
+        for device_id, type_id in session.execute(
+            select(PhysicalDevice.id, PhysicalDevice.device_type_id).where(PhysicalDevice.id.in_(chunk))
+        ).all():
             type_of[device_id] = type_id
         for device_id, vlan_id in session.execute(
-            select(PhysicalDeviceVLAN.physical_device_id, PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id.in_(chunk))
+            select(PhysicalDeviceVLAN.physical_device_id, PhysicalDeviceVLAN.vlan_id).where(
+                PhysicalDeviceVLAN.physical_device_id.in_(chunk)
+            )
         ).all():
             own.setdefault(device_id, set()).add(vlan_id)
     by_type: dict[str, set[str]] = {}

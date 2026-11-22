@@ -57,7 +57,9 @@ def normalize_ips(raw: Any, label: str) -> list[dict[str, Any]]:
         if purpose is not None and len(str(purpose)) > _IP_PURPOSE_MAX_LENGTH:
             raise HTTPException(422, f"{label}: назначение IP-адреса не должно превышать {_IP_PURPOSE_MAX_LENGTH} символов")
         prefix = ip.get("prefix_length")
-        result.append({"id": ip.get("id"), "ip_address": address, "prefix_length": None if prefix in (None, "") else int(prefix), "purpose": purpose})
+        result.append(
+            {"id": ip.get("id"), "ip_address": address, "prefix_length": None if prefix in (None, "") else int(prefix), "purpose": purpose}
+        )
     return result
 
 
@@ -83,13 +85,16 @@ def _normalize_open_ports(raw: Any, label: str, session: Session) -> list[dict[s
     return result
 
 
-def normalize_group_subinterfaces(raw: Any, *, group_name: str, vlan_mode: str | None, group_vlans: set[str], session: Session) -> list[dict[str, Any]]:
+def normalize_group_subinterfaces(
+    raw: Any, *, group_name: str, vlan_mode: str | None, group_vlans: set[str], session: Session
+) -> list[dict[str, Any]]:
     """Проверяет payload['groups'][i]['subinterfaces'] и приводит к значениям колонок. group_vlans — VLAN, которые группа
     записывает своим портам (при «Все VLAN» — все VLAN устройства): подинтерфейс группы может быть только на них — то
     же правило, что подинтерфейс порта выбирается из VLAN этого порта. VLAN обязателен и уникален в группе. Подинтерфейсы
     без режима порта и VLAN группы не задаются — VLAN порта группа тогда не определяет, и проверить их нечем.
 
-    Пример элемента: {"vlan_id": "<uuid VLAN>", "is_data_transfer": true, "ips": [{"ip_address": "10.0.10.1", "prefix_length": 24}], "open_ports": []}"""
+    Пример элемента: {"vlan_id": "<uuid VLAN>", "is_data_transfer": true, "ips": [{"ip_address": "10.0.10.1", "prefix_length":
+    24}], "open_ports": []}"""
     if not isinstance(raw, list):
         raise HTTPException(422, "Поле subinterfaces группы портов должно быть массивом")
     label = f"Группа портов «{group_name}»"
@@ -105,7 +110,9 @@ def normalize_group_subinterfaces(raw: Any, *, group_name: str, vlan_mode: str |
             raise HTTPException(422, f"{label}: у подинтерфейса не выбран VLAN")
         number = _vlan_number(vlan_id, session)
         if vlan_id not in group_vlans:
-            raise HTTPException(422, f"{label}: VLAN {number} подинтерфейса не входит в VLAN группы — выберите другой VLAN или добавьте этот в VLAN группы")
+            raise HTTPException(
+                422, f"{label}: VLAN {number} подинтерфейса не входит в VLAN группы — выберите другой VLAN или добавьте этот в VLAN группы"
+            )
         if vlan_id in seen:
             raise HTTPException(422, f"{label}: несколько подинтерфейсов на VLAN {number} — на порту VLAN используется один раз")
         seen.add(vlan_id)
@@ -149,7 +156,10 @@ def sync_group_subinterfaces(group_id: str, subinterfaces: list[dict[str, Any]],
     """Приводит шаблоны подинтерфейсов группы к нормализованному списку (diff по id, как у подинтерфейсов порта): новые
     создаются, существующие обновляются, отсутствующие удаляются вместе со своими IP и открытыми портами. Пустой список
     (в том числе когда группа перестала управлять подинтерфейсами) удаляет все шаблоны. Транзакцию не коммитит."""
-    existing = {row.id: row for row in session.scalars(select(InterfaceGroupSubinterface).where(InterfaceGroupSubinterface.group_id == group_id)).all()}
+    existing = {
+        row.id: row
+        for row in session.scalars(select(InterfaceGroupSubinterface).where(InterfaceGroupSubinterface.group_id == group_id)).all()
+    }
     seen: set[str] = set()
     for data in subinterfaces:
         row_id = data.get("id")
@@ -169,7 +179,13 @@ def sync_group_subinterfaces(group_id: str, subinterfaces: list[dict[str, Any]],
         session.flush()  # autoflush отключён (db.py): без flush() у нового шаблона нет id для его IP и открытых портов
         seen.add(row.id)
         _sync_children(InterfaceGroupSubinterfaceIP, row.id, data["ips"], ("ip_address", "prefix_length", "purpose"), session)
-        _sync_children(InterfaceGroupSubinterfaceOpenPort, row.id, data["open_ports"], ("protocol_catalog_id", "transport_protocol", "description"), session)
+        _sync_children(
+            InterfaceGroupSubinterfaceOpenPort,
+            row.id,
+            data["open_ports"],
+            ("protocol_catalog_id", "transport_protocol", "description"),
+            session,
+        )
     delete_group_subinterfaces([row_id for row_id in existing if row_id not in seen], session)
 
 
@@ -187,7 +203,9 @@ def purge_subinterfaces_of_groups(group_ids: Iterable[str], session: Session) ->
     """Удаляет все шаблоны подинтерфейсов указанных групп — вызывать до удаления самих групп."""
     ids = list(group_ids)
     if ids:
-        delete_group_subinterfaces(session.scalars(select(InterfaceGroupSubinterface.id).where(InterfaceGroupSubinterface.group_id.in_(ids))).all(), session)
+        delete_group_subinterfaces(
+            session.scalars(select(InterfaceGroupSubinterface.id).where(InterfaceGroupSubinterface.group_id.in_(ids))).all(), session
+        )
 
 
 def group_subinterfaces_by_group(group_ids: Sequence[str], session: Session) -> dict[str, list[dict[str, Any]]]:
@@ -224,7 +242,9 @@ def group_subinterfaces_by_group(group_ids: Sequence[str], session: Session) -> 
     return result
 
 
-def with_reused_ids(existing: list[tuple[str, Any]], wanted: list[dict[str, Any]], key: Callable[[dict[str, Any]], Any]) -> list[dict[str, Any]]:
+def with_reused_ids(
+    existing: list[tuple[str, Any]], wanted: list[dict[str, Any]], key: Callable[[dict[str, Any]], Any]
+) -> list[dict[str, Any]]:
     """Строки `wanted` с id уже стоящих у подинтерфейса записей: сначала запись с тем же смыслом (key), затем лишние
     записи по порядку — сервер обновит их на месте, а не пересоздаст (id и дата создания сохраняются). Остаток existing
     без пары попадёт под удаление в sync_owner_*; строка без свободной записи создастся новой."""
@@ -243,12 +263,18 @@ def apply_group_subinterfaces(iface: DeviceInterface, templates: list[dict[str, 
     создаются, остальные подинтерфейсы порта удаляются. Повторный вызов с теми же шаблонами ничего не меняет."""
     session.flush()  # autoflush отключён (db.py): иначе подинтерфейсы, только что записанные из payload порта, не видны
     existing = session.scalars(
-        select(DeviceSubinterface).where(DeviceSubinterface.parent_interface_id == iface.id).order_by(DeviceSubinterface.created_at, DeviceSubinterface.id)
+        select(DeviceSubinterface)
+        .where(DeviceSubinterface.parent_interface_id == iface.id)
+        .order_by(DeviceSubinterface.created_at, DeviceSubinterface.id)
     ).all()
     by_vlan: dict[str, DeviceSubinterface] = {}
     for sub in existing:
         by_vlan.setdefault(sub.vlan_id, sub)
-    numbers = dict(session.execute(select(VLAN.id, VLAN.vlan_id).where(VLAN.id.in_({t["vlan_id"] for t in templates}))).all()) if templates else {}
+    numbers = (
+        dict(session.execute(select(VLAN.id, VLAN.vlan_id).where(VLAN.id.in_({t["vlan_id"] for t in templates}))).all())
+        if templates
+        else {}
+    )
     kept: set[str] = set()
     for template in templates:
         sub = by_vlan.get(template["vlan_id"])
@@ -267,7 +293,9 @@ def apply_group_subinterfaces(iface: DeviceInterface, templates: list[dict[str, 
             .order_by(IPAddress.created_at, IPAddress.id)
         ).all()
         ips = with_reused_ids(
-            [(ip.id, (ip.ip_address, ip.prefix_length)) for ip in current_ips], template["ips"], lambda d: (d["ip_address"], d["prefix_length"])
+            [(ip.id, (ip.ip_address, ip.prefix_length)) for ip in current_ips],
+            template["ips"],
+            lambda d: (d["ip_address"], d["prefix_length"]),
         )
         # is_management IP наследуется от подинтерфейса, как у IP подинтерфейса, заданного вручную.
         sync_owner_ip_addresses(
@@ -279,7 +307,9 @@ def apply_group_subinterfaces(iface: DeviceInterface, templates: list[dict[str, 
             foreign_id_error="IP не принадлежит выбранному подинтерфейсу",
         )
         current_ports = session.scalars(
-            select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_SUBINTERFACE, OpenPort.owner_id == sub.id).order_by(OpenPort.created_at, OpenPort.id)
+            select(OpenPort)
+            .where(OpenPort.owner_type == OwnerType.DEVICE_SUBINTERFACE, OpenPort.owner_id == sub.id)
+            .order_by(OpenPort.created_at, OpenPort.id)
         ).all()
         ports = with_reused_ids(
             [(p.id, (p.protocol_catalog_id, p.transport_protocol)) for p in current_ports],

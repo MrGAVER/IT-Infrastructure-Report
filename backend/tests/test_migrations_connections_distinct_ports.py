@@ -1,10 +1,12 @@
 """
-Тесты миграции c4a9e2d7b185 — CHECK `ck_connections_distinct_ports` (порт не может быть подключён сам к себе), A-01 код-ревью main @ b375f58.
+Тесты миграции c4a9e2d7b185 — CHECK `ck_connections_distinct_ports` (порт не может быть подключён сам к себе), A-01 код-ревью main
+@ b375f58.
 
 Миграция сначала ищет в данных подключения «порт сам с собой» и, если они есть, останавливается с перечнем id: НИЧЕГО не удаляя и не меняя —
 данные чинит человек. Только после этого добавляет ограничение (на SQLite — пересборкой таблицы через batch, на PostgreSQL — ALTER TABLE).
 Сценарии одинаковы для обеих СУБД:
-SQLite-вариант идёт на файле-БД (sqlite_only), PostgreSQL-вариант — во временной базе на сервере из INFRA_REGISTRY_TEST_DATABASE_URL (postgres_only).
+SQLite-вариант идёт на файле-БД (sqlite_only), PostgreSQL-вариант — во временной базе на сервере из
+INFRA_REGISTRY_TEST_DATABASE_URL (postgres_only).
 
 Запуск: pytest backend/tests/test_migrations_connections_distinct_ports.py -v
 """
@@ -51,11 +53,15 @@ def _seed(db: Database, *, loops: int = 0, inactive_loop: bool = False) -> dict[
     with db.engine.begin() as connection:
         for _ in range(2):
             source, destination = insert_row(connection, "device_interfaces"), insert_row(connection, "device_interfaces")
-            ids["normal"].append(insert_row(connection, "connections", source_interface_id=source, destination_interface_id=destination, is_active=True))
+            ids["normal"].append(
+                insert_row(connection, "connections", source_interface_id=source, destination_interface_id=destination, is_active=True)
+            )
         for index in range(loops + int(inactive_loop)):
             port = insert_row(connection, "device_interfaces")
             active = index < loops
-            ids["loop"].append(insert_row(connection, "connections", source_interface_id=port, destination_interface_id=port, is_active=active))
+            ids["loop"].append(
+                insert_row(connection, "connections", source_interface_id=port, destination_interface_id=port, is_active=active)
+            )
     return ids
 
 
@@ -98,7 +104,9 @@ def test_upgrade_stops_when_data_has_a_port_connected_to_itself_and_changes_noth
 
     message = str(caught.value)
     assert "порт сам с собой" in message
-    assert all(loop_id in message for loop_id in ids["loop"]), "в сообщении — id всех проблемных подключений, чтобы данные можно было исправить вручную"
+    assert all(loop_id in message for loop_id in ids["loop"]), (
+        "в сообщении — id всех проблемных подключений, чтобы данные можно было исправить вручную"
+    )
     assert _version(database) == PRE_REVISION, "версия схемы не сдвинулась"
     assert _count(database) == len(ids["normal"]) + len(ids["loop"]), "ничего не удалено и не изменено автоматически"
     _insert_loop(database)  # ограничения нет: схема осталась прежней

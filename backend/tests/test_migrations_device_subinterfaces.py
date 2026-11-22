@@ -115,7 +115,17 @@ def test_upgrade_adds_subinterfaces_table_and_keeps_existing_data(alembic_config
     try:
         assert "device_subinterfaces" in _tables(conn)
         columns = {r["name"]: r for r in conn.execute("PRAGMA table_info(device_subinterfaces)").fetchall()}
-        assert set(columns) == {"id", "parent_interface_id", "name", "vlan_id", "is_management", "is_data_transfer", "description", "created_at", "updated_at"}
+        assert set(columns) == {
+            "id",
+            "parent_interface_id",
+            "name",
+            "vlan_id",
+            "is_management",
+            "is_data_transfer",
+            "description",
+            "created_at",
+            "updated_at",
+        }
         assert columns["vlan_id"]["notnull"] == 1 and columns["description"]["notnull"] == 0
         assert conn.execute("SELECT name FROM device_interfaces WHERE id=?", (iface_id,)).fetchone()["name"] == "Gi0/0"
         assert conn.execute("SELECT ip_address FROM ip_addresses WHERE id=?", (ip_id,)).fetchone()["ip_address"] == "192.168.0.1"

@@ -141,7 +141,11 @@ class BuildStructuralAppendixTestCase(unittest.TestCase):
             embedded_os_id=embedded_os.id,
         )
         self.server = PhysicalDevice(
-            device_type_id=dtype.id, manufacturer_id=manufacturer.id, serial_number="SN-123", system_name="srv-204", embedded_os_id=embedded_os.id
+            device_type_id=dtype.id,
+            manufacturer_id=manufacturer.id,
+            serial_number="SN-123",
+            system_name="srv-204",
+            embedded_os_id=embedded_os.id,
         )
         self.session.add_all([self.switch, self.server])
         self.session.flush()
@@ -159,7 +163,9 @@ class BuildStructuralAppendixTestCase(unittest.TestCase):
         vlan = VLAN(vlan_id=100, name="Servers")
         self.session.add(vlan)
         self.session.flush()
-        self.session.add(PhysicalDeviceVLAN(physical_device_id=self.switch.id, vlan_id=vlan.id, ip_address="10.9.100.204", prefix_length=24))
+        self.session.add(
+            PhysicalDeviceVLAN(physical_device_id=self.switch.id, vlan_id=vlan.id, ip_address="10.9.100.204", prefix_length=24)
+        )
         self.session.commit()
 
     def tearDown(self):

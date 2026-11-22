@@ -229,7 +229,24 @@ def test_hex_colors_are_accepted(value):
 
 
 @pytest.mark.parametrize(
-    "value", [DIRTY_COLOR, "", "red", "#ff", "#ffff", "#fffff", "#fffffff", "#12345g", "4f7cff", "#fff\n", " #fff", "#fff;stroke:red", None, 123, ["#fff"]]
+    "value",
+    [
+        DIRTY_COLOR,
+        "",
+        "red",
+        "#ff",
+        "#ffff",
+        "#fffff",
+        "#fffffff",
+        "#12345g",
+        "4f7cff",
+        "#fff\n",
+        " #fff",
+        "#fff;stroke:red",
+        None,
+        123,
+        ["#fff"],
+    ],
 )
 def test_non_hex_colors_fall_back_to_default(value):
     assert not is_hex_color(value)

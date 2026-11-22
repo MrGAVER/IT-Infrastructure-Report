@@ -206,7 +206,9 @@ def update_rule(rule_id: str, payload: Any, session: Session) -> dict[str, Any]:
 def delete_rule(rule_id: str, session: Session) -> None:
     row = get_rule(rule_id, session)
     if row.code is not None:
-        raise HTTPException(409, "Стандартное правило нельзя удалить — отключите его (при необходимости его можно сбросить к исходному виду)")
+        raise HTTPException(
+            409, "Стандартное правило нельзя удалить — отключите его (при необходимости его можно сбросить к исходному виду)"
+        )
     name = row.name
     session.delete(row)
     audit(session, ENTITY, rule_id, AuditAction.DELETE, f"Удалено правило согласования портов «{name}»")

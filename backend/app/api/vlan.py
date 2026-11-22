@@ -31,7 +31,9 @@ def add_vlan_domain_member(domain_id: str, payload: VLANDomainMemberRequest, ses
 
 
 @router.post("/api/v1/vlan-domains/{domain_id}/sync")
-def sync_vlan_domain(domain_id: str, payload: VLANDomainSyncRequest = Body(default_factory=VLANDomainSyncRequest), session: Session = Depends(get_db)):
+def sync_vlan_domain(
+    domain_id: str, payload: VLANDomainSyncRequest = Body(default_factory=VLANDomainSyncRequest), session: Session = Depends(get_db)
+):
     """Пункт 1 правки "домен VLAN" — payload может содержать replace=true (посылается
     VLANDomainFormModal.vue при смене устройства-источника, после подтверждения
     пользователем предупреждения о перезаписи): помимо обычного добавления недостающих VLAN

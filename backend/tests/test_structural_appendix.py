@@ -94,9 +94,9 @@ class Registry:
         manufacturer = s.query(Manufacturer).filter_by(name=maker).first() or Manufacturer(name=maker)
         s.add(manufacturer)
         s.flush()
-        device_model = s.query(DeviceModel).filter_by(manufacturer_id=manufacturer.id, device_type_id=dtype.id, model=model).first() or DeviceModel(
+        device_model = s.query(DeviceModel).filter_by(
             manufacturer_id=manufacturer.id, device_type_id=dtype.id, model=model
-        )
+        ).first() or DeviceModel(manufacturer_id=manufacturer.id, device_type_id=dtype.id, model=model)
         s.add(device_model)
         s.flush()
         dev = PhysicalDevice(
@@ -124,7 +124,11 @@ class Registry:
 
     def link(self, a, b, *, active=True):
         conn = Connection(
-            source_interface_id=a.id, destination_interface_id=b.id, connection_type_id=self.conn_type.id, is_active=active, created_at=self._stamp()
+            source_interface_id=a.id,
+            destination_interface_id=b.id,
+            connection_type_id=self.conn_type.id,
+            is_active=active,
+            created_at=self._stamp(),
         )
         self.session.add(conn)
         self.session.flush()
@@ -187,7 +191,12 @@ def seed_sample(session) -> Registry:
         (srv206, "vmnic2", "gi 2/0/42"),
     ):
         r.link(r.port(dev, nic, data=True), r.port(sw2, sw_port))
-    for dev, hba, fc in ((srv205, "vmhba2", "FC.B1"), (srv205, "vmhba3", "FC.A1"), (srv206, "vmhba2", "FC.B2"), (srv206, "vmhba3", "FC.A2")):
+    for dev, hba, fc in (
+        (srv205, "vmhba2", "FC.B1"),
+        (srv205, "vmhba3", "FC.A1"),
+        (srv206, "vmhba2", "FC.B2"),
+        (srv206, "vmhba3", "FC.A2"),
+    ):
         r.link(r.port(dev, hba, data=True), r.port(shd, fc, data=True))
     r.link(r.port(shd, "B3", data=True), r.port(sw2, "gi 2/0/5"))
     r.link(r.port(shd, "A3", data=True), r.port(sw2, "gi 2/0/6"))
@@ -275,14 +284,26 @@ class TestSampleRegistry:
 
     def test_vlan_groups_merge_stack_members_without_duplicates(self, db_session, sample):
         groups = {g.title: [(v.vlan_id, v.name, v.addressing) for v in g.rows] for g in collect_structural_appendix(db_session).vlan_groups}
-        assert groups["Коммутатор Cisco WS-C3750X-48 (SW-C3750-2) (SN6, SN9)"] == [("1", "default", "192.168.1.0/24"), ("2", "Otd2", "192.168.2.0/24")]
-        assert groups["Межсетевой экран Cisco ASA 5525 (ASA-5525) (SN4)"] == [("1", "default", "192.168.1.0/24"), ("3", "Otd3", "192.168.3.0/24")]
+        assert groups["Коммутатор Cisco WS-C3750X-48 (SW-C3750-2) (SN6, SN9)"] == [
+            ("1", "default", "192.168.1.0/24"),
+            ("2", "Otd2", "192.168.2.0/24"),
+        ]
+        assert groups["Межсетевой экран Cisco ASA 5525 (ASA-5525) (SN4)"] == [
+            ("1", "default", "192.168.1.0/24"),
+            ("3", "Otd3", "192.168.3.0/24"),
+        ]
         assert groups["Маршрутизатор Huawei AR651 (RO-A651) (SN5)"] == [("4", "vl4", "192.168.4.40/24")]
-        assert groups["Шлюз безопасности GATE 100, V. 4.1 (G100) (SN7)"] == [("4", "vl4", "192.168.4.40/24"), ("5", "Vl5", "192.168.5.40/24")]
+        assert groups["Шлюз безопасности GATE 100, V. 4.1 (G100) (SN7)"] == [
+            ("4", "vl4", "192.168.4.40/24"),
+            ("5", "Vl5", "192.168.5.40/24"),
+        ]
         assert len(groups) == 4  # серверы и СХД без VLAN в таблицу не попадают
 
     def test_equipment_rows_match_sample_order_and_management_ips(self, db_session, sample):
-        rows = [(e.name, e.serial_number, e.system_name, e.management_ips, e.placement) for e in collect_structural_appendix(db_session).equipment]
+        rows = [
+            (e.name, e.serial_number, e.system_name, e.management_ips, e.placement)
+            for e in collect_structural_appendix(db_session).equipment
+        ]
         assert rows == [
             ("HP ProLiant DL360p Gen8", "SN1", "srv-205", ["192.168.1.205"], ROOM),
             ("HP ProLiant DL360p Gen8", "SN2", "srv-206", ["192.168.1.206"], ROOM),

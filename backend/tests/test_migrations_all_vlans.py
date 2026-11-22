@@ -57,7 +57,10 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 def _vlan(conn: sqlite3.Connection, number: int) -> str:
     vlan_id = _uid()
-    conn.execute("INSERT INTO vlans (id, vlan_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (vlan_id, number, f"vlan{number}", _now(), _now()))
+    conn.execute(
+        "INSERT INTO vlans (id, vlan_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        (vlan_id, number, f"vlan{number}", _now(), _now()),
+    )
     return vlan_id
 
 
@@ -97,7 +100,8 @@ def _port(conn: sqlite3.Connection, device_id: str, name: str, mode: str, vlans:
 def _group(conn: sqlite3.Connection, device_id: str, name: str, mode: str, vlans: tuple[str, ...]) -> str:
     group_id = _uid()
     conn.execute(
-        "INSERT INTO interface_groups (id, physical_device_id, name, vlan_mode, manage_open_ports, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
+        "INSERT INTO interface_groups (id, physical_device_id, name, vlan_mode, manage_open_ports, "
+        "created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
         (group_id, device_id, name, mode, _now(), _now()),
     )
     for vlan_id in vlans:

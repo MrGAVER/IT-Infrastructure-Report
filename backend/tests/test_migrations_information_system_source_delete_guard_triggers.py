@@ -93,7 +93,9 @@ def _insert_vm(conn) -> str:
 
 def _insert_container(conn) -> str:
     cont_id = _uid()
-    conn.execute("INSERT INTO containers (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)", (cont_id, f"CT-{cont_id[:8]}", _now(), _now()))
+    conn.execute(
+        "INSERT INTO containers (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)", (cont_id, f"CT-{cont_id[:8]}", _now(), _now())
+    )
     conn.commit()
     return cont_id
 

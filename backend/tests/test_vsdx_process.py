@@ -39,7 +39,13 @@ def _graph(nodes: int = 2) -> dict:
                 "label": f"sw-{i}",
                 "x": i * 300,
                 "y": 0,
-                "icon": {"mode": "generated", "shape": "switch", "color": "#4f7cff", "glyph": '<rect x="2" y="6" width="20" height="9"/>', "port_ticks": 4},
+                "icon": {
+                    "mode": "generated",
+                    "shape": "switch",
+                    "color": "#4f7cff",
+                    "glyph": '<rect x="2" y="6" width="20" height="9"/>',
+                    "port_ticks": 4,
+                },
             }
             for i in range(nodes)
         ],
@@ -63,7 +69,8 @@ class _FakeConnection:
         self.closed = True
 
 
-# --- Результат дочернего процесса -----------------------------------------------------------------------------------------------------------
+# --- Результат дочернего процесса
+# -----------------------------------------------------------------------------------------------------------
 def test_the_isolated_render_returns_a_real_vsdx_package():
     data = export_vsdx_isolated(_graph(), timeout=120)
     with zipfile.ZipFile(io.BytesIO(data)) as package:
@@ -73,7 +80,10 @@ def test_the_isolated_render_returns_a_real_vsdx_package():
 
 def test_the_isolated_render_matches_the_in_process_one_in_page_content():
     graph = _graph(3)
-    with zipfile.ZipFile(io.BytesIO(export_vsdx_isolated(graph, timeout=120))) as isolated, zipfile.ZipFile(io.BytesIO(export_vsdx(graph))) as direct:
+    with (
+        zipfile.ZipFile(io.BytesIO(export_vsdx_isolated(graph, timeout=120))) as isolated,
+        zipfile.ZipFile(io.BytesIO(export_vsdx(graph))) as direct,
+    ):
         assert sorted(isolated.namelist()) == sorted(direct.namelist())
         assert isolated.read("visio/pages/page1.xml") == direct.read("visio/pages/page1.xml")
 
@@ -83,13 +93,16 @@ def test_no_render_process_is_left_behind_after_a_successful_export():
     assert _render_children() == []
 
 
-# --- Таймаут и сбои --------------------------------------------------------------------------------------------------------------------------
+# --- Таймаут и сбои
+# --------------------------------------------------------------------------------------------------------------------------
 def test_a_render_that_is_too_slow_raises_a_timeout_and_the_process_is_killed():
     # Запуск spawn + импорт библиотек заведомо дольше 10 мс — рендер не успевает.
     started = time.monotonic()
     with pytest.raises(VsdxRenderTimeout, match="не уложился"):
         export_vsdx_isolated(_graph(2000), timeout=0.01)  # 2000 узлов рендерятся заметно дольше ожидания в _stop (5 с)
-    assert time.monotonic() - started < vsdx_process._STOP_GRACE_SECONDS, "просроченный рендер убивается сразу, а не после вежливого ожидания"
+    assert time.monotonic() - started < vsdx_process._STOP_GRACE_SECONDS, (
+        "просроченный рендер убивается сразу, а не после вежливого ожидания"
+    )
     assert _render_children() == [], "просроченный процесс должен быть остановлен, а не оставлен работать"
 
 
@@ -114,7 +127,8 @@ def test_the_default_timeout_leaves_a_safe_margin_over_the_measured_worst_case()
     assert diagrams_module.MAX_VSDX_NODES * 0.019 * 2 <= vsdx_process.VSDX_RENDER_TIMEOUT_SECONDS
 
 
-# --- ИА-07: stdout ---------------------------------------------------------------------------------------------------------------------------
+# --- ИА-07: stdout
+# ---------------------------------------------------------------------------------------------------------------------------
 def test_the_vsdx_library_is_noisy_when_called_directly(capsys):
     """Контроль для теста ниже: если библиотека перестала печатать, тот тест проходил бы вхолостую — пересмотрите ИА-07."""
     export_vsdx(_graph())
@@ -143,7 +157,8 @@ def test_an_isolated_export_prints_nothing_to_the_server_stdout(capfd):
     assert capfd.readouterr().out == ""
 
 
-# --- Эндпоинт --------------------------------------------------------------------------------------------------------------------------------
+# --- Эндпоинт
+# --------------------------------------------------------------------------------------------------------------------------------
 @pytest.fixture
 def diagram(client, db_session) -> dict:
     server_type = db_session.query(DeviceType).filter_by(name="Сервер").one()
@@ -170,12 +185,15 @@ def test_a_timed_out_export_is_not_cached(client, diagram, monkeypatch):
     assert client.get(f"/api/v1/diagrams/{diagram['id']}/export", params={"format": "vsdx"}).status_code == 200
 
 
-# --- Windows-EXE -----------------------------------------------------------------------------------------------------------------------------
+# --- Windows-EXE
+# -----------------------------------------------------------------------------------------------------------------------------
 def test_launcher_calls_freeze_support_before_main():
     """Рендер в дочернем процессе (spawn) в замороженном EXE работает только при freeze_support() первым делом под __main__-охраной."""
     tree = ast.parse((ROOT / "launcher.py").read_text(encoding="utf-8"))
     guard = next(
-        node for node in tree.body if isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and getattr(node.test.left, "id", None) == "__name__"
+        node
+        for node in tree.body
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and getattr(node.test.left, "id", None) == "__name__"
     )
     calls = [ast.unparse(stmt.value.func) for stmt in guard.body if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call)]
     assert calls[:2] == ["multiprocessing.freeze_support", "main"], f"вызовы под __main__: {calls}"

@@ -38,10 +38,18 @@ def test_sqlite_database_path(url, expected):
 
 
 def _run(database_url: str, data_dir: Path, **extra_env: str) -> subprocess.CompletedProcess:
-    env = {**os.environ, "DATABASE_URL": database_url, "INFRA_REGISTRY_DATA_DIR": str(data_dir), "PYTHONPATH": str(BACKEND_DIR), **extra_env}
+    env = {
+        **os.environ,
+        "DATABASE_URL": database_url,
+        "INFRA_REGISTRY_DATA_DIR": str(data_dir),
+        "PYTHONPATH": str(BACKEND_DIR),
+        **extra_env,
+    }
     if SKIP_BACKUP_ENV not in extra_env:
         env.pop(SKIP_BACKUP_ENV, None)
-    return subprocess.run([sys.executable, "-m", "app.services.db_backup"], env=env, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    return subprocess.run(
+        [sys.executable, "-m", "app.services.db_backup"], env=env, capture_output=True, text=True, encoding="utf-8", timeout=120
+    )
 
 
 def _backups(directory: Path) -> list[Path]:
@@ -100,8 +108,8 @@ def test_skip_variable_disables_the_backup(tmp_path):
 
 @pytest.mark.parametrize("encoding", ["cp1252", "ascii"])
 def test_cyrillic_output_survives_a_redirect_to_a_narrow_encoding(tmp_path, encoding):
-    """Нашёл windows-smoke в CI: на английской Windows перенаправленный вывод — cp1252, и `print` с кириллицей ронял команду (код 1) ещё до копии.
-    PYTHONIOENCODING воспроизводит это на любой ОС."""
+    """Нашёл windows-smoke в CI: на английской Windows перенаправленный вывод — cp1252, и `print` с кириллицей ронял команду (код
+    1) ещё до копии. PYTHONIOENCODING воспроизводит это на любой ОС."""
     db_path = tmp_path / "infra_registry.db"
     _legacy_database(db_path)
 

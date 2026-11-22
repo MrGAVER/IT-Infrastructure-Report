@@ -78,7 +78,8 @@ def _insert_physical_device(conn: sqlite3.Connection) -> str:
 def _insert_legacy_is_device(conn: sqlite3.Connection, is_id: str, device_id: str, *, role: str | None = None) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_devices (id, information_system_id, physical_device_id, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO information_system_devices (id, information_system_id, physical_device_id, role, "
+        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
         (_uid(), is_id, device_id, role, now, now),
     )
     conn.commit()
@@ -98,7 +99,8 @@ def _insert_virtual_machine(conn: sqlite3.Connection) -> str:
 def _insert_legacy_is_vm(conn: sqlite3.Connection, is_id: str, vm_id: str, *, role: str | None = None) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_vms (id, information_system_id, virtual_machine_id, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO information_system_vms (id, information_system_id, virtual_machine_id, role, "
+        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
         (_uid(), is_id, vm_id, role, now, now),
     )
     conn.commit()
@@ -118,7 +120,8 @@ def _insert_container(conn: sqlite3.Connection) -> str:
 def _insert_legacy_is_container(conn: sqlite3.Connection, is_id: str, container_id: str, *, role: str | None = None) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_containers (id, information_system_id, container_id, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO information_system_containers (id, information_system_id, container_id, role, "
+        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
         (_uid(), is_id, container_id, role, now, now),
     )
     conn.commit()
@@ -127,13 +130,16 @@ def _insert_legacy_is_container(conn: sqlite3.Connection, is_id: str, container_
 def _insert_legacy_is_ip(conn: sqlite3.Connection, is_id: str, ip_address: str) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_ips (id, information_system_id, ip_address, external_interaction, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
+        "INSERT INTO information_system_ips (id, information_system_id, ip_address, external_interaction, "
+        "created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
         (_uid(), is_id, ip_address, now, now),
     )
     conn.commit()
 
 
-def _insert_information_system_source(conn: sqlite3.Connection, is_id: str, *, source_type: str = "manual", ip_address: str | None = None) -> None:
+def _insert_information_system_source(
+    conn: sqlite3.Connection, is_id: str, *, source_type: str = "manual", ip_address: str | None = None
+) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         "INSERT INTO information_system_sources (id, information_system_id, source_type, ip_address, "
@@ -311,7 +317,8 @@ def test_is_protocol_backfill_creates_catalog_entry_for_unknown_combination(alem
     command.upgrade(cfg, TARGET_REVISION)
     conn = _connect(db_path)
     row = conn.execute(
-        "SELECT c.port, c.protocol_type FROM information_system_protocols p JOIN protocol_port_catalogs c ON p.protocol_catalog_id = c.id WHERE p.id=?",
+        "SELECT c.port, c.protocol_type FROM information_system_protocols p JOIN protocol_port_catalogs c ON "
+        "p.protocol_catalog_id = c.id WHERE p.id=?",
         (protocol_id,),
     ).fetchone()
     assert row["port"] == 54321

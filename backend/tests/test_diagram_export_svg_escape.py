@@ -1,8 +1,11 @@
 """
-Код-ревью r3, ИА-02: `_esc` в svg.py экранирует и кавычки — значения атрибутов (`data-node-id`, `data-edge-id`, `fill`) подставляются тем же вызовом.
+Код-ревью r3, ИА-02: `_esc` в svg.py экранирует и кавычки — значения атрибутов (`data-node-id`, `data-edge-id`, `fill`)
+подставляются тем же вызовом.
 
-`xml.sax.saxutils.escape` без второго аргумента трогает только `& < >`. Сегодня id узлов — UUID, и внедрить атрибут нельзя, но функция названа
-универсально: первый же id или цвет из пользовательского ввода превратил бы её в XSS в скачанном автономном .svg (атрибут события на `<g>` срабатывает).
+`xml.sax.saxutils.escape` без второго аргумента трогает только `& < >`. Сегодня id узлов — UUID, и внедрить атрибут нельзя, но
+функция названа универсально: первый же id или цвет из пользовательского ввода превратил бы её в XSS в скачанном автономном .svg
+(атрибут события
+на `<g>` срабатывает).
 
 Запуск: pytest backend/tests/test_diagram_export_svg_escape.py -v
 """
@@ -22,12 +25,27 @@ SVG_NS = "{http://www.w3.org/2000/svg}"
 
 def _graph(node_id: str = "n1", edge_id: str = "e1", label: str = "sw-1") -> dict:
     def node(identifier: str, x: int) -> dict:
-        icon = {"mode": "generated", "shape": "switch", "color": "#4f7cff", "glyph": '<rect x="2" y="6" width="20" height="9"/>', "port_ticks": 0}
+        icon = {
+            "mode": "generated",
+            "shape": "switch",
+            "color": "#4f7cff",
+            "glyph": '<rect x="2" y="6" width="20" height="9"/>',
+            "port_ticks": 0,
+        }
         return {"id": identifier, "type": "device", "label": label, "x": x, "y": 0, "icon": icon}
 
     return {
         "nodes": [node(node_id, 0), node("n2", 300)],
-        "edges": [{"id": edge_id, "source_node_id": node_id, "target_node_id": "n2", "connection_type": "Витая пара", "is_active": True, "vlans": []}],
+        "edges": [
+            {
+                "id": edge_id,
+                "source_node_id": node_id,
+                "target_node_id": "n2",
+                "connection_type": "Витая пара",
+                "is_active": True,
+                "vlans": [],
+            }
+        ],
     }
 
 

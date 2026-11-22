@@ -65,7 +65,9 @@ def test_get_diagram_not_found(client):
 
 def test_update_layout_persists_positions(client):
     diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма раскладки"}).json()
-    r = client.put(f"/api/v1/diagrams/{diagram['id']}/layout", json={"node_positions": {"some-id": {"x": 42, "y": 99}}, "viewport": {"zoom": 1.5}})
+    r = client.put(
+        f"/api/v1/diagrams/{diagram['id']}/layout", json={"node_positions": {"some-id": {"x": 42, "y": 99}}, "viewport": {"zoom": 1.5}}
+    )
     assert r.status_code == 200
     detail = client.get(f"/api/v1/diagrams/{diagram['id']}").json()
     assert detail["viewport"] == {"zoom": 1.5}
@@ -302,7 +304,11 @@ def test_switch_node_edge_carries_port_index_end_to_end(client, db_session):
     db_session.add_all([switch_iface, server_iface])
     db_session.flush()
     conn_type = db_session.query(ConnectionType).filter_by(name="Витая пара").one()
-    db_session.add(Connection(source_interface_id=switch_iface.id, destination_interface_id=server_iface.id, connection_type_id=conn_type.id, is_active=True))
+    db_session.add(
+        Connection(
+            source_interface_id=switch_iface.id, destination_interface_id=server_iface.id, connection_type_id=conn_type.id, is_active=True
+        )
+    )
     db_session.commit()
 
     diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма коммутатора"}).json()
@@ -353,14 +359,18 @@ def test_create_category_accepts_valid_and_empty_values(client):
 
 def test_update_category_rejects_dirty_color_and_keeps_old_value(client):
     created = client.post("/api/v1/resources/device-categories", json=_category_body("Категория А-04 PUT", diagram_color="#112233")).json()
-    r = client.put(f"/api/v1/resources/device-categories/{created['id']}", json={**_category_body("Категория А-04 PUT", diagram_color=DIRTY_COLOR)})
+    r = client.put(
+        f"/api/v1/resources/device-categories/{created['id']}", json={**_category_body("Категория А-04 PUT", diagram_color=DIRTY_COLOR)}
+    )
     assert r.status_code == 422, r.text
     assert client.get(f"/api/v1/resources/device-categories/{created['id']}").json()["diagram_color"] == "#112233"
 
 
 def test_update_category_rejects_unknown_shape(client):
     created = client.post("/api/v1/resources/device-categories", json=_category_body("Категория А-04 PUT форма")).json()
-    r = client.put(f"/api/v1/resources/device-categories/{created['id']}", json=_category_body("Категория А-04 PUT форма", diagram_shape="zzz"))
+    r = client.put(
+        f"/api/v1/resources/device-categories/{created['id']}", json=_category_body("Категория А-04 PUT форма", diagram_shape="zzz")
+    )
     assert r.status_code == 422, r.text
 
 
@@ -481,7 +491,9 @@ def test_put_layout_accepts_valid_viewport(client, viewport):
     assert client.get(f"/api/v1/diagrams/{diagram['id']}").json()["viewport"] == viewport
 
 
-@pytest.mark.parametrize("viewport", ["text", [1, 2], 5, {"zoom": "1"}, {"zoom": True}, {"zoom": None}, {"foo": 1}, {"zoom": 1, "x": {"a": 1}}])
+@pytest.mark.parametrize(
+    "viewport", ["text", [1, 2], 5, {"zoom": "1"}, {"zoom": True}, {"zoom": None}, {"foo": 1}, {"zoom": 1, "x": {"a": 1}}]
+)
 def test_put_layout_rejects_invalid_viewport(client, viewport):
     diagram = client.post("/api/v1/diagrams", json={"name": "Диаграмма А-05 viewport"}).json()
     assert _put_layout(client, diagram["id"], node_positions={}, viewport=viewport).status_code == 422

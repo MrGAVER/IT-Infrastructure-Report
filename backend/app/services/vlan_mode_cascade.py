@@ -221,7 +221,9 @@ class _Loader:
         db_keys = [k for k in wanted if k in self.groups and k not in self._db_members]
         for chunk in _chunks(db_keys):
             found: dict[str, list[str]] = {k: [] for k in chunk}
-            for port in self.session.scalars(select(DeviceInterface).where(DeviceInterface.group_id.in_(chunk)).order_by(DeviceInterface.name)).all():
+            for port in self.session.scalars(
+                select(DeviceInterface).where(DeviceInterface.group_id.in_(chunk)).order_by(DeviceInterface.name)
+            ).all():
                 self.ports[port.id] = port
                 found[port.group_id].append(port.id)
             self._db_members.update(found)
@@ -248,7 +250,10 @@ class _Loader:
             ).all()
             for conn in connections:
                 bucket = self.active if conn.is_active else self.inactive
-                for here, there in ((conn.source_interface_id, conn.destination_interface_id), (conn.destination_interface_id, conn.source_interface_id)):
+                for here, there in (
+                    (conn.source_interface_id, conn.destination_interface_id),
+                    (conn.destination_interface_id, conn.source_interface_id),
+                ):
                     if here in requested:
                         bucket[here].append(there)
 
@@ -289,7 +294,9 @@ def _collect_area(loader: _Loader, edited: _Edited, start_id: str, target: str) 
         done.update(batch)
         if len(done) > MAX_CASCADE_PORTS:
             raise HTTPException(
-                422, f"Область изменения превышает {MAX_CASCADE_PORTS} портов — смените режим по частям: в самой группе или у отдельных устройств"
+                422,
+                f"Область изменения превышает {MAX_CASCADE_PORTS} портов — смените режим по частям: в самой группе "
+                "или у отдельных устройств",
             )
         loader.load_ports(batch)
         loader.load_groups(key for p in batch if (key := edited.port_group_key(loader.ports[p])))
@@ -504,7 +511,10 @@ def _plan_hash(plan: dict[str, Any]) -> str:
         "target": plan["target_mode"],
         "start": plan["start_interface_id"],
         "edited": plan["edited_device_id"],
-        "groups": sorted((g["id"], g["from_mode"], g["to_mode"], [v["id"] for v in g["vlans_after"]], [p["id"] for p in g["ports"]]) for g in plan["groups"]),
+        "groups": sorted(
+            (g["id"], g["from_mode"], g["to_mode"], [v["id"] for v in g["vlans_after"]], [p["id"] for p in g["ports"]])
+            for g in plan["groups"]
+        ),
         "ports": sorted((p["id"], p["from_mode"], p["to_mode"], [v["id"] for v in p["vlans_after"]]) for p in plan["ports"]),
     }
     return hashlib.sha256(json.dumps(material, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:32]
@@ -543,7 +553,9 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
         listed = _short_list([f"«{g['name']}» ({len(g['ports'])} портов, {g['device_name']})" for g in plan["groups"]])
         result.append(
             _warning(
-                "groups", "warning", f"Режим порта задаётся группами, поэтому он изменится у всех портов группы, а не только у связанного порта: {listed}."
+                "groups",
+                "warning",
+                f"Режим порта задаётся группами, поэтому он изменится у всех портов группы, а не только у связанного порта: {listed}.",
             )
         )
     start_group = change.group_of_port.get(change.start_id)
@@ -561,7 +573,9 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
         )
     dropped = [(g["name"], g, v) for g in plan["groups"] + plan["ports"] for v in g["dropped_vlans"]]
     if dropped:
-        listed = _short_list([f"VLAN {v['vlan_id']} «{v['name']}» ({'группа' if 'ports' in g else 'порт'} «{owner}»)" for owner, g, v in dropped])
+        listed = _short_list(
+            [f"VLAN {v['vlan_id']} «{v['name']}» ({'группа' if 'ports' in g else 'порт'} «{owner}»)" for owner, g, v in dropped]
+        )
         result.append(
             _warning(
                 "vlans_dropped",
@@ -584,11 +598,14 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
             _warning(
                 "inactive",
                 "info",
-                f"Неактивные подключения не учитываются: у {len(change.inactive_ports)} изменяемых портов они ведут к портам с другим режимом.",
+                f"Неактивные подключения не учитываются: у {len(change.inactive_ports)} изменяемых портов они ведут к "
+                "портам с другим режимом.",
             )
         )
     if totals["ports"] > LARGE_CASCADE_PORTS:
-        result.append(_warning("large", "warning", f"Область изменения большая — {totals['ports']} портов. Проверьте список перед применением."))
+        result.append(
+            _warning("large", "warning", f"Область изменения большая — {totals['ports']} портов. Проверьте список перед применением.")
+        )
     return result
 
 
@@ -637,7 +654,9 @@ def _parse_edited_group(key: Any, raw: Any) -> _EditedGroup:
         raise HTTPException(422, f"{where} должен быть объектом {{mode, vlan_ids?, name?}} с непустым ключом группы")
     if raw.get("mode") not in (*VLAN_MODES, ""):
         raise HTTPException(422, f"{where}: режим группы должен быть 'access', 'trunk' или пустым")
-    return _EditedGroup(mode=raw["mode"], vlan_ids=_vlan_id_list(raw.get("vlan_ids"), where), name=_optional_text(raw.get("name"), where, "name"))
+    return _EditedGroup(
+        mode=raw["mode"], vlan_ids=_vlan_id_list(raw.get("vlan_ids"), where), name=_optional_text(raw.get("name"), where, "name")
+    )
 
 
 def parse_cascade_edited(raw: Any) -> _Edited:
@@ -666,7 +685,9 @@ def _compute(start_id: str, mode: str, edited: _Edited, session: Session) -> _Ch
     if start_id not in loader.ports:
         raise HTTPException(404, "Порт не найден")
     changed_ports, changed_groups = _collect_area(loader, edited, start_id, mode)
-    change = _Change(target=mode, start_id=start_id, edited=edited, loader=loader, changed_ports=changed_ports, changed_groups=changed_groups)
+    change = _Change(
+        target=mode, start_id=start_id, edited=edited, loader=loader, changed_ports=changed_ports, changed_groups=changed_groups
+    )
     if changed_ports:
         _load_details(change)
     change.plan = _build_plan(change)
@@ -823,7 +844,11 @@ def apply_vlan_mode_cascade(interface_id: str, payload: dict[str, Any], session:
         raise HTTPException(409, "Данные изменились после предпросмотра — повторите операцию и проверьте новый план")
     written_ports = _write_plan(change, session)
     _audit_cascade(change, session)
-    applied = {"ports": len(written_ports), "groups": sum(1 for g in plan["groups"] if not g["deferred"]), "devices": plan["totals"]["immediate_devices"]}
+    applied = {
+        "ports": len(written_ports),
+        "groups": sum(1 for g in plan["groups"] if not g["deferred"]),
+        "devices": plan["totals"]["immediate_devices"],
+    }
     # Роль и VLAN порта-инициатора — после каскада, в той же транзакции: набор записывается точно как в запросе
     # (каскад мог урезать его до одного VLAN в access — проверка под целевой режим это учла).
     wrote = prepared is not None and write_port_change(prepared, session, context=f" (вместе со сменой режима → {mode})")

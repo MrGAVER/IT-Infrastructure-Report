@@ -47,7 +47,8 @@ def test_message_names_the_offending_tag():
 
 
 @pytest.mark.parametrize(
-    "markup", [PLAIN, '<svg><rect class="style" id="style" data-style="x" fill="#fff" stroke="#000"/></svg>', '<svg><text>style="x"</text></svg>']
+    "markup",
+    [PLAIN, '<svg><rect class="style" id="style" data-style="x" fill="#fff" stroke="#000"/></svg>', '<svg><text>style="x"</text></svg>'],
 )
 def test_validator_still_accepts_icons_that_only_mention_style(markup):
     validate_svg_markup(markup)  # имя «style» — только у самого атрибута; значения и другие атрибуты не затрагиваются
@@ -70,7 +71,9 @@ def test_updating_an_icon_to_use_style_gives_422_and_keeps_the_old_markup(client
 def test_icon_without_style_is_saved_and_updated(client):
     icon = client.post(ICONS, json={"name": "Без стиля", "svg_markup": PLAIN})
     assert icon.status_code == 201, icon.text
-    updated = client.put(f"{ICONS}/{icon.json()['id']}", json={"name": "Без стиля 2", "svg_markup": '<svg><circle r="3" fill="blue"/></svg>'})
+    updated = client.put(
+        f"{ICONS}/{icon.json()['id']}", json={"name": "Без стиля 2", "svg_markup": '<svg><circle r="3" fill="blue"/></svg>'}
+    )
     assert updated.status_code == 200, updated.text
 
 

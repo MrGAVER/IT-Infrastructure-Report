@@ -82,7 +82,10 @@ def _svg_node(node: dict, x: float, y: float) -> str:
         # Два слоя: _icon_color — значение должно быть HEX-цветом, _esc — разметка не собирается из данных ни при каких
         # обстоятельствах.
         color = _icon_color(icon)
-        parts.append(f'<rect x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" rx="8" fill="{_esc(color)}" stroke="#333333" stroke-width="1.5"/>')
+        parts.append(
+            f'<rect x="{x}" y="{y}" width="{NODE_WIDTH}" height="{NODE_HEIGHT}" rx="8" fill="{_esc(color)}" '
+            'stroke="#333333" stroke-width="1.5"/>'
+        )
         # Находка №5 отчёта (Фаза 3, п.5): полноценная узнаваемая иконка категории (не мелкий
         # угловой акцент, как в Фазе 2, п.2) по центру верхней части узла — та же разметка
         # (viewBox "0 0 24 24"), что рисует канвас (DiagramDeviceNode.vue), приходит готовой в
@@ -150,7 +153,9 @@ def export_svg(graph: dict) -> str:
     nodes_by_id: dict[str, dict] = {n["id"]: n for n in graph["nodes"]}
     nodes_svg = [_svg_node(node, node["x"], node["y"]) for node in graph["nodes"]]
 
-    edges_svg = [_svg_edge(e, nodes_by_id) for e in graph["edges"] if e["source_node_id"] in nodes_by_id and e["target_node_id"] in nodes_by_id]
+    edges_svg = [
+        _svg_edge(e, nodes_by_id) for e in graph["edges"] if e["source_node_id"] in nodes_by_id and e["target_node_id"] in nodes_by_id
+    ]
 
     max_x = max((n["x"] for n in graph["nodes"]), default=0) + NODE_WIDTH + 40
     max_y = max((n["y"] for n in graph["nodes"]), default=0) + NODE_HEIGHT + 40

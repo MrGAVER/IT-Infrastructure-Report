@@ -107,7 +107,9 @@ def test_the_schema_is_built_once_and_rebuilds_identically():
 def test_applying_the_formats_twice_changes_nothing():
     base = {
         "paths": {"/x": {"post": {"requestBody": {}, "responses": {"422": {"$ref": REF_PREFIX + VALIDATION_ERROR_SCHEMA}}}}},
-        "components": {"schemas": {VALIDATION_ERROR_SCHEMA: {"type": "object", "properties": {"detail": {"type": "array"}}}, "ValidationError": {}}},
+        "components": {
+            "schemas": {VALIDATION_ERROR_SCHEMA: {"type": "object", "properties": {"detail": {"type": "array"}}}, "ValidationError": {}}
+        },
     }
     once = apply_error_formats(copy.deepcopy(base), max_body_bytes=2048)
     twice = apply_error_formats(copy.deepcopy(once), max_body_bytes=2048)

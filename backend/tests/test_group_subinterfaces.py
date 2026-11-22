@@ -88,7 +88,9 @@ def test_group_template_is_written_into_every_member_port(client):
         assert set(subs) == {f"{port}.10", f"{port}.20"}
         mgmt = subs[f"{port}.10"]
         assert (mgmt["vlan_id"], mgmt["is_management"], mgmt["description"]) == (v10["id"], True, "управление")
-        assert [(i["ip_address"], i["prefix_length"], i["purpose"], i["is_management"]) for i in mgmt["ips"]] == [("10.0.10.1", 24, "шлюз", True)]
+        assert [(i["ip_address"], i["prefix_length"], i["purpose"], i["is_management"]) for i in mgmt["ips"]] == [
+            ("10.0.10.1", 24, "шлюз", True)
+        ]
         assert [(p["protocol_catalog_id"], p["description"]) for p in mgmt["open_ports"]] == [(ssh["id"], "админ")]
         assert subs[f"{port}.20"]["is_data_transfer"] is True
     assert _subs(body, "Gi0/2") == {}  # порт вне группы подинтерфейсов не получил
@@ -98,7 +100,9 @@ def test_group_templates_are_returned_with_ips_and_open_ports(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
     ssh = _catalog_entry(client, 22, "SSH")
-    group = _group([v10], [_tpl(v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}])])
+    group = _group(
+        [v10], [_tpl(v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}])]
+    )
     assert _sync(client, dev["id"], [_port("Gi0/0")], [group]).status_code == 200
 
     (loaded,) = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"]
@@ -118,7 +122,12 @@ def test_repeated_sync_keeps_ids_and_template_edit_updates_in_place(client):
         client,
         dev["id"],
         [_port("Gi0/0")],
-        [_group([v10, v20], [_tpl(v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}])])],
+        [
+            _group(
+                [v10, v20],
+                [_tpl(v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}])],
+            )
+        ],
     ).json()
     sub = _subs(first, "Gi0/0")["Gi0/0.10"]
     stored_group = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"][0]
@@ -169,13 +178,19 @@ def test_removing_a_template_removes_its_subinterface_from_ports(client):
     v10, v20 = _vlan(client, 10), _vlan(client, 20)
     dev = _device(client, vlans=(v10, v20))
     first = _sync(
-        client, dev["id"], [_port("Gi0/0")], [_group([v10, v20], [_tpl(v10), _tpl(v20, ips=[{"ip_address": "10.0.20.1", "prefix_length": 24}])])]
+        client,
+        dev["id"],
+        [_port("Gi0/0")],
+        [_group([v10, v20], [_tpl(v10), _tpl(v20, ips=[{"ip_address": "10.0.20.1", "prefix_length": 24}])])],
     ).json()
     stored = client.get(f"{API}/devices/{dev['id']}/interface-groups").json()["items"][0]
     keep = next(t for t in stored["subinterfaces"] if t["vlan_id"] == v10["id"])
 
     r = _sync(
-        client, dev["id"], [_port("Gi0/0", group_key=stored["id"], id=first["items"][0]["id"])], [{**stored, "key": stored["id"], "subinterfaces": [keep]}]
+        client,
+        dev["id"],
+        [_port("Gi0/0", group_key=stored["id"], id=first["items"][0]["id"])],
+        [{**stored, "key": stored["id"], "subinterfaces": [keep]}],
     )
 
     assert set(_subs(r.json(), "Gi0/0")) == {"Gi0/0.10"}
@@ -186,7 +201,14 @@ def test_removing_a_template_removes_its_subinterface_from_ports(client):
 def test_all_vlans_group_accepts_any_device_vlan(client):
     v10, v20 = _vlan(client, 10), _vlan(client, 20)
     dev = _device(client, vlans=(v10, v20))
-    group = {"key": "g1", "name": "Все", "vlan_mode": "trunk", "all_vlans": True, "manage_subinterfaces": True, "subinterfaces": [_tpl(v20)]}
+    group = {
+        "key": "g1",
+        "name": "Все",
+        "vlan_mode": "trunk",
+        "all_vlans": True,
+        "manage_subinterfaces": True,
+        "subinterfaces": [_tpl(v20)],
+    }
 
     r = _sync(client, dev["id"], [_port("Gi0/0")], [group])
 
@@ -200,7 +222,10 @@ def test_all_vlans_group_accepts_any_device_vlan(client):
         (lambda v10, v20: _group([v10], [_tpl(v20)]), "не входит в VLAN группы"),
         (lambda v10, v20: _group([v10], [_tpl(v10), _tpl(v10)]), "несколько подинтерфейсов на VLAN 10"),
         (lambda v10, v20: _group([v10], [{"vlan_id": None}]), "не выбран VLAN"),
-        (lambda v10, v20: {"key": "g1", "name": "Группа", "manage_subinterfaces": True, "subinterfaces": [_tpl(v10)]}, "только вместе с режимом порта"),
+        (
+            lambda v10, v20: {"key": "g1", "name": "Группа", "manage_subinterfaces": True, "subinterfaces": [_tpl(v10)]},
+            "только вместе с режимом порта",
+        ),
         (lambda v10, v20: _group([v10], [_tpl(v10, ips=[{"ip_address": "не-ip"}])]), "IP-адрес"),
         (lambda v10, v20: _group([v10], [_tpl(v10, ips=[{"ip_address": "10.0.0.1", "prefix_length": 99}])]), "префикс"),
         (lambda v10, v20: _group([v10], [_tpl(v10, open_ports=[{"protocol_catalog_id": "нет-такого"}])]), "справочника"),
@@ -247,7 +272,11 @@ def test_deleting_group_removes_templates_but_keeps_port_subinterfaces(client, d
         client,
         dev["id"],
         [_port("Gi0/0")],
-        [_group([v10], [_tpl(v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}])])],
+        [
+            _group(
+                [v10], [_tpl(v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}])]
+            )
+        ],
     ).json()
 
     # порт, покинувший группу, — обычный порт со своими VLAN (форма присылает их вместе с портом)

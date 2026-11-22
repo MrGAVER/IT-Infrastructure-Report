@@ -87,7 +87,9 @@ def wire(monkeypatch):
     def install(process: _FakeProcess, receiver: _FakeEnd, sender: _FakeEnd | None = None) -> _FakeContext:
         context = _FakeContext(process, receiver, sender or _FakeEnd())
         monkeypatch.setattr(
-            vsdx_process.multiprocessing, "get_context", lambda method: context if method == "spawn" else pytest.fail(f"запуск не через spawn: {method}")
+            vsdx_process.multiprocessing,
+            "get_context",
+            lambda method: context if method == "spawn" else pytest.fail(f"запуск не через spawn: {method}"),
         )
         return context
 

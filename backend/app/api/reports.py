@@ -19,8 +19,11 @@ router = APIRouter(tags=["Reports"])
 
 
 @router.post("/api/v1/reports/inventory")
-def generate_report(information_system_id: str | None = None, body: InventoryReportRequest | None = None, session: Session = Depends(get_db)):
-    """Excel-отчёт «Регламентный отчёт». Тело (необязательное): structural_unit_ids — ограничение оборудованием выбранных структурных единиц."""
+def generate_report(
+    information_system_id: str | None = None, body: InventoryReportRequest | None = None, session: Session = Depends(get_db)
+):
+    """Excel-отчёт «Регламентный отчёт». Тело (необязательное): structural_unit_ids — ограничение оборудованием выбранных
+    структурных единиц."""
     structural_unit_ids = (body or InventoryReportRequest()).structural_unit_ids
     cleanup_before_new_report(REPORT_DIR)
     path = build_report(session, REPORT_DIR, information_system_id, structural_unit_ids)
@@ -28,7 +31,9 @@ def generate_report(information_system_id: str | None = None, body: InventoryRep
 
 
 @router.post("/api/v1/reports/audit-log", dependencies=[Depends(require_admin_if_auth_enabled)])
-def generate_audit_log_report(date_from: str | None = None, date_to: str | None = None, entity_type: str | None = None, session: Session = Depends(get_db)):
+def generate_audit_log_report(
+    date_from: str | None = None, date_to: str | None = None, entity_type: str | None = None, session: Session = Depends(get_db)
+):
     cleanup_before_new_report(REPORT_DIR)
     path = build_audit_log_report(session, REPORT_DIR, date_from, date_to, entity_type)
     # Отчёт лежит в подкаталоге audit/ и скачивается отдельным эндпоинтом (только администратору); общий до него не дотягивается.
@@ -39,8 +44,9 @@ def generate_audit_log_report(date_from: str | None = None, date_to: str | None 
 def generate_structural_appendix(body: StructuralAppendixRequest | None = None, session: Session = Depends(get_db)):
     """Word-документ «Приложение к структурной схеме» (3 таблицы: линии связи, VLAN, оборудование).
 
-    Тело (необязательное): is_name — короткое имя ИС для заголовков (по умолчанию «ЕАИС ТО»; ведущее «ЕАИС»/«ИС» в заголовках не дублируется),
-    structural_unit_ids — ограничение оборудованием выбранных структурных единиц, как у регламентированного отчёта."""
+    Тело (необязательное): is_name — короткое имя ИС для заголовков (по умолчанию «ЕАИС ТО»; ведущее «ЕАИС»/«ИС» в заголовках не
+    дублируется), structural_unit_ids — ограничение оборудованием выбранных структурных единиц, как у регламентированного
+    отчёта."""
     body = body or StructuralAppendixRequest()
     cleanup_before_new_report(REPORT_DIR)
     try:

@@ -65,7 +65,9 @@ def add_domain_member(session: Session, domain_id: str, physical_device_id: str 
     device = session.get(PhysicalDevice, physical_device_id) if physical_device_id else None
     if not domain or not device:
         raise HTTPException(404, "Домен или физическое устройство не найдено")
-    existing = session.scalar(select(VLANDomainDevice).where(VLANDomainDevice.domain_id == domain_id, VLANDomainDevice.physical_device_id == device.id))
+    existing = session.scalar(
+        select(VLANDomainDevice).where(VLANDomainDevice.domain_id == domain_id, VLANDomainDevice.physical_device_id == device.id)
+    )
     if existing:
         return serialize(existing)
     obj = VLANDomainDevice(domain_id=domain_id, physical_device_id=device.id)
@@ -90,7 +92,9 @@ def _load_domain_for_sync(session: Session, domain_id: str) -> VLANDomain:
     return domain
 
 
-def _ensure_domain_vlan_definitions(session: Session, domain_id: str, source_vlans: list[VLAN]) -> tuple[dict[str, VLAN], dict[int, VLAN], int]:
+def _ensure_domain_vlan_definitions(
+    session: Session, domain_id: str, source_vlans: list[VLAN]
+) -> tuple[dict[str, VLAN], dict[int, VLAN], int]:
     """Для каждого VLAN источника находит или создаёт определение VLAN в домене.
 
     Возвращает (определение домена по id VLAN источника, определения домена по номеру, сколько создано).
@@ -146,7 +150,11 @@ def _sync_member_device(
         # локальные (без domain_id вовсе) синхронизация трогать не должна ни в каком режиме.
         stale_ids = (existing_ids & domain_vlan_ids) - keep_ids
         if stale_ids:
-            session.execute(delete(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id == device_id, PhysicalDeviceVLAN.vlan_id.in_(stale_ids)))
+            session.execute(
+                delete(PhysicalDeviceVLAN).where(
+                    PhysicalDeviceVLAN.physical_device_id == device_id, PhysicalDeviceVLAN.vlan_id.in_(stale_ids)
+                )
+            )
             removed = len(stale_ids)
     return assigned, removed
 
@@ -156,7 +164,9 @@ def sync_domain(session: Session, domain_id: str, replace: bool) -> dict[str, An
 
     domain = _load_domain_for_sync(session, domain_id)
     member_ids = session.scalars(select(VLANDomainDevice.physical_device_id).where(VLANDomainDevice.domain_id == domain_id)).all()
-    source_ids = session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == domain.source_device_id)).all()
+    source_ids = session.scalars(
+        select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == domain.source_device_id)
+    ).all()
     source_vlans = session.scalars(select(VLAN).where(VLAN.id.in_(source_ids))).all() if source_ids else []
     target_by_source_id, domain_vlans_by_number, created = _ensure_domain_vlan_definitions(session, domain_id, source_vlans)
     existing_by_device = _existing_vlan_ids_by_device(session, member_ids)
@@ -167,7 +177,14 @@ def sync_domain(session: Session, domain_id: str, replace: bool) -> dict[str, An
         if device_id == domain.source_device_id:
             continue
         assigned, stale_removed = _sync_member_device(
-            session, device_id, existing_by_device.get(device_id, set()), source_vlans, target_by_source_id, domain_vlan_ids, keep_ids, replace
+            session,
+            device_id,
+            existing_by_device.get(device_id, set()),
+            source_vlans,
+            target_by_source_id,
+            domain_vlan_ids,
+            keep_ids,
+            replace,
         )
         updated += assigned
         removed += stale_removed
@@ -195,7 +212,9 @@ def copy_device_vlans(session: Session, device_id: str, source_device_id: str | 
     already_on_target = {
         (v.vlan_id, v.name)
         for v in session.scalars(
-            select(VLAN).join(PhysicalDeviceVLAN, PhysicalDeviceVLAN.vlan_id == VLAN.id).where(PhysicalDeviceVLAN.physical_device_id == target.id)
+            select(VLAN)
+            .join(PhysicalDeviceVLAN, PhysicalDeviceVLAN.vlan_id == VLAN.id)
+            .where(PhysicalDeviceVLAN.physical_device_id == target.id)
         )
     }
     created = 0
@@ -215,7 +234,14 @@ def copy_device_vlans(session: Session, device_id: str, source_device_id: str | 
         session.flush()
         created += 1
         session.add(
-            PhysicalDeviceVLAN(physical_device_id=target.id, vlan_id=v.id, ip_address=None, prefix_length=None, is_management=False, description=sv.description)
+            PhysicalDeviceVLAN(
+                physical_device_id=target.id,
+                vlan_id=v.id,
+                ip_address=None,
+                prefix_length=None,
+                is_management=False,
+                description=sv.description,
+            )
         )
         assigned += 1
     audit(
@@ -258,6 +284,12 @@ def bulk_assign_vlan(session: Session, device_ids: list[str], vlan_id: str | Non
             continue
         session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=vlan_id, description=description))
         assigned += 1
-    audit(session, "device-vlans", vlan_id, AuditAction.SYNC, f"Массовое назначение VLAN: устройств {assigned}, уже было назначено ранее {len(existing)}")
+    audit(
+        session,
+        "device-vlans",
+        vlan_id,
+        AuditAction.SYNC,
+        f"Массовое назначение VLAN: устройств {assigned}, уже было назначено ранее {len(existing)}",
+    )
     session.commit()
     return {"status": "ok", "assigned": assigned, "skipped_existing": len(existing)}

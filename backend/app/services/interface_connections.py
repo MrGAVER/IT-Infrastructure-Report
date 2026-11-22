@@ -105,7 +105,9 @@ def connections_of(interface_ids: Sequence[str], session: Session, *, active_onl
     ``is_active IS NOT FALSE`` — как в validate_connection: NULL трактуется как «активно»."""
     if not interface_ids:
         return []
-    stmt = select(Connection).where(or_(Connection.source_interface_id.in_(interface_ids), Connection.destination_interface_id.in_(interface_ids)))
+    stmt = select(Connection).where(
+        or_(Connection.source_interface_id.in_(interface_ids), Connection.destination_interface_id.in_(interface_ids))
+    )
     if active_only:
         stmt = stmt.where(Connection.is_active.is_not(False))
     return list(session.scalars(stmt.order_by(Connection.created_at, Connection.id)).all())
@@ -130,7 +132,9 @@ class _Plan:
         return frozenset((self.iface.id, self.peer.id))
 
 
-def sync_interface_connections(requests: Sequence[tuple[DeviceInterface, Any]], session: Session, rows: Sequence[DeviceInterface] = ()) -> int:
+def sync_interface_connections(
+    requests: Sequence[tuple[DeviceInterface, Any]], session: Session, rows: Sequence[DeviceInterface] = ()
+) -> int:
     """Применяет подключения портов из payload формы устройства и возвращает число созданных,
     изменённых и удалённых подключений. Транзакцией (commit/rollback) управляет вызывающая сторона.
 
@@ -193,7 +197,9 @@ def _switch_off_moving(plans: Sequence[_Plan], session: Session) -> list[Connect
     промежуточного состояния не видят,
     а при ошибке откат вернёт подключения как были. Подключения, у которых меняются только тип линии или описание, не трогаются."""
     moving = [
-        plan.target for plan in plans if plan.target is not None and _new_ends(plan) != (plan.target.source_interface_id, plan.target.destination_interface_id)
+        plan.target
+        for plan in plans
+        if plan.target is not None and _new_ends(plan) != (plan.target.source_interface_id, plan.target.destination_interface_id)
     ]
     for connection in moving:
         connection.is_active = False
@@ -275,7 +281,9 @@ def _assert_plans_consistent(plans: Sequence[_Plan]) -> None:
             other = claimed.get(port.id)
             if other is not None and other.pair != plan.pair:
                 raise HTTPException(
-                    409, f"Порт «{port.name}» указан в нескольких подключениях одного запроса — порт может участвовать только в одном подключении."
+                    409,
+                    f"Порт «{port.name}» указан в нескольких подключениях одного запроса — порт может участвовать только "
+                    "в одном подключении.",
                 )
             claimed[port.id] = plan
 
@@ -342,7 +350,10 @@ def assert_interfaces_not_connected(interfaces: Sequence[DeviceInterface], sessi
         return
     by_id = {i.id: i for i in interfaces}
     connected = {
-        iid for c in connections_of(list(by_id), session, active_only=False) for iid in (c.source_interface_id, c.destination_interface_id) if iid in by_id
+        iid
+        for c in connections_of(list(by_id), session, active_only=False)
+        for iid in (c.source_interface_id, c.destination_interface_id)
+        if iid in by_id
     }
     if connected:
         names = ", ".join(f"«{by_id[i].name}»" for i in sorted(connected, key=lambda x: by_id[x].name))

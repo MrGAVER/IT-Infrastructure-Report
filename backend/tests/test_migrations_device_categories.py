@@ -80,7 +80,8 @@ def test_repoints_existing_switch_and_router_device_types_to_new_categories(alem
         (router_id, "Маршрутизаторы", "router"),
     ]:
         row = conn.execute(
-            "SELECT dc.name AS category_name, dc.diagram_shape FROM device_types dt JOIN device_categories dc ON dt.category_id = dc.id WHERE dt.id = ?",
+            "SELECT dc.name AS category_name, dc.diagram_shape FROM device_types dt JOIN device_categories dc ON "
+            "dt.category_id = dc.id WHERE dt.id = ?",
             (device_type_id,),
         ).fetchone()
         assert row["category_name"] == expected_category

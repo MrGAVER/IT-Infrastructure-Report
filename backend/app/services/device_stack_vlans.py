@@ -75,7 +75,9 @@ def _member_state(device: PhysicalDevice, link: PhysicalDeviceVLAN | None) -> di
     }
 
 
-def _shared_row(vlan: VLAN, setting: DeviceStackVLAN, members: list[PhysicalDevice], links: dict[str, PhysicalDeviceVLAN]) -> dict[str, Any]:
+def _shared_row(
+    vlan: VLAN, setting: DeviceStackVLAN, members: list[PhysicalDevice], links: dict[str, PhysicalDeviceVLAN]
+) -> dict[str, Any]:
     """Заданная настройка и то, как она применена к участникам. is_uniform — у каждого участника VLAN назначен и
     значения равны настройке; иначе стек показывает расхождение, а «Применить ко всем» его устраняет."""
     want = setting_values(setting)
@@ -188,7 +190,9 @@ def apply_stack_vlan(
     links = {
         l.physical_device_id: l
         for l in session.scalars(
-            select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_([d.id for d in members]))
+            select(PhysicalDeviceVLAN).where(
+                PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_([d.id for d in members])
+            )
         ).all()
     }
     outcomes = Counter(write_link(session, d.id, vlan, links.get(d.id), values) for d in members)
@@ -247,7 +251,9 @@ def remove_stack_vlan(session: Session, stack_id: str, vlan_id: str, remove_from
         names = {d.id: device_label(d) for d in members}
         busy = _vlan_usage_by_device(session, list(names), vlan_id)
         if busy:
-            listing = ", ".join(f"{names[device_id]} ({count})" for device_id, count in sorted(busy.items(), key=lambda item: names[item[0]]))
+            listing = ", ".join(
+                f"{names[device_id]} ({count})" for device_id, count in sorted(busy.items(), key=lambda item: names[item[0]])
+            )
             raise HTTPException(
                 409,
                 f"VLAN {label} нельзя убрать с устройств стека: он используется на портах, в группах портов или подинтерфейсах "
@@ -279,7 +285,9 @@ def preview_member_addition(session: Session, stack_id: str, physical_device_id:
     existing = session.scalar(select(DeviceStackMember).where(DeviceStackMember.physical_device_id == device.id))
     if existing and existing.stack_id == stack_id:
         return {**base, "already_member": True, "changes": [], "unchanged_count": 0}
-    validate_resource(DeviceStackMember, {"stack_id": stack_id, "physical_device_id": device.id, "position": position}, session, item_id=None)
+    validate_resource(
+        DeviceStackMember, {"stack_id": stack_id, "physical_device_id": device.id, "position": position}, session, item_id=None
+    )
     plan = plan_member_settings(session, stack_id, device)
     return {
         **base,

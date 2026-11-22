@@ -377,7 +377,14 @@ def test_export_vsdx_without_glyphs_has_no_media(tmp_path):
     (Custom-иконки картинку создают — см. test_export_vsdx_custom_icon_* ниже.)"""
     graph = {
         "nodes": [
-            {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
+            {
+                "id": "a",
+                "type": "device",
+                "label": "a",
+                "x": 0,
+                "y": 0,
+                "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"},
+            },
             {"id": "g", "type": "group", "label": "group", "x": 300, "y": 0},
         ],
         "edges": [],
@@ -416,8 +423,22 @@ def test_export_vsdx_page_fits_content_bounding_box(tmp_path):
     размера шаблона A4 — иначе большой граф обрезался бы, а маленький терялся на пустом листе."""
     graph = {
         "nodes": [
-            {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
-            {"id": "b", "type": "device", "label": "b", "x": 800, "y": 400, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
+            {
+                "id": "a",
+                "type": "device",
+                "label": "a",
+                "x": 0,
+                "y": 0,
+                "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"},
+            },
+            {
+                "id": "b",
+                "type": "device",
+                "label": "b",
+                "x": 800,
+                "y": 400,
+                "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"},
+            },
         ],
         "edges": [],
     }
@@ -633,7 +654,10 @@ def test_export_vsdx_opens_in_third_party_reader(tmp_path):
 # Пользовательские (custom) иконки в .drawio/.vsdx и размер узлов .vsdx (Фаза 3, п.5)
 # --------------------------------------------------------------------------------------
 
-CUSTOM_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="#33c9a7" stroke-width="2"/></svg>'
+CUSTOM_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" '
+    'fill="none" stroke="#33c9a7" stroke-width="2"/></svg>'
+)
 
 
 def _custom_graph(*markups: str, x_step: int = 220) -> dict:
@@ -891,8 +915,22 @@ def test_export_vsdx_node_shapes_have_graph_size_and_centered_pin(tmp_path):
     не пересчитывает LocPinX/LocPinY при смене размера — pin обязан быть в центре новой фигуры."""
     graph = {
         "nodes": [
-            {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
-            {"id": "b", "type": "device", "label": "b", "x": 800, "y": 400, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
+            {
+                "id": "a",
+                "type": "device",
+                "label": "a",
+                "x": 0,
+                "y": 0,
+                "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"},
+            },
+            {
+                "id": "b",
+                "type": "device",
+                "label": "b",
+                "x": 800,
+                "y": 400,
+                "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"},
+            },
         ],
         "edges": [],
     }

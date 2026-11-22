@@ -50,7 +50,9 @@ def _unassign_moved_vlan_from_former_domain_devices(vlan: "VLAN", old_domain_id:
         return 0
     assigned = set(
         session.scalars(
-            select(PhysicalDeviceVLAN.physical_device_id).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_(left_behind))
+            select(PhysicalDeviceVLAN.physical_device_id).where(
+                PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_(left_behind)
+            )
         ).all()
     )
     if not assigned:
@@ -58,10 +60,14 @@ def _unassign_moved_vlan_from_former_domain_devices(vlan: "VLAN", old_domain_id:
     type_allowed = set(session.scalars(select(DeviceTypeVLAN.device_type_id).where(DeviceTypeVLAN.vlan_id == vlan.id)).all())
     strip_ports_of = {
         device_id
-        for device_id, type_id in session.execute(select(PhysicalDevice.id, PhysicalDevice.device_type_id).where(PhysicalDevice.id.in_(assigned))).all()
+        for device_id, type_id in session.execute(
+            select(PhysicalDevice.id, PhysicalDevice.device_type_id).where(PhysicalDevice.id.in_(assigned))
+        ).all()
         if type_id not in type_allowed
     }
-    session.execute(delete(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_(assigned)))
+    session.execute(
+        delete(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_(assigned))
+    )
     if strip_ports_of:
         port_ids = select(DeviceInterface.id).where(DeviceInterface.physical_device_id.in_(strip_ports_of))
         session.execute(delete(InterfaceVLAN).where(InterfaceVLAN.vlan_id == vlan.id, InterfaceVLAN.interface_id.in_(port_ids)))
@@ -146,7 +152,9 @@ def assign_domain_vlans_to_device(domain_id: str | None, physical_device_id: str
     domain_vlans = session.scalars(select(VLAN).where(VLAN.domain_id == domain_id)).all()
     if not domain_vlans:
         return
-    existing_ids = set(session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == physical_device_id)).all())
+    existing_ids = set(
+        session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == physical_device_id)).all()
+    )
     for v in domain_vlans:
         if v.id not in existing_ids:
             session.add(PhysicalDeviceVLAN(physical_device_id=physical_device_id, vlan_id=v.id, description=v.description))

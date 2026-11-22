@@ -141,7 +141,9 @@ class SubinterfaceTestCase(unittest.TestCase):
 
     def test_subinterface_ip_values_are_labeled_with_the_subinterface_name(self):
         ips = {"s1": [ip("s1", "10.0.10.1", 24), ip("s1", "10.0.10.2")], "s2": []}
-        self.assertEqual(subinterface_ip_values([sub("s1", "Gi0/0.10"), sub("s2", "Gi0/0.20")], ips), ["Gi0/0.10: 10.0.10.1/24", "Gi0/0.10: 10.0.10.2"])
+        self.assertEqual(
+            subinterface_ip_values([sub("s1", "Gi0/0.10"), sub("s2", "Gi0/0.20")], ips), ["Gi0/0.10: 10.0.10.1/24", "Gi0/0.10: 10.0.10.2"]
+        )
 
     def test_management_subinterface_adds_port_label_and_ip_to_device_management(self):
         ports, ips = device_management_ports_and_ips(

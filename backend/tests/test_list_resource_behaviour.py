@@ -65,7 +65,11 @@ class TestFilters:
 class TestDateRange:
     def _seed(self, db_session) -> None:
         for day, entity in ((14, "a"), (15, "b"), (16, "c")):
-            db_session.add(AuditLog(entity_type="devices", entity_id=entity, action="UPDATE", details=entity, created_at=datetime(2026, 8, day, 12, 0, 0)))
+            db_session.add(
+                AuditLog(
+                    entity_type="devices", entity_id=entity, action="UPDATE", details=entity, created_at=datetime(2026, 8, day, 12, 0, 0)
+                )
+            )
         db_session.commit()
 
     def _ids(self, db_session, **kwargs) -> list[str]:
@@ -139,7 +143,9 @@ class TestUpdateResourceBehaviour:
 
     def _hypervisor_os(self, client) -> str:
         category = client.post("/api/v1/resources/os-categories", json={"name": "Гипервизоры тест", "is_hypervisor": True}).json()
-        return client.post("/api/v1/resources/operating-systems", json={"category_id": category["id"], "name": "HV", "version": "1"}).json()["id"]
+        return client.post(
+            "/api/v1/resources/operating-systems", json={"category_id": category["id"], "name": "HV", "version": "1"}
+        ).json()["id"]
 
     def test_moving_a_vm_to_another_host_updates_its_hypervisor_os(self, client):
         hv = self._hypervisor_os(client)

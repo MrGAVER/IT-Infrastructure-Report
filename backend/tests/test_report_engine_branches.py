@@ -7,7 +7,8 @@ report_engine: операции фильтра (`ne`, `contains`, `not_contains`
 report_render: ошибки docx-блоков (нет блоков, таблица без сущности/колонок, неизвестный тип, лист без сущности/колонок), выравнивание
 абзаца по центру, разрыв страницы, пустые ячейки, диспетчер форматов, ошибка отдельной секции в предпросмотре (остальные секции строятся).
 
-Тесты проверяют поведение — какие строки остаются после фильтра, какой текст в сообщении об ошибке, что лежит в готовом docx, — а не просто вызывают строки.
+Тесты проверяют поведение — какие строки остаются после фильтра, какой текст в сообщении об ошибке, что лежит в готовом docx, — а
+не просто вызывают строки.
 
 Запуск: pytest backend/tests/test_report_engine_branches.py -v
 """
@@ -81,7 +82,11 @@ class TestFilters:
         assert _names(domains, filters) == ["Кампус"]
 
     def test_default_operation_is_eq(self, domains):
-        assert _names(domains, [{"path": "name", "op": "eq", "value": "кампус"}]) == _names(domains, [{"path": "name", "value": "кампус"}]) == ["Кампус"]
+        assert (
+            _names(domains, [{"path": "name", "op": "eq", "value": "кампус"}])
+            == _names(domains, [{"path": "name", "value": "кампус"}])
+            == ["Кампус"]
+        )
 
     @pytest.mark.parametrize(
         "broken",
@@ -115,7 +120,10 @@ class TestColumnValue:
         assert self._value(domains, {"source": "index"}, index=7) == 7
 
     def test_static_column_substitutes_report_parameters(self, domains):
-        assert self._value(domains, {"source": "static", "value": "Отчёт для {{customer}}"}, params={"customer": "ООО «Север»"}) == "Отчёт для ООО «Север»"
+        assert (
+            self._value(domains, {"source": "static", "value": "Отчёт для {{customer}}"}, params={"customer": "ООО «Север»"})
+            == "Отчёт для ООО «Север»"
+        )
 
     def test_static_column_with_unknown_parameter_gives_an_empty_place(self, domains):
         assert self._value(domains, {"source": "static", "value": "[{{nobody}}]"}) == "[]"
@@ -174,7 +182,11 @@ class TestValidateConfig:
                     {"type": "paragraph", "text": "Текст"},
                     {"type": "page_break"},
                     _table(filters=[{"path": "name", "op": "contains", "value": "a"}], sort_by="vlan_id"),
-                    _table(root_entity="vlan-domains", expand="vlans", columns=[{"source": "index"}, {"header": "Статика", "source": "static", "value": "x"}]),
+                    _table(
+                        root_entity="vlan-domains",
+                        expand="vlans",
+                        columns=[{"source": "index"}, {"header": "Статика", "source": "static", "value": "x"}],
+                    ),
                 ]
             },
         )
@@ -223,7 +235,10 @@ class TestBuildDocxErrors:
                 {"blocks": [{"type": "table", "columns": [{"header": "X", "path": "name"}]}]},
                 "Блок-таблица должен содержать исходную сущность и хотя бы одну колонку",
             ),
-            ({"blocks": [{"type": "table", "root_entity": "vlans", "columns": []}]}, "Блок-таблица должен содержать исходную сущность и хотя бы одну колонку"),
+            (
+                {"blocks": [{"type": "table", "root_entity": "vlans", "columns": []}]},
+                "Блок-таблица должен содержать исходную сущность и хотя бы одну колонку",
+            ),
             ({"blocks": [{"type": "heading", "text": "ок"}, {"type": "diagram"}]}, "Неизвестный тип блока: diagram"),
         ],
     )
@@ -276,13 +291,16 @@ class TestBuildDocxContent:
 
 class TestSheetErrorsSurfaceThroughTables:
     def test_table_without_columns_in_a_sheet_style_block_names_the_title(self, db_session, tmp_path):
-        # _sheet_rows сам проверяет исходную сущность и колонки: докс-блок их проверяет раньше, поэтому до этих веток доходит только предпросмотр.
+        # _sheet_rows сам проверяет исходную сущность и колонки: докс-блок их проверяет раньше, поэтому до этих веток доходит
+        # только предпросмотр.
         result = preview_rows(db_session, {"blocks": [{"type": "table", "title": "Без колонок", "root_entity": "vlans", "columns": []}]})
 
         assert result["sections"] == [{"title": "Без колонок", "error": "У листа 'Без колонок' нет ни одной колонки"}]
 
     def test_table_without_entity_names_the_title(self, db_session):
-        result = preview_rows(db_session, {"blocks": [{"type": "table", "title": "Без сущности", "columns": [{"header": "X", "path": "name"}]}]})
+        result = preview_rows(
+            db_session, {"blocks": [{"type": "table", "title": "Без сущности", "columns": [{"header": "X", "path": "name"}]}]}
+        )
 
         assert result["sections"] == [{"title": "Без сущности", "error": "У листа 'Без сущности' не задана исходная сущность"}]
 
@@ -292,8 +310,19 @@ class TestPreviewRows:
         config = {
             "blocks": [
                 {"type": "heading", "text": "Не таблица — в предпросмотре не участвует"},
-                {"type": "table", "title": "Сломанная", "root_entity": "vlan-domains", "columns": [{"header": "Без пути", "source": "field"}]},
-                {"type": "table", "title": "Домены", "root_entity": "vlan-domains", "sort_by": "name", "columns": [{"header": "Домен", "path": "name"}]},
+                {
+                    "type": "table",
+                    "title": "Сломанная",
+                    "root_entity": "vlan-domains",
+                    "columns": [{"header": "Без пути", "source": "field"}],
+                },
+                {
+                    "type": "table",
+                    "title": "Домены",
+                    "root_entity": "vlan-domains",
+                    "sort_by": "name",
+                    "columns": [{"header": "Домен", "path": "name"}],
+                },
             ]
         }
 

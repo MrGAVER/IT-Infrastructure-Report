@@ -74,7 +74,9 @@ def _snapshot_version(t: ReportTemplate, session: Session) -> None:
     """Сохраняет ТЕКУЩЕЕ (ещё не изменённое) состояние шаблона как запись истории версий —
     вызывается непосредственно перед тем, как t будет перезаписан (обновление или восстановление
     другой версии), чтобы это состояние можно было потом вернуть."""
-    next_number = (session.scalar(select(func.max(ReportTemplateVersion.version_number)).where(ReportTemplateVersion.report_template_id == t.id)) or 0) + 1
+    next_number = (
+        session.scalar(select(func.max(ReportTemplateVersion.version_number)).where(ReportTemplateVersion.report_template_id == t.id)) or 0
+    ) + 1
     session.add(
         ReportTemplateVersion(
             report_template_id=t.id,
@@ -135,7 +137,9 @@ def create_template(body: ReportTemplateWrite, session: Session = Depends(get_db
 
 
 @router.put("/report-templates/{template_id}")
-def update_template(template_id: str, body: ReportTemplateWrite, t: ReportTemplate = Depends(_existing_template), session: Session = Depends(get_db)):
+def update_template(
+    template_id: str, body: ReportTemplateWrite, t: ReportTemplate = Depends(_existing_template), session: Session = Depends(get_db)
+):
     name, config, fmt, description = _load_and_validate(body)
     dup = session.scalar(select(ReportTemplate).where(ReportTemplate.name == name, ReportTemplate.id != template_id))
     if dup:
@@ -174,7 +178,9 @@ def list_template_versions(template_id: str, session: Session = Depends(get_db))
     if not session.get(ReportTemplate, template_id):
         raise HTTPException(404, "Шаблон отчёта не найден")
     rows = session.scalars(
-        select(ReportTemplateVersion).where(ReportTemplateVersion.report_template_id == template_id).order_by(ReportTemplateVersion.version_number.desc())
+        select(ReportTemplateVersion)
+        .where(ReportTemplateVersion.report_template_id == template_id)
+        .order_by(ReportTemplateVersion.version_number.desc())
     ).all()
     return [
         {
@@ -234,7 +240,9 @@ def duplicate_template(template_id: str, session: Session = Depends(get_db)):
 
 
 @router.post("/report-templates/{template_id}/generate")
-def generate_template_report(body: ReportGenerateRequest | None = None, t: ReportTemplate = Depends(_existing_template), session: Session = Depends(get_db)):
+def generate_template_report(
+    body: ReportGenerateRequest | None = None, t: ReportTemplate = Depends(_existing_template), session: Session = Depends(get_db)
+):
     body = body or ReportGenerateRequest()
     cleanup_before_new_report(REPORT_DIR)
     try:

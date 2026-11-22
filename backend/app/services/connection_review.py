@@ -66,7 +66,13 @@ def set_port_role(interface_id: str, payload: dict[str, Any], session: Session) 
     before = port_role(iface)
     after = role_from_flags(is_management, is_data_transfer)
     write_port_role(iface, after, session)
-    audit(session, "interfaces", iface.id, AuditAction.UPDATE, f"Роль порта «{iface.name}»: {PORT_ROLE_LABELS[before]} → {PORT_ROLE_LABELS[after]}")
+    audit(
+        session,
+        "interfaces",
+        iface.id,
+        AuditAction.UPDATE,
+        f"Роль порта «{iface.name}»: {PORT_ROLE_LABELS[before]} → {PORT_ROLE_LABELS[after]}",
+    )
     session.commit()
     session.refresh(iface)
     return enrich_interfaces([iface], session)[0]
@@ -191,7 +197,8 @@ def parse_approve_request(payload: Any) -> ApproveSelection:
     """Разбор тела одобрения — чистая проверка формы, без обращения к БД (её же вызывает модель запроса
     `ApprovePortConfigRequest`, api/port_config_schemas.py, поэтому правила живут только здесь).
 
-    Ровно одно из `connection_ids` / `match`. Возвращает ApproveByIds (уникальные id в порядке прихода) либо ApproveByMatch (условия поиска)."""
+    Ровно одно из `connection_ids` / `match`. Возвращает ApproveByIds (уникальные id в порядке прихода) либо ApproveByMatch
+    (условия поиска)."""
     if not isinstance(payload, dict):
         raise HTTPException(422, "Тело запроса должно быть объектом")
     has_ids, has_match = "connection_ids" in payload, "match" in payload

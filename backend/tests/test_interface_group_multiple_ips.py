@@ -35,7 +35,10 @@ def test_every_ip_of_group_is_written_into_every_member_port(client):
 
     assert r.status_code == 200, r.text
     (group,) = r.json()["groups"]
-    assert [(i["ip_address"], i["prefix_length"], i["purpose"]) for i in group["ips"]] == [("10.0.0.5", 24, "Управление"), ("10.0.1.5", 24, "Данные")]
+    assert [(i["ip_address"], i["prefix_length"], i["purpose"]) for i in group["ips"]] == [
+        ("10.0.0.5", 24, "Управление"),
+        ("10.0.1.5", 24, "Данные"),
+    ]
     expected = [("10.0.0.5", 24, "Управление"), ("10.0.1.5", 24, "Данные")]
     assert _port_ips(client, dev, "Gi0/1") == expected
     assert _port_ips(client, dev, "Gi0/2") == expected
@@ -52,7 +55,14 @@ def test_group_ips_replace_own_ips_of_port_and_keep_row_ids_in_place(client):
     r = _sync(
         client,
         dev["id"],
-        [{"id": iface["id"], "name": "Gi0/1", "group_key": "g1", "ips": [{"id": v, "ip_address": k, "prefix_length": 24} for k, v in before.items()]}],
+        [
+            {
+                "id": iface["id"],
+                "name": "Gi0/1",
+                "group_key": "g1",
+                "ips": [{"id": v, "ip_address": k, "prefix_length": 24} for k, v in before.items()],
+            }
+        ],
         [_group()],
     )
 
@@ -78,7 +88,9 @@ def test_group_without_ips_does_not_touch_ips_of_member_ports(client):
     dev = _device(client, serial="SW-MIPS-4")
     own = [{"ip_address": "192.168.1.9", "prefix_length": 24, "purpose": "Своё"}]
 
-    r = _sync(client, dev["id"], [_port("Gi0/1", "g1", ips=own)], [_group(ips=[{"ip_address": "  ", "prefix_length": ""}])])  # пустой плейсхолдер формы
+    r = _sync(
+        client, dev["id"], [_port("Gi0/1", "g1", ips=own)], [_group(ips=[{"ip_address": "  ", "prefix_length": ""}])]
+    )  # пустой плейсхолдер формы
 
     assert r.status_code == 200, r.text
     assert r.json()["groups"][0]["ips"] == []
@@ -146,7 +158,10 @@ def test_dropping_group_removes_its_ips_but_keeps_values_written_into_ports(clie
     dev = _device(client, serial="SW-MIPS-9")
     (group,) = _sync(client, dev["id"], [_port("Gi0/1", "g1")], [_group()]).json()["groups"]
     iface = _stored_interfaces(client, dev["id"])["Gi0/1"]
-    kept = [{"id": i["id"], "ip_address": i["ip_address"], "prefix_length": i["prefix_length"], "purpose": i["purpose"]} for i in _ips(client, iface["id"])]
+    kept = [
+        {"id": i["id"], "ip_address": i["ip_address"], "prefix_length": i["prefix_length"], "purpose": i["purpose"]}
+        for i in _ips(client, iface["id"])
+    ]
 
     r = _sync(client, dev["id"], [{"id": iface["id"], "name": "Gi0/1", "ips": kept}], [])
 

@@ -1,9 +1,11 @@
 """Вывод launcher при перенаправлении в файл или канал (EXE не должен падать на кириллице).
 
-Все сообщения launcher.py русские. Если вывод не в консоль (`InfraRegistry.exe > log.txt`, служба, планировщик задач, CI), Python на Windows берёт
-кодировку ANSI системы: на английской Windows это cp1252, и `print("Создан файл настроек…")` падает с UnicodeEncodeError — EXE не запускался вовсе
-(нашёл smoke-запуск EXE в CI на windows-latest: traceback из `load_exe_settings`). На русской Windows ANSI-кодировка cp1251 кириллицу умеет, поэтому
-у разработчиков ошибка не воспроизводилась.
+Все сообщения launcher.py русские. Если вывод не в консоль (`InfraRegistry.exe > log.txt`, служба, планировщик задач, CI), Python
+на Windows берёт кодировку ANSI системы: на английской Windows это cp1252, и `print("Создан файл настроек…")` падает с
+UnicodeEncodeError — EXE не
+запускался вовсе (нашёл smoke-запуск EXE в CI на windows-latest: traceback из `load_exe_settings`). На русской Windows
+ANSI-кодировка cp1251
+кириллицу умеет, поэтому у разработчиков ошибка не воспроизводилась.
 
 Запуск: pytest backend/tests/test_launcher_stdio.py -v  (launcher.py лежит в корне репозитория — тест добавляет его в sys.path)
 """
@@ -88,4 +90,6 @@ def test_missing_streams_are_ignored(launcher, monkeypatch, missing):
 def test_main_configures_the_streams_before_it_prints_anything(launcher):
     source = inspect.getsource(launcher.main)
     assert "configure_stdio()" in source
-    assert source.index("configure_stdio()") < source.index("load_exe_settings()"), "первое сообщение печатает load_exe_settings (создание файла настроек)"
+    assert source.index("configure_stdio()") < source.index("load_exe_settings()"), (
+        "первое сообщение печатает load_exe_settings (создание файла настроек)"
+    )

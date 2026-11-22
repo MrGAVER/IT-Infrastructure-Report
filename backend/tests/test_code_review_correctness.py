@@ -116,7 +116,9 @@ class TestRackSlot:
     def test_database_refuses_two_devices_in_one_slot(self, client, db_session):
         ctx = _rack_fixture(client)
         assert _device(client, ctx, "SN-1", "10U").status_code == 201
-        db_session.add(PhysicalDevice(device_type_id=ctx["device_type_id"], serial_number="SN-2", rack_id=ctx["rack_id"], rack_position="10U"))
+        db_session.add(
+            PhysicalDevice(device_type_id=ctx["device_type_id"], serial_number="SN-2", rack_id=ctx["rack_id"], rack_position="10U")
+        )
         with pytest.raises(IntegrityError):
             db_session.commit()
         db_session.rollback()
@@ -162,7 +164,13 @@ class TestRackSlot:
     def test_validation_has_no_side_effects(self, client, db_session):
         ctx = _rack_fixture(client)
         first = _device(client, ctx, "SN-1", "10U").json()
-        data = {"device_type_id": ctx["device_type_id"], "serial_number": "SN-2", "room_id": ctx["room_id"], "rack_id": ctx["rack_id"], "rack_position": "10U"}
+        data = {
+            "device_type_id": ctx["device_type_id"],
+            "serial_number": "SN-2",
+            "room_id": ctx["room_id"],
+            "rack_id": ctx["rack_id"],
+            "rack_position": "10U",
+        }
         validate_resource(PhysicalDevice, data, db_session, None, False, True)
         assert db_session.get(PhysicalDevice, first["id"]).rack_position == "10U"
         assert not db_session.dirty
@@ -265,7 +273,12 @@ TEMPLATE_CONFIG = {
             "title": "Лист1",
             "columns": [{"width": 25}],
             "rows": [
-                {"height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"}, "cells": [{"col": 0, "kind": "field", "path": "name"}]}
+                {
+                    "height": 18,
+                    "repeat": True,
+                    "data_source": {"root_entity": "information-systems"},
+                    "cells": [{"col": 0, "kind": "field", "path": "name"}],
+                }
             ],
         }
     ]
@@ -334,12 +347,18 @@ class TestViewerReports:
 class TestVlanBulkOperations:
     def _devices(self, client, count: int) -> list[dict]:
         device_type = _create_device_type(client, "Тип для VLAN-операций")
-        return [client.post("/api/v1/resources/devices", json={"device_type_id": device_type["id"], "serial_number": f"VB-{i}"}).json() for i in range(count)]
+        return [
+            client.post("/api/v1/resources/devices", json={"device_type_id": device_type["id"], "serial_number": f"VB-{i}"}).json()
+            for i in range(count)
+        ]
 
     def _assign_vlans(self, client, device: dict, numbers: list[int]) -> None:
         for number in numbers:
             vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": number, "name": f"vlan{number}"}).json()
-            assert client.post("/api/v1/resources/device-vlans", json={"physical_device_id": device["id"], "vlan_id": vlan["id"]}).status_code == 201
+            assert (
+                client.post("/api/v1/resources/device-vlans", json={"physical_device_id": device["id"], "vlan_id": vlan["id"]}).status_code
+                == 201
+            )
 
     def _count_selects(self, db_session, action) -> int:
         from sqlalchemy import event
@@ -380,9 +399,12 @@ class TestVlanBulkOperations:
         self._assign_vlans(client, source_small, [101])
         self._assign_vlans(client, source_big, list(range(201, 213)))
         small = self._count_selects(
-            db_session, lambda: client.post(f"/api/v1/devices/{target_small['id']}/vlan-copy", json={"source_device_id": source_small["id"]})
+            db_session,
+            lambda: client.post(f"/api/v1/devices/{target_small['id']}/vlan-copy", json={"source_device_id": source_small["id"]}),
         )
-        big = self._count_selects(db_session, lambda: client.post(f"/api/v1/devices/{target_big['id']}/vlan-copy", json={"source_device_id": source_big["id"]}))
+        big = self._count_selects(
+            db_session, lambda: client.post(f"/api/v1/devices/{target_big['id']}/vlan-copy", json={"source_device_id": source_big["id"]})
+        )
         assert big == small
 
     def test_bulk_assign_query_count_does_not_grow_with_the_number_of_devices(self, client, db_session):
@@ -390,17 +412,24 @@ class TestVlanBulkOperations:
         vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 77, "name": "bulk"}).json()
         few = self._count_selects(
             db_session,
-            lambda: client.post("/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": [d["id"] for d in devices[:2]], "vlan_id": vlan["id"]}),
+            lambda: client.post(
+                "/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": [d["id"] for d in devices[:2]], "vlan_id": vlan["id"]}
+            ),
         )
         many = self._count_selects(
-            db_session, lambda: client.post("/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": [d["id"] for d in devices], "vlan_id": vlan["id"]})
+            db_session,
+            lambda: client.post(
+                "/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": [d["id"] for d in devices], "vlan_id": vlan["id"]}
+            ),
         )
         assert many == few
 
     def test_bulk_assign_still_reports_missing_devices(self, client):
         (device,) = self._devices(client, 1)
         vlan = client.post("/api/v1/resources/vlans", json={"vlan_id": 78, "name": "bulk2"}).json()
-        r = client.post("/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": [device["id"], "нет-такого"], "vlan_id": vlan["id"]})
+        r = client.post(
+            "/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": [device["id"], "нет-такого"], "vlan_id": vlan["id"]}
+        )
         assert r.status_code == 404 and "нет-такого" in r.text
 
 

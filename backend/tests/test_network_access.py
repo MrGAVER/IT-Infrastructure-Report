@@ -121,7 +121,9 @@ class TestIpLiteralHost:
     def test_ip_addresses(self, header):
         assert is_ip_literal_host(header)
 
-    @pytest.mark.parametrize("header", ["", "localhost", "reestr.corp.local:8000", "evil.example", "192.168.1.10.evil.example", "[unclosed"])
+    @pytest.mark.parametrize(
+        "header", ["", "localhost", "reestr.corp.local:8000", "evil.example", "192.168.1.10.evil.example", "[unclosed"]
+    )
     def test_names_are_not_ip_literals(self, header):
         assert not is_ip_literal_host(header)
 

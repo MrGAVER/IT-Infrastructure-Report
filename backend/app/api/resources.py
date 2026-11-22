@@ -38,7 +38,11 @@ def _guard(resource: str, request: Request) -> None:
 
 @router.get("")
 def resources():
-    return [{"key": k, "name": DISPLAY_NAMES.get(k, k), "columns": columns_for(v)} for k, v in MODEL_MAP.items() if k not in ADMIN_ONLY_RESOURCES]
+    return [
+        {"key": k, "name": DISPLAY_NAMES.get(k, k), "columns": columns_for(v)}
+        for k, v in MODEL_MAP.items()
+        if k not in ADMIN_ONLY_RESOURCES
+    ]
 
 
 @router.get("/{resource}/schema")

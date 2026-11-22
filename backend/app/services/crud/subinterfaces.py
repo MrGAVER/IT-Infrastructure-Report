@@ -8,7 +8,16 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 from ...constants import OwnerType
-from ...models import DeviceInterface, DeviceSubinterface, InterfaceGroupSubinterface, IPAddress, OpenPort, PhysicalDevice, ProtocolPortCatalog, VLAN
+from ...models import (
+    DeviceInterface,
+    DeviceSubinterface,
+    InterfaceGroupSubinterface,
+    IPAddress,
+    OpenPort,
+    PhysicalDevice,
+    ProtocolPortCatalog,
+    VLAN,
+)
 from ..port_vlans import effective_vlan_ids
 from ..serialization import enrich_open_ports, serialize
 from .owned_rows import sync_owner_ip_addresses, sync_owner_open_ports
@@ -32,7 +41,10 @@ def _normalize_subinterface_item(item: dict[str, Any], allowed_vlans: set[str]) 
     if not vlan_id:
         raise HTTPException(422, f"У подинтерфейса «{name}» не выбран VLAN")
     if not isinstance(vlan_id, str) or vlan_id not in allowed_vlans:
-        raise HTTPException(422, f"VLAN подинтерфейса «{name}» не разрешён для данного устройства: выберите другой VLAN или добавьте этот в «VLAN устройства»")
+        raise HTTPException(
+            422,
+            f"VLAN подинтерфейса «{name}» не разрешён для данного устройства: выберите другой VLAN или добавьте этот в «VLAN устройства»",
+        )
     return {
         "name": name,
         "vlan_id": vlan_id,
@@ -149,8 +161,13 @@ def validate_device_subinterfaces(device_id: str, session: Session) -> None:
     vlans = Counter((r.parent_interface_id, r.vlan_number) for r in rows)
     for r in rows:
         if vlans[(r.parent_interface_id, r.vlan_number)] > 1:
-            raise HTTPException(422, f"На порту «{r.parent_name}» несколько подинтерфейсов на VLAN {r.vlan_number} — на одном порту VLAN используется один раз")
-    port_names = {n.casefold() for n in session.scalars(select(DeviceInterface.name).where(DeviceInterface.physical_device_id == device_id)).all()}
+            raise HTTPException(
+                422,
+                f"На порту «{r.parent_name}» несколько подинтерфейсов на VLAN {r.vlan_number} — на одном порту VLAN используется один раз",
+            )
+    port_names = {
+        n.casefold() for n in session.scalars(select(DeviceInterface.name).where(DeviceInterface.physical_device_id == device_id)).all()
+    }
     for r in rows:
         if r.name.casefold() in port_names:
             raise HTTPException(422, f"Имя подинтерфейса «{r.name}» совпадает с именем порта устройства")
@@ -207,7 +224,9 @@ def enrich_subinterfaces(subinterfaces: Sequence[DeviceSubinterface], session: S
     ids = [s.id for s in subinterfaces]
     ips_by_owner: dict[str, list[dict[str, Any]]] = {}
     for ip in session.scalars(
-        select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE, IPAddress.owner_id.in_(ids)).order_by(IPAddress.ip_address, IPAddress.id)
+        select(IPAddress)
+        .where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE, IPAddress.owner_id.in_(ids))
+        .order_by(IPAddress.ip_address, IPAddress.id)
     ).all():
         ips_by_owner.setdefault(ip.owner_id, []).append(serialize(ip))
     ports = session.scalars(

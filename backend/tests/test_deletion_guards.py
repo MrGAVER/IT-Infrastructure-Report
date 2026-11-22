@@ -366,7 +366,9 @@ def _seed_orphan_dataset(session):
     vm = VirtualMachine(name="vm-ok")
     session.add_all([iface, vm])
     session.flush()
-    catalog = ProtocolPortCatalog(port=54321, protocol_type="GUARD-TEST")  # уникальная запись: client-фикстура засевает справочник стандартными протоколами
+    catalog = ProtocolPortCatalog(
+        port=54321, protocol_type="GUARD-TEST"
+    )  # уникальная запись: client-фикстура засевает справочник стандартными протоколами
     software = SoftwareAsset(name="ПО теста")
     session.add_all([catalog, software])
     session.flush()

@@ -19,7 +19,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from report_seed import seed_registry  # noqa: E402
 
 from app import reporting  # noqa: E402
-from app.models import Connection, DeviceInterface, DeviceStack, DeviceStackMember, EmbeddedOperatingSystem, InformationSystem, PhysicalDevice  # noqa: E402
+from app.models import (
+    Connection,
+    DeviceInterface,
+    DeviceStack,
+    DeviceStackMember,
+    EmbeddedOperatingSystem,
+    InformationSystem,
+    PhysicalDevice,
+)  # noqa: E402
 from app.services.serialization import enrich_connections, enrich_devices, enrich_information_systems, enrich_interfaces  # noqa: E402
 
 DEVICE_FIELDS = (
@@ -90,7 +98,14 @@ def _all(session, model):
 
 
 NO_STACK = {"stack_id": None, "stack_name": None, "stack_position": None}
-EMPTY_DEVICE = {"management_interface": "", "management_ips": "", "embedded_os_name": "", "embedded_os_version": "", "vlan_summary": "", **NO_STACK}
+EMPTY_DEVICE = {
+    "management_interface": "",
+    "management_ips": "",
+    "embedded_os_name": "",
+    "embedded_os_version": "",
+    "vlan_summary": "",
+    **NO_STACK,
+}
 
 
 class TestEnrichDevices:

@@ -7,8 +7,8 @@ Linux-job `test` CI, а сборку под Windows не запускал ник
 Правила те же, что у соответствующих шагов Linux-job: `npm run audit:gate` и `pip-audit` по `requirements.lock` блокируют сборку,
 `pip-audit` по `requirements-build.lock` (PyInstaller и его хуки изредка дают замечания, не относящиеся к рантайму) только сообщает.
 
-Тест статический (запустить .bat здесь негде — нет Windows): разбирает скрипт, ci.yml и lock-файл. Саму сборку проверяет job `build-windows`.
-Запуск: pytest backend/tests/test_build_windows_audit.py -v
+Тест статический (запустить .bat здесь негде — нет Windows): разбирает скрипт, ci.yml и lock-файл. Саму сборку проверяет job
+`build-windows`. Запуск: pytest backend/tests/test_build_windows_audit.py -v
 """
 
 from __future__ import annotations
@@ -69,7 +69,9 @@ def test_runtime_lock_audit_runs_after_the_install_and_before_pyinstaller_and_bl
     commands = _commands()
     audit = _audit_index(commands, "requirements.lock")
     assert _index(commands, "pip install") < audit < _index(commands, "PyInstaller")
-    assert "--require-hashes" in commands[audit] and commands[audit].startswith("python -m pip_audit "), "pip-audit из venv, куда поставлен lock"
+    assert "--require-hashes" in commands[audit] and commands[audit].startswith("python -m pip_audit "), (
+        "pip-audit из venv, куда поставлен lock"
+    )
     assert "--disable-pip" in commands[audit], "lock полный и с хешами: второй venv с повторной установкой всего набора не нужен"
     assert _blocks_on_failure(commands, audit), "уязвимость в runtime-зависимости должна останавливать сборку EXE"
 

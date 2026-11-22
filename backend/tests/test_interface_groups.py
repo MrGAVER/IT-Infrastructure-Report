@@ -362,7 +362,9 @@ def test_group_ip_purpose_is_written_into_ip_of_every_member_port(client):
     assert [(i["ip_address"], i["purpose"]) for i in group["ips"]] == [("10.0.0.5", "Доступ администраторов")]
     stored = _stored_interfaces(client, dev["id"])
     for name in ("Gi0/1", "Gi0/2"):
-        assert [(i["ip_address"], i["prefix_length"], i["purpose"]) for i in _ips(client, stored[name]["id"])] == [("10.0.0.5", 24, "Доступ администраторов")]
+        assert [(i["ip_address"], i["prefix_length"], i["purpose"]) for i in _ips(client, stored[name]["id"])] == [
+            ("10.0.0.5", 24, "Доступ администраторов")
+        ]
     assert _ips(client, stored["Gi0/3"]["id"]) == []  # порт вне группы не затронут
 
 

@@ -101,7 +101,9 @@ class TestLoginFlow:
         from app.services.login_throttle import LoginThrottle
 
         monkeypatch.setattr(lockout_module, "AUTH_MAX_FAILED_ATTEMPTS", 5)  # порог читает модуль блокировки
-        monkeypatch.setattr(login_module, "login_throttle", LoginThrottle(free_attempts=1000))  # authenticate читает троттлинг из модуля входа
+        monkeypatch.setattr(
+            login_module, "login_throttle", LoginThrottle(free_attempts=1000)
+        )  # authenticate читает троттлинг из модуля входа
         _bootstrap_admin(client)
         for _ in range(5):
             r = client.post("/api/v1/auth/login", json={"username": "admin", "password": "wrong-pass1"})
@@ -126,7 +128,11 @@ class TestRoleBasedAccess:
     def _bootstrap_viewer(self, client) -> str:
         _bootstrap_admin(client)
         admin_token = _login(client, "admin", "Admin1234")
-        client.post("/api/v1/auth/users", json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"}, headers=_auth_headers(admin_token))
+        client.post(
+            "/api/v1/auth/users",
+            json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"},
+            headers=_auth_headers(admin_token),
+        )
         return _login(client, "viewer1", "Viewer1234")
 
     def test_viewer_can_read(self, client):
@@ -161,7 +167,9 @@ class TestUserManagement:
     def test_duplicate_username_is_rejected_case_insensitively(self, client):
         _bootstrap_admin(client)
         token = _login(client, "admin", "Admin1234")
-        r = client.post("/api/v1/auth/users", json={"username": "Admin", "password": "Other1234", "role": "viewer"}, headers=_auth_headers(token))
+        r = client.post(
+            "/api/v1/auth/users", json={"username": "Admin", "password": "Other1234", "role": "viewer"}, headers=_auth_headers(token)
+        )
         assert r.status_code == 409, r.text
         assert r.json()["detail"]["code"] == "DUPLICATE_USERNAME"
 
@@ -190,7 +198,9 @@ class TestUserManagement:
         _bootstrap_admin(client)
         token = _login(client, "admin", "Admin1234")
         me = client.get("/api/v1/auth/me", headers=_auth_headers(token)).json()["user"]
-        client.post("/api/v1/auth/users", json={"username": "admin2", "password": "Admin1234", "role": "admin"}, headers=_auth_headers(token))
+        client.post(
+            "/api/v1/auth/users", json={"username": "admin2", "password": "Admin1234", "role": "admin"}, headers=_auth_headers(token)
+        )
         r = client.put(f"/api/v1/auth/users/{me['id']}", json={"role": "viewer"}, headers=_auth_headers(token))
         assert r.status_code == 200
 
@@ -247,7 +257,11 @@ class TestOwnPasswordChange:
     def test_viewer_can_change_their_own_password(self, client):
         _bootstrap_admin(client)
         admin_token = _login(client, "admin", "Admin1234")
-        client.post("/api/v1/auth/users", json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"}, headers=_auth_headers(admin_token))
+        client.post(
+            "/api/v1/auth/users",
+            json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"},
+            headers=_auth_headers(admin_token),
+        )
         viewer_token = _login(client, "viewer1", "Viewer1234")
 
         r = client.put(
@@ -313,7 +327,11 @@ class TestSessions:
     def test_cannot_revoke_someone_elses_session(self, client):
         _bootstrap_admin(client)
         admin_token = _login(client, "admin", "Admin1234")
-        client.post("/api/v1/auth/users", json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"}, headers=_auth_headers(admin_token))
+        client.post(
+            "/api/v1/auth/users",
+            json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"},
+            headers=_auth_headers(admin_token),
+        )
         viewer_token = _login(client, "viewer1", "Viewer1234")
 
         admin_sessions = client.get("/api/v1/auth/sessions", headers=_auth_headers(admin_token)).json()
@@ -330,7 +348,11 @@ class TestSessions:
         другом устройстве."""
         _bootstrap_admin(client)
         admin_token = _login(client, "admin", "Admin1234")
-        client.post("/api/v1/auth/users", json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"}, headers=_auth_headers(admin_token))
+        client.post(
+            "/api/v1/auth/users",
+            json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"},
+            headers=_auth_headers(admin_token),
+        )
         token_a = _login(client, "viewer1", "Viewer1234")
         token_b = _login(client, "viewer1", "Viewer1234")
 
@@ -410,7 +432,9 @@ class TestSessionCleanup:
         from app.services.auth import create_session, create_user
 
         user = create_user(db_session, username="admin", password="Admin1234", role="admin")
-        stale = AuthSession(token_hash="stale", user_id=user.id, expires_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1))
+        stale = AuthSession(
+            token_hash="stale", user_id=user.id, expires_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1)
+        )
         db_session.add(stale)
         db_session.commit()
 

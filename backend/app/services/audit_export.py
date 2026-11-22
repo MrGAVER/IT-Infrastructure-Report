@@ -50,15 +50,18 @@ def _audit_rows(session: Session, filters: dict | None, date_from: str | None, d
     offset = 0
     while offset < EXPORT_ROW_LIMIT:
         limit = min(EXPORT_PAGE_SIZE, EXPORT_ROW_LIMIT - offset)
-        items = list_resource("audit-log", session, offset=offset, limit=limit, filters=filters, date_from=date_from, date_to=date_to)["items"]
+        items = list_resource("audit-log", session, offset=offset, limit=limit, filters=filters, date_from=date_from, date_to=date_to)[
+            "items"
+        ]
         yield from items
         if len(items) < limit:
             return
         offset += limit
 
 
-# Имя файла отчёта журнала аудита начинается с этого префикса. Его читает и скачивание (api/reports.py: файл только для администратора), поэтому
-# генератор имени и проверка обязаны брать одну константу — иначе переименование префикса молча сняло бы защиту.
+# Имя файла отчёта журнала аудита начинается с этого префикса. Его читает и скачивание (api/reports.py: файл только для
+# администратора), поэтому генератор имени и проверка обязаны брать одну константу — иначе переименование префикса молча сняло бы
+# защиту.
 # Проверка по имени — второй слой: основной — подкаталог (audit_report_dir), до которого общий эндпоинт скачивания не дотягивается.
 AUDIT_REPORT_PREFIX = "Журнал_аудита_"
 
@@ -89,7 +92,8 @@ def build_audit_log_report(
     Файл создаётся в подкаталоге audit_report_dir(report_dir), а не в самом report_dir.
 
     Пример вызова:
-        path = build_audit_log_report(session, REPORT_DIR, date_from="2026-10-01", entity_type="devices")  # REPORT_DIR/audit/Журнал_аудита_….xlsx
+        path = build_audit_log_report(session, REPORT_DIR, date_from="2026-10-01", entity_type="devices")  #
+        REPORT_DIR/audit/Журнал_аудита_….xlsx
     """
     filters = {"entity_type": entity_type} if entity_type else None
 

@@ -26,9 +26,13 @@ def stack_detail(session: Session, stack_id: str) -> dict[str, Any]:
     if not stack:
         raise HTTPException(404, "Стек не найден")
 
-    member_rows = session.scalars(select(DeviceStackMember).where(DeviceStackMember.stack_id == stack_id).order_by(DeviceStackMember.position)).all()
+    member_rows = session.scalars(
+        select(DeviceStackMember).where(DeviceStackMember.stack_id == stack_id).order_by(DeviceStackMember.position)
+    ).all()
     device_ids = [m.physical_device_id for m in member_rows]
-    devices_by_id = {d.id: d for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(device_ids))).all()} if device_ids else {}
+    devices_by_id = (
+        {d.id: d for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(device_ids))).all()} if device_ids else {}
+    )
     # Порядок — по DeviceStackMember.position (физический номер участника в стеке), а не по тому,
     # в каком порядке БД вернула бы PhysicalDevice — devices_by_id используется только для
     # словарного доступа, реальный порядок задаёт member_rows.
@@ -47,7 +51,9 @@ def stack_detail(session: Session, stack_id: str) -> dict[str, Any]:
         interface_ids = session.scalars(select(DeviceInterface.id).where(DeviceInterface.physical_device_id.in_(device_ids))).all()
         if interface_ids:
             connections = session.scalars(
-                select(Connection).where(Connection.source_interface_id.in_(interface_ids), Connection.destination_interface_id.in_(interface_ids))
+                select(Connection).where(
+                    Connection.source_interface_id.in_(interface_ids), Connection.destination_interface_id.in_(interface_ids)
+                )
             ).all()
 
     return {"stack": serialize(stack), "members": members, "connections": enrich_connections(connections, session)}

@@ -33,7 +33,15 @@ from ...models import (
     VLAN,
     VLANDomainDevice,
 )
-from ..serialization import enrich_connections, enrich_devices, enrich_information_systems, enrich_interfaces, enrich_open_port, enrich_open_ports, serialize
+from ..serialization import (
+    enrich_connections,
+    enrich_devices,
+    enrich_information_systems,
+    enrich_interfaces,
+    enrich_open_port,
+    enrich_open_ports,
+    serialize,
+)
 from .owned_rows import _validate_is_protocol_number_is_free, _validate_open_port_catalog, _validate_open_port_number_is_free
 from .stack_vlan_settings import apply_stack_settings_to_device
 from .vlan_domains import (
@@ -205,7 +213,9 @@ def _vlan_move_audit_notes(vlan: VLAN, unassigned_devices: int, session: Session
     # То же для шаблонов подинтерфейсов групп портов: связи VLAN с группами сняты, а шаблоны на этом VLAN остались.
     stale_groups = _stale_group_subinterfaces_on_vlan(str(vlan.id), session)
     if stale_groups:
-        notes.append(f"Подинтерфейсы групп портов остались на VLAN, которого у группы больше нет ({len(stale_groups)}): " + _listed(stale_groups))
+        notes.append(
+            f"Подинтерфейсы групп портов остались на VLAN, которого у группы больше нет ({len(stale_groups)}): " + _listed(stale_groups)
+        )
     return notes
 
 
@@ -229,7 +239,10 @@ HOOKS: dict[type, ResourceHooks] = {
     Connection: ResourceHooks(enrich_rows=enrich_connections),
     InformationSystem: ResourceHooks(enrich_rows=enrich_information_systems),
     OpenPort: ResourceHooks(
-        enrich_rows=enrich_open_ports, validate_create=_validate_new_open_port, validate_update=_validate_changed_open_port, to_dict=enrich_open_port
+        enrich_rows=enrich_open_ports,
+        validate_create=_validate_new_open_port,
+        validate_update=_validate_changed_open_port,
+        to_dict=enrich_open_port,
     ),
     ISProtocol: ResourceHooks(validate_create=_validate_new_is_protocol, validate_update=_validate_changed_is_protocol),
     VirtualMachine: ResourceHooks(prepare=_set_vm_hypervisor_os, apply_derived=_copy_vm_hypervisor_os),

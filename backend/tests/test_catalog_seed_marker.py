@@ -131,7 +131,10 @@ def test_application_restart_does_not_restore_deleted_default(client, db_session
     app_main.seed_catalogs_on_startup()
 
     db_session.expire_all()
-    assert db_session.scalar(select(ProtocolPortCatalog).where(ProtocolPortCatalog.port == 22, ProtocolPortCatalog.protocol_type == "SSH")) is None
+    assert (
+        db_session.scalar(select(ProtocolPortCatalog).where(ProtocolPortCatalog.port == 22, ProtocolPortCatalog.protocol_type == "SSH"))
+        is None
+    )
 
 
 def test_marker_name_matches_migration_constant():

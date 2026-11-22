@@ -30,7 +30,9 @@ def _device(client, serial: str) -> str:
 
 def _catalog(db_session, port: int, protocol: str) -> ProtocolPortCatalog:
     """Запись справочника «порт + протокол»: стандартные записи уже есть в БД, поэтому сначала ищем."""
-    entry = db_session.scalar(select(ProtocolPortCatalog).where(ProtocolPortCatalog.port == port, ProtocolPortCatalog.protocol_type == protocol))
+    entry = db_session.scalar(
+        select(ProtocolPortCatalog).where(ProtocolPortCatalog.port == port, ProtocolPortCatalog.protocol_type == protocol)
+    )
     if entry is None:
         entry = ProtocolPortCatalog(port=port, protocol_type=protocol)
         db_session.add(entry)
@@ -40,7 +42,9 @@ def _catalog(db_session, port: int, protocol: str) -> ProtocolPortCatalog:
 
 def _ports(client, device_id: str, names: list[str], **extra) -> dict[str, str]:
     """Создаёт порты устройства, возвращает {имя: id}."""
-    response = client.put(f"{API}/devices/{device_id}/interfaces", json={"interfaces": [{"name": name, **extra.get(name, {})} for name in names]})
+    response = client.put(
+        f"{API}/devices/{device_id}/interfaces", json={"interfaces": [{"name": name, **extra.get(name, {})} for name in names]}
+    )
     assert response.status_code == 200, response.text
     return {item["name"]: item["id"] for item in response.json()["items"]}
 
@@ -59,7 +63,10 @@ def test_ips_and_open_ports_of_the_device_come_with_their_owner_port(client, db_
                 {
                     "name": "Gi0/1",
                     "ips": [{"ip_address": "10.0.0.1", "prefix_length": 24, "purpose": "управление"}],
-                    "open_ports": [{"protocol_catalog_id": https.id, "transport_protocol": "TCP", "description": "веб"}, {"protocol_catalog_id": ssh.id}],
+                    "open_ports": [
+                        {"protocol_catalog_id": https.id, "transport_protocol": "TCP", "description": "веб"},
+                        {"protocol_catalog_id": ssh.id},
+                    ],
                 },
                 {"name": "Gi0/2", "ips": [{"ip_address": "10.0.0.2", "prefix_length": 24}]},
             ]
@@ -125,17 +132,29 @@ def test_rows_beyond_the_generic_list_limit_are_still_returned(client, db_sessio
     db_session.add_all(
         [
             IPAddress(
-                owner_type=OwnerType.DEVICE_INTERFACE, owner_id=old_port, ip_address=f"10.9.{i // 250}.{i % 250 + 1}", created_at=base + timedelta(seconds=i)
+                owner_type=OwnerType.DEVICE_INTERFACE,
+                owner_id=old_port,
+                ip_address=f"10.9.{i // 250}.{i % 250 + 1}",
+                created_at=base + timedelta(seconds=i),
             )
             for i in range(GENERIC_LIMIT)
         ]
         + [
-            OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=old_port, protocol_catalog_id=https.id, created_at=base + timedelta(seconds=i))
+            OpenPort(
+                owner_type=OwnerType.DEVICE_INTERFACE,
+                owner_id=old_port,
+                protocol_catalog_id=https.id,
+                created_at=base + timedelta(seconds=i),
+            )
             for i in range(GENERIC_LIMIT)
         ]
         + [
-            IPAddress(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=new_port, ip_address="10.20.0.1", created_at=base + timedelta(days=1)),
-            OpenPort(owner_type=OwnerType.DEVICE_INTERFACE, owner_id=new_port, protocol_catalog_id=https.id, created_at=base + timedelta(days=1)),
+            IPAddress(
+                owner_type=OwnerType.DEVICE_INTERFACE, owner_id=new_port, ip_address="10.20.0.1", created_at=base + timedelta(days=1)
+            ),
+            OpenPort(
+                owner_type=OwnerType.DEVICE_INTERFACE, owner_id=new_port, protocol_catalog_id=https.id, created_at=base + timedelta(days=1)
+            ),
         ]
     )
     db_session.commit()

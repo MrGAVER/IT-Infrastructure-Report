@@ -58,11 +58,14 @@ SCHEMA_FROM_MIGRATIONS = os.environ.get("INFRA_REGISTRY_TEST_SCHEMA", "").strip(
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "sqlite_only: тест зависит от SQLite и пропускается при INFRA_REGISTRY_TEST_DATABASE_URL")
-    config.addinivalue_line("markers", "slow: замер времени/нагрузочная проверка; по умолчанию выполняется, исключить можно ключом -m 'not slow'")
+    config.addinivalue_line(
+        "markers", "slow: замер времени/нагрузочная проверка; по умолчанию выполняется, исключить можно ключом -m 'not slow'"
+    )
     config.addinivalue_line("markers", "postgres_only: тест требует PostgreSQL и выполняется только при INFRA_REGISTRY_TEST_DATABASE_URL")
     config.addinivalue_line(
         "markers",
-        "real_password_hashing: тест проверяет боевое число итераций PBKDF2 — ускорение хеширования в тестах (см. _fast_password_hashing) отключается",
+        "real_password_hashing: тест проверяет боевое число итераций PBKDF2 — ускорение хеширования в тестах "
+        "(см. _fast_password_hashing) отключается",
     )
 
 
@@ -370,8 +373,10 @@ def client_factory(db_session, monkeypatch):
     test_session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False, expire_on_commit=False)
     monkeypatch.setattr(app_main, "SessionLocal", test_session_factory)
     monkeypatch.setattr(app_db, "SessionLocal", test_session_factory)
-    # lifespan создаёт каталоги данных (config.ensure_data_dirs), а `_isolated_audit_archive_dir` подменяет REPORT_DIR на `<tmp_path>/reports`:
-    # без заглушки этот каталог появлялся бы в tmp_path, содержимое которого проверяют тесты отчётов. Тесты, которым важен сам вызов, ставят свой шпион.
+    # lifespan создаёт каталоги данных (config.ensure_data_dirs), а `_isolated_audit_archive_dir` подменяет REPORT_DIR на
+    # `<tmp_path>/reports`: без заглушки этот каталог появлялся бы в tmp_path, содержимое которого проверяют тесты отчётов. Тесты,
+    # которым важен сам
+    # вызов, ставят свой шпион.
     monkeypatch.setattr(app_main, "ensure_data_dirs", lambda *directories: None)
 
     def _override_get_db():

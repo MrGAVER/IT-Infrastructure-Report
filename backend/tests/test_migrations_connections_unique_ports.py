@@ -55,7 +55,8 @@ def _seed_clean(db: Database) -> list[str]:
 
 
 def _seed_shared_port(db: Database, role: str) -> dict[str, list[str]]:
-    """Два активных подключения с общим портом в роли `role` ('source' | 'destination') и одно обычное; возвращает {'port': [...], 'connections': [...]}."""
+    """Два активных подключения с общим портом в роли `role` ('source' | 'destination') и одно обычное; возвращает {'port': [...],
+    'connections': [...]}."""
     with db.engine.begin() as connection:
         shared, first, second, x, y = (insert_row(connection, "device_interfaces") for _ in range(5))
         _connect(connection, x, y)
@@ -127,7 +128,9 @@ def test_upgrade_stops_on_a_port_shared_by_active_connections_and_changes_nothin
     message = str(caught.value)
     assert ("как источник" if role == "source" else "как назначение") in message
     assert shared["port"][0] in message, "в сообщении — id порта, занятого дважды"
-    assert all(connection_id in message for connection_id in shared["connections"]), "и id обоих подключений, чтобы человек мог выбрать, какое оставить"
+    assert all(connection_id in message for connection_id in shared["connections"]), (
+        "и id обоих подключений, чтобы человек мог выбрать, какое оставить"
+    )
     assert "в БД ничего не изменено" in message
     assert _version(database) == PRE_REVISION, "версия схемы не сдвинулась"
     assert _count(database) == rows, "ничего не удалено и не изменено автоматически"
@@ -141,7 +144,9 @@ def test_upgrade_passes_after_the_duplicate_is_deactivated(database):
         database.migrate(TARGET_REVISION)
 
     with database.engine.begin() as connection:  # человек отключает лишнее подключение (но не удаляет)
-        connection.execute(sa.text("UPDATE connections SET is_active = :off WHERE id = :id"), {"off": False, "id": shared["connections"][1]})
+        connection.execute(
+            sa.text("UPDATE connections SET is_active = :off WHERE id = :id"), {"off": False, "id": shared["connections"][1]}
+        )
     database.migrate(TARGET_REVISION)
 
     assert _version(database) == TARGET_REVISION

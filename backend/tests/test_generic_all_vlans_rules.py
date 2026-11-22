@@ -24,7 +24,9 @@ class Lab:
         self.client, self.db = client, db_session
         category = client.get(f"{API}/resources/device-categories", params={"limit": 1}).json()["items"][0]["id"]
         device_type = client.post(f"{API}/resources/device-types", json={"name": "Тип коммутатора", "category_id": category}).json()["id"]
-        self.device = client.post(f"{API}/resources/devices", json={"device_type_id": device_type, "serial_number": "SW-GENERIC-1"}).json()["id"]
+        self.device = client.post(f"{API}/resources/devices", json={"device_type_id": device_type, "serial_number": "SW-GENERIC-1"}).json()[
+            "id"
+        ]
         self.vlan = VLAN(vlan_id=10, name="vlan10")
         self.db.add(self.vlan)
         self.db.commit()
@@ -119,7 +121,9 @@ def test_flag_is_rejected_for_a_port_that_still_has_selected_vlans(lab):
 
 
 def test_vlan_link_cannot_be_added_to_a_port_with_the_flag(lab):
-    response = lab.client.post(f"{API}/resources/interface-vlans", json={"interface_id": lab.flagged, "vlan_id": lab.vlan.id, "mode": "trunk"})
+    response = lab.client.post(
+        f"{API}/resources/interface-vlans", json={"interface_id": lab.flagged, "vlan_id": lab.vlan.id, "mode": "trunk"}
+    )
     assert response.status_code == 422, response.text
 
     ok = lab.client.post(f"{API}/resources/interface-vlans", json={"interface_id": lab.plain, "vlan_id": lab.vlan.id, "mode": "trunk"})

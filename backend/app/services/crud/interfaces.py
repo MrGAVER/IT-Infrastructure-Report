@@ -7,7 +7,17 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from ...models import DeviceInterface, IPAddress, OpenPort, PhysicalDevice, ProtocolPortCatalog, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN
+from ...models import (
+    DeviceInterface,
+    IPAddress,
+    OpenPort,
+    PhysicalDevice,
+    ProtocolPortCatalog,
+    DeviceTypeVLAN,
+    PhysicalDeviceVLAN,
+    InterfaceVLAN,
+    VLAN,
+)
 from ...constants import AuditAction, OwnerType
 from ..serialization import enrich_open_ports, serialize
 from ..integrity import integrity_error_response
@@ -60,7 +70,9 @@ def _apply_port_fields_and_mode(obj: DeviceInterface, item: dict[str, Any], sess
     return vlan_mode, all_vlans
 
 
-def _replace_port_vlans(obj: DeviceInterface, item: dict[str, Any], vlan_mode: str, all_vlans: bool, allowed_vlans: set[str], session: Session) -> None:
+def _replace_port_vlans(
+    obj: DeviceInterface, item: dict[str, Any], vlan_mode: str, all_vlans: bool, allowed_vlans: set[str], session: Session
+) -> None:
     """Заменяет VLAN-привязки порта списком из payload (с проверкой допустимости и ограничением access)."""
     vlan_ids = item.get("vlan_ids") or []
     if not isinstance(vlan_ids, list):
@@ -88,7 +100,9 @@ def _sync_port_ips(obj: DeviceInterface, item: dict[str, Any], session: Session)
     ips = item.get("ips") or []
     if not isinstance(ips, list):
         raise HTTPException(422, "Поле ips интерфейса должно быть массивом")
-    old_ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == obj.id)).all()
+    old_ips = session.scalars(
+        select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == obj.id)
+    ).all()
     old_map = {x.id: x for x in old_ips}
     seen: set[str] = set()
     for ip_data in ips:
@@ -116,7 +130,9 @@ def _sync_port_ips(obj: DeviceInterface, item: dict[str, Any], session: Session)
             session.delete(old_ip)
 
 
-def _sync_single_interface(obj: DeviceInterface, item: dict[str, Any], device: PhysicalDevice, session: Session, allowed_vlans: set[str]) -> None:
+def _sync_single_interface(
+    obj: DeviceInterface, item: dict[str, Any], device: PhysicalDevice, session: Session, allowed_vlans: set[str]
+) -> None:
     """Применяет данные одного элемента payload['interfaces'] к объекту DeviceInterface:
     простые поля, VLAN-привязки, вложенные IP и открытые порты (шаги — выше).
 
@@ -168,7 +184,9 @@ def _allowed_vlans_for_device(device: PhysicalDevice, session: Session) -> set[s
     Allowed VLANs depend only on the device (its type and its own local VLANs), not on the
     interface, so they're resolved once per sync instead of once per interface inside the loop."""
     allowed_type = set(session.scalars(select(DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.device_type_id == device.device_type_id)).all())
-    allowed_device = set(session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == device.id)).all())
+    allowed_device = set(
+        session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == device.id)).all()
+    )
     return allowed_type | allowed_device
 
 
@@ -224,7 +242,9 @@ def _synced_interfaces_response(device_id: str, session: Session) -> dict[str, A
     }
 
 
-def _resolve_port_object(item: Any, device_id: str, existing_map: dict[str, DeviceInterface], incoming_ids: set[str], session: Session) -> DeviceInterface:
+def _resolve_port_object(
+    item: Any, device_id: str, existing_map: dict[str, DeviceInterface], incoming_ids: set[str], session: Session
+) -> DeviceInterface:
     """Порт для элемента payload: существующий по id (он обязан принадлежать устройству) или новый."""
     if not isinstance(item, dict):
         raise HTTPException(422, "Каждый интерфейс должен быть объектом")
@@ -323,7 +343,11 @@ def get_device_interface_vlans(device_id: str, session: Session) -> dict[str, An
     ).all()
     by_port = effective_vlan_ids(session, [port_id for port_id, _, _ in ports])
     wanted = set().union(*by_port.values()) if by_port else set()
-    number_of = {vlan_id: number for vlan_id, number in session.execute(select(VLAN.id, VLAN.vlan_id).where(VLAN.id.in_(wanted))).all()} if wanted else {}
+    number_of = (
+        {vlan_id: number for vlan_id, number in session.execute(select(VLAN.id, VLAN.vlan_id).where(VLAN.id.in_(wanted))).all()}
+        if wanted
+        else {}
+    )
     return {
         "items": [
             {

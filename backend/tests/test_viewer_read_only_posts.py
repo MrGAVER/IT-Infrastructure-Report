@@ -10,7 +10,12 @@ def _admin_and_viewer(client) -> tuple[dict, dict]:
     assert client.post("/api/v1/auth/users", json={"username": "admin", "password": "Admin1234", "role": "admin"}).status_code == 201
     assert client.put("/api/v1/auth/settings", json={"enabled": True}).status_code == 200
     admin = _headers(client, "admin", "Admin1234")
-    assert client.post("/api/v1/auth/users", json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"}, headers=admin).status_code == 201
+    assert (
+        client.post(
+            "/api/v1/auth/users", json={"username": "viewer1", "password": "Viewer1234", "role": "viewer"}, headers=admin
+        ).status_code
+        == 201
+    )
     return admin, _headers(client, "viewer1", "Viewer1234")
 
 

@@ -195,7 +195,12 @@ def update_resource(resource: str, item_id: str, payload: dict[str, Any], sessio
     hooks.prepare(proposed, session)
     hooks.validate_update(proposed, before, session, item_id)
     validate_resource(
-        model, proposed, session, item_id, bool(payload.get("confirm_system_name_duplicate")), bool(payload.get("confirm_rack_position_reassign"))
+        model,
+        proposed,
+        session,
+        item_id,
+        bool(payload.get("confirm_system_name_duplicate")),
+        bool(payload.get("confirm_rack_position_reassign")),
     )
     _release_rack_slot(model, proposed, session, item_id)
     for key, value in payload.items():

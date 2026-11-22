@@ -75,7 +75,10 @@ def update_preferences(session: Session, owner: str, patch: dict[str, Any]) -> N
     """Применяет частичное изменение (ключи, которых нет в patch, не трогаются). None сбрасывает настройку
     к умолчанию — запись удаляется. Ключи-словари (MERGED_MAP_KEYS) сливаются с сохранённым значением.
     Коммитит сам: вызывается ровно из эндпоинтов настроек."""
-    existing = {row.key: row for row in session.scalars(select(AppPreference).where(AppPreference.owner == owner, AppPreference.key.in_(list(patch)))).all()}
+    existing = {
+        row.key: row
+        for row in session.scalars(select(AppPreference).where(AppPreference.owner == owner, AppPreference.key.in_(list(patch)))).all()
+    }
     for key, value in patch.items():
         row = existing.get(key)
         if key in MERGED_MAP_KEYS and value is not None:

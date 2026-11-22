@@ -14,7 +14,9 @@ def _device_type(client, name: str) -> dict:
     return client.post("/api/v1/resources/device-types", json={"name": name, "category_id": category_id}).json()
 
 
-def _device_with_port(client, device_type_id: str, serial: str, *, management: bool = False, data: bool = False, ip: str | None = None) -> str:
+def _device_with_port(
+    client, device_type_id: str, serial: str, *, management: bool = False, data: bool = False, ip: str | None = None
+) -> str:
     device = client.post("/api/v1/resources/devices", json={"device_type_id": device_type_id, "serial_number": serial}).json()
     port: dict = {"name": "port1", "is_management": management, "is_data_transfer": data}
     if ip:
@@ -137,7 +139,9 @@ def test_bulk_approve_skips_connections_without_mismatch(client, device_type, ca
     same = _connect(client, a, b, cable)
     different = _connect(client, c, d, cable)
 
-    response = client.post("/api/v1/connections/port-config/approve", json={"connection_ids": [same["id"], different["id"], different["id"]]})
+    response = client.post(
+        "/api/v1/connections/port-config/approve", json={"connection_ids": [same["id"], different["id"], different["id"]]}
+    )
 
     body = response.json()
     assert body["skipped_ids"] == [same["id"]]

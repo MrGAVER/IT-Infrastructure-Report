@@ -45,7 +45,9 @@ def _row(catalog: dict, **extra) -> dict:
 
 
 def _stored(client, vm_id: str) -> list[dict]:
-    return client.get(f"{API}/resources/open-ports", params={"owner_type": "virtual_machine", "owner_id": vm_id, "limit": 1000}).json()["items"]
+    return client.get(f"{API}/resources/open-ports", params={"owner_type": "virtual_machine", "owner_id": vm_id, "limit": 1000}).json()[
+        "items"
+    ]
 
 
 def _audit_details(db_session, vm_id: str) -> list[str]:

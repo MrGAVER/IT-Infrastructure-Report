@@ -130,7 +130,10 @@ class ReportTemplateWrite(RequestBody):
 
     # validate_default: отсутствующее поле проходит ту же проверку и получает то же сообщение, что и неверное значение.
     name: str = Field(
-        default="", validate_default=True, max_length=MAX_TEMPLATE_NAME_LENGTH, description="Название шаблона, уникальное; пробелы по краям обрезаются."
+        default="",
+        validate_default=True,
+        max_length=MAX_TEMPLATE_NAME_LENGTH,
+        description="Название шаблона, уникальное; пробелы по краям обрезаются.",
     )
     format: str = Field(default=DEFAULT_FORMAT, description="xlsx или docx.")
     config: dict[str, Any] = Field(description="Описание листов (xlsx) или блоков (docx); проверяется под формат шаблона.")

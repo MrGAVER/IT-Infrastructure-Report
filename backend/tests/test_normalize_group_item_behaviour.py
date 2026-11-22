@@ -65,7 +65,10 @@ class TestItemAndName:
 class TestVlanMode:
     @pytest.mark.parametrize("mode", ["hybrid", "ACCESS", "Trunk", 1])
     def test_unknown_mode_is_rejected(self, db_session, mode):
-        assert _rejected(db_session, {"name": "Г", "vlan_mode": mode}) == "Поле vlan_mode группы портов должно быть 'access', 'trunk' или пустым"
+        assert (
+            _rejected(db_session, {"name": "Г", "vlan_mode": mode})
+            == "Поле vlan_mode группы портов должно быть 'access', 'trunk' или пустым"
+        )
 
     @pytest.mark.parametrize("mode", [None, "", 0, False])
     def test_empty_mode_means_group_does_not_manage_it(self, db_session, mode):
@@ -79,7 +82,10 @@ class TestVlanMode:
 class TestVlanIds:
     @pytest.mark.parametrize("value", ["10", {"a": 1}, 7])
     def test_vlan_ids_must_be_a_list(self, db_session, value):
-        assert _rejected(db_session, {"name": "Г", "vlan_mode": "trunk", "vlan_ids": value}) == "Поле vlan_ids группы портов должно быть массивом"
+        assert (
+            _rejected(db_session, {"name": "Г", "vlan_mode": "trunk", "vlan_ids": value})
+            == "Поле vlan_ids группы портов должно быть массивом"
+        )
 
     @pytest.mark.parametrize("value", [None, "", 0, {}])
     def test_falsy_vlan_ids_are_treated_as_empty(self, db_session, value):
@@ -101,18 +107,28 @@ class TestVlanIds:
         )
 
     def test_duplicates_are_removed_keeping_first_occurrence_order(self, db_session):
-        assert _normalize(db_session, {"name": "Г", "vlan_mode": "trunk", "vlan_ids": ["v30", "v10", "v30", "v20", "v10"]})["vlan_ids"] == ["v30", "v10", "v20"]
+        assert _normalize(db_session, {"name": "Г", "vlan_mode": "trunk", "vlan_ids": ["v30", "v10", "v30", "v20", "v10"]})["vlan_ids"] == [
+            "v30",
+            "v10",
+            "v20",
+        ]
         assert _normalize(db_session, {"name": "Г", "vlan_mode": "access", "vlan_ids": ["v10", "v10"]})["vlan_ids"] == ["v10"]
 
 
 class TestAllVlans:
     @pytest.mark.parametrize("value", ["yes", 1, 0, None, []])
     def test_all_vlans_must_be_a_boolean(self, db_session, value):
-        assert _rejected(db_session, {"name": "Г", "vlan_mode": "trunk", "all_vlans": value}) == "Поле all_vlans группы портов должно быть true или false"
+        assert (
+            _rejected(db_session, {"name": "Г", "vlan_mode": "trunk", "all_vlans": value})
+            == "Поле all_vlans группы портов должно быть true или false"
+        )
 
     @pytest.mark.parametrize("mode", ["access", None])
     def test_all_vlans_is_only_possible_in_trunk_mode(self, db_session, mode):
-        assert _rejected(db_session, {"name": "Г", "vlan_mode": mode, "all_vlans": True}) == "«Все VLAN» у группы портов возможно только в режиме trunk"
+        assert (
+            _rejected(db_session, {"name": "Г", "vlan_mode": mode, "all_vlans": True})
+            == "«Все VLAN» у группы портов возможно только в режиме trunk"
+        )
 
     def test_all_vlans_in_trunk_drops_vlan_ids_without_checking_them(self, db_session):
         result = _normalize(db_session, {"name": "Г", "vlan_mode": "trunk", "all_vlans": True, "vlan_ids": ["чужой", "v10"]})
@@ -132,8 +148,12 @@ class TestIps:
 
     def test_invalid_address_and_prefix_are_rejected_with_group_name_in_message(self, db_session):
         assert "Группа портов «Г»: IP-адрес" in _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "999.1.1.1"}]})
-        assert "Группа портов «Г»: префикс IP-адреса" in _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 33}]})
-        assert "Группа портов «Г»: префикс IP-адреса" in _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": "abc"}]})
+        assert "Группа портов «Г»: префикс IP-адреса" in _rejected(
+            db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 33}]}
+        )
+        assert "Группа портов «Г»: префикс IP-адреса" in _rejected(
+            db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": "abc"}]}
+        )
 
     def test_every_row_is_checked_not_only_the_first(self, db_session):
         assert "IP-адрес" in _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1"}, {"ip_address": "bad"}]})
@@ -148,7 +168,8 @@ class TestIps:
 
     def test_address_is_stripped_and_placeholder_rows_are_dropped(self, db_session):
         assert [
-            ip["ip_address"] for ip in self._ips(db_session, {"ip_address": " 10.0.0.1 "}, {"ip_address": "  "}, {"prefix_length": 24, "purpose": "x"})
+            ip["ip_address"]
+            for ip in self._ips(db_session, {"ip_address": " 10.0.0.1 "}, {"ip_address": "  "}, {"prefix_length": 24, "purpose": "x"})
         ] == ["10.0.0.1"]
 
     def test_group_without_addresses_has_an_empty_list(self, db_session):
@@ -161,12 +182,20 @@ class TestIps:
 
     def test_repeated_address_is_rejected_even_with_different_prefix(self, db_session):
         assert (
-            _rejected(db_session, {"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 24}, {"ip_address": " 10.0.0.1 ", "prefix_length": 16}]})
+            _rejected(
+                db_session,
+                {"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 24}, {"ip_address": " 10.0.0.1 ", "prefix_length": 16}]},
+            )
             == "Группа портов «Г»: IP-адреса не должны повторяться"
         )
 
     def test_purpose_is_stripped_and_blank_becomes_none(self, db_session):
-        ips = self._ips(db_session, {"ip_address": "10.0.0.1", "purpose": "  шлюз "}, {"ip_address": "10.0.0.2", "purpose": "  "}, {"ip_address": "10.0.0.3"})
+        ips = self._ips(
+            db_session,
+            {"ip_address": "10.0.0.1", "purpose": "  шлюз "},
+            {"ip_address": "10.0.0.2", "purpose": "  "},
+            {"ip_address": "10.0.0.3"},
+        )
         assert [ip["purpose"] for ip in ips] == ["шлюз", None, None]
 
     def test_purpose_is_limited_to_255_characters(self, db_session):
@@ -183,7 +212,10 @@ class TestIps:
 class TestOpenPorts:
     def test_open_ports_must_be_a_list_even_when_group_does_not_manage_them(self, db_session):
         assert _rejected(db_session, {"name": "Г", "open_ports": "80"}) == "Поле open_ports группы портов должно быть массивом"
-        assert _rejected(db_session, {"name": "Г", "manage_open_ports": True, "open_ports": {"a": 1}}) == "Поле open_ports группы портов должно быть массивом"
+        assert (
+            _rejected(db_session, {"name": "Г", "manage_open_ports": True, "open_ports": {"a": 1}})
+            == "Поле open_ports группы портов должно быть массивом"
+        )
 
     def test_open_ports_are_not_stored_unless_the_group_manages_them(self, client, db_session):
         http = _catalog_entry(client, 80)
@@ -238,7 +270,11 @@ class TestOpenPorts:
         http, http_proxy = _catalog_entry(client, 80), _catalog_entry(client, 80, "UDP")
         detail = _rejected(
             db_session,
-            {"name": "Веб", "manage_open_ports": True, "open_ports": [{"protocol_catalog_id": http["id"]}, {"protocol_catalog_id": http_proxy["id"]}]},
+            {
+                "name": "Веб",
+                "manage_open_ports": True,
+                "open_ports": [{"protocol_catalog_id": http["id"]}, {"protocol_catalog_id": http_proxy["id"]}],
+            },
         )
         assert detail == "Группа портов «Веб»: номера открытых портов не должны повторяться — 80"
 
@@ -269,7 +305,14 @@ class TestSubinterfaces:
             return [{"маркер": True}]
 
         monkeypatch.setattr(interface_groups, "normalize_group_subinterfaces", fake_normalize)
-        item = {"name": "Г", "vlan_mode": "trunk", "all_vlans": all_vlans, "vlan_ids": ["v10"], "manage_subinterfaces": True, "subinterfaces": [{"x": 1}]}
+        item = {
+            "name": "Г",
+            "vlan_mode": "trunk",
+            "all_vlans": all_vlans,
+            "vlan_ids": ["v10"],
+            "manage_subinterfaces": True,
+            "subinterfaces": [{"x": 1}],
+        }
         assert _normalize(db_session, item)["subinterfaces"] == [{"маркер": True}]
         assert captured == {"raw": [{"x": 1}], "group_name": "Г", "vlan_mode": "trunk", "group_vlans": expected_allowed}
 
@@ -327,12 +370,18 @@ class TestCheckOrder:
             ({"name": "Г", "vlan_ids": ["v10"], "all_vlans": "yes"}, "all_vlans группы портов должно быть true или false"),
             ({"name": "Г", "vlan_ids": ["чужой"], "all_vlans": True}, "«Все VLAN»"),
             ({"name": "Г", "vlan_ids": ["чужой"]}, "только вместе с режимом порта"),
-            ({"name": "Г", "vlan_mode": "access", "vlan_ids": ["чужой", "v10"], "ips": [{"ip_address": "bad"}]}, "не разрешены для типа данного устройства"),
+            (
+                {"name": "Г", "vlan_mode": "access", "vlan_ids": ["чужой", "v10"], "ips": [{"ip_address": "bad"}]},
+                "не разрешены для типа данного устройства",
+            ),
             ({"name": "Г", "vlan_mode": "access", "vlan_ids": ["v10", "v20"], "ips": [{"ip_address": "bad"}]}, "не более одного VLAN"),
             ({"name": "Г", "ips": [{"ip_address": "bad", "prefix_length": 99}], "open_ports": "x"}, "IP-адрес"),
             ({"name": "Г", "ips": [{"ip_address": "10.0.0.1", "prefix_length": 99}], "open_ports": "x"}, "префикс IP-адреса"),
             ({"name": "Г", "ips": [{"ip_address": "10.0.0.1", "purpose": "н" * 256}], "open_ports": "x"}, "назначение IP-адреса"),
-            ({"name": "Г", "open_ports": "x", "manage_subinterfaces": True, "subinterfaces": "y"}, "open_ports группы портов должно быть массивом"),
+            (
+                {"name": "Г", "open_ports": "x", "manage_subinterfaces": True, "subinterfaces": "y"},
+                "open_ports группы портов должно быть массивом",
+            ),
         ],
     )
     def test_first_violated_rule_wins(self, db_session, item, fragment):
@@ -356,7 +405,10 @@ class TestGroupKeysAndNames:
 
     def test_group_needs_a_key_or_an_id(self, client, db_session):
         device = _device(client)
-        assert self._put(db_session, device["id"], [{"name": "Г"}]) == "У группы портов должен быть key (id существующей группы или временный ключ новой)"
+        assert (
+            self._put(db_session, device["id"], [{"name": "Г"}])
+            == "У группы портов должен быть key (id существующей группы или временный ключ новой)"
+        )
 
     def test_keys_must_be_unique(self, client, db_session):
         device = _device(client)

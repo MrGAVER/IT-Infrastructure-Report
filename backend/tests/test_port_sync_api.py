@@ -9,7 +9,14 @@ from __future__ import annotations
 import pytest
 
 from app.models import AuditLog, PortSyncRule
-from app.services.port_sync_rules import ALL_VLANS_BOTH_RULE, ALL_VLANS_RULE, DEFAULT_RULES, DEFAULT_RULES_BY_CODE, EMPTY_TRUNK_RULE, ROLE_MATCH_RULE
+from app.services.port_sync_rules import (
+    ALL_VLANS_BOTH_RULE,
+    ALL_VLANS_RULE,
+    DEFAULT_RULES,
+    DEFAULT_RULES_BY_CODE,
+    EMPTY_TRUNK_RULE,
+    ROLE_MATCH_RULE,
+)
 from app.services.port_sync_store import ensure_default_rules
 
 BASE = "/api/v1/port-sync/rules"
@@ -33,7 +40,9 @@ def _custom(**overrides) -> dict:
 
 def _audit(db_session, *needles: str) -> list[str]:
     db_session.expire_all()
-    return [e.details for e in db_session.query(AuditLog).order_by(AuditLog.created_at).all() if all(n in (e.details or "") for n in needles)]
+    return [
+        e.details for e in db_session.query(AuditLog).order_by(AuditLog.created_at).all() if all(n in (e.details or "") for n in needles)
+    ]
 
 
 # --- стандартные правила ------------------------------------------------------------------------
@@ -275,7 +284,9 @@ def test_delete_of_unknown_rule_is_404(client):
 
 def test_reset_returns_a_standard_rule_to_its_original_form(client, db_session):
     rule = _by_code(client, EMPTY_TRUNK_RULE)
-    client.put(f"{BASE}/{rule['id']}", json={"name": "Иначе", "action": "manual", "enabled": False, "priority": 5, "source": {"vlans": "any"}})
+    client.put(
+        f"{BASE}/{rule['id']}", json={"name": "Иначе", "action": "manual", "enabled": False, "priority": 5, "source": {"vlans": "any"}}
+    )
     assert _by_code(client, EMPTY_TRUNK_RULE)["modified"] is True
 
     response = client.post(f"{BASE}/{rule['id']}/reset")
@@ -283,7 +294,12 @@ def test_reset_returns_a_standard_rule_to_its_original_form(client, db_session):
     assert response.status_code == 200, response.text
     restored = response.json()
     default = DEFAULT_RULES_BY_CODE[EMPTY_TRUNK_RULE]
-    assert (restored["name"], restored["action"], restored["enabled"], restored["priority"]) == (default.name, "auto", True, default.priority)
+    assert (restored["name"], restored["action"], restored["enabled"], restored["priority"]) == (
+        default.name,
+        "auto",
+        True,
+        default.priority,
+    )
     assert restored["modified"] is False and restored["source"]["vlans"] == "set"
     assert _audit(db_session, "сброшено к исходному виду")
 

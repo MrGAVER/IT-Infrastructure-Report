@@ -136,5 +136,9 @@ class TestSavedFile:
 
         assert "<f>" not in _xml(data, "xl/worksheets/sheet1.xml")
         reloaded = openpyxl.load_workbook(io.BytesIO(data)).active
-        assert (reloaded["A1"].value, reloaded["A1"].data_type, bool(reloaded["A1"].quotePrefix)) == ('=HYPERLINK("http://evil")', "s", True)
+        assert (reloaded["A1"].value, reloaded["A1"].data_type, bool(reloaded["A1"].quotePrefix)) == (
+            '=HYPERLINK("http://evil")',
+            "s",
+            True,
+        )
         assert (reloaded["B1"].value, bool(reloaded["B1"].quotePrefix)) == ("plain", False)

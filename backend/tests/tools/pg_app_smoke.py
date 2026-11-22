@@ -39,7 +39,9 @@ def call(method: str, path: str, body=None, expect=(200, 201)):
 
 def main() -> int:
     sys.path.insert(0, os.getcwd())  # скрипт запускают из каталога backend; пакет app лежит там
-    from app.config import DATABASE_URL  # тот же разбор переменных окружения, что у сервера (DATABASE_URL или INFRA_REGISTRY_DB_HOST + POSTGRES_*)
+    from app.config import (
+        DATABASE_URL,
+    )  # тот же разбор переменных окружения, что у сервера (DATABASE_URL или INFRA_REGISTRY_DB_HOST + POSTGRES_*)
 
     if not DATABASE_URL.startswith("postgresql"):
         print("Нужен PostgreSQL: задайте DATABASE_URL или INFRA_REGISTRY_DB_HOST (+ POSTGRES_USER/PASSWORD/DB)", file=sys.stderr)
@@ -68,7 +70,10 @@ def main() -> int:
         for vlan in vlans:
             call("POST", "/resources/device-type-vlans", {"device_type_id": device_type, "vlan_id": vlan})
         devices = [
-            call("POST", "/resources/devices", {"device_type_id": device_type, "serial_number": f"SMOKE-{i}", "system_name": f"SW-{i}"})["id"] for i in (1, 2)
+            call("POST", "/resources/devices", {"device_type_id": device_type, "serial_number": f"SMOKE-{i}", "system_name": f"SW-{i}"})[
+                "id"
+            ]
+            for i in (1, 2)
         ]
         for index, device in enumerate(devices, 1):
             call(
@@ -76,7 +81,12 @@ def main() -> int:
                 f"/devices/{device}/interfaces",
                 {
                     "interfaces": [
-                        {"name": f"Gi0/{index}", "vlan_mode": "trunk", "vlan_ids": vlans, "ips": [{"ip_address": f"10.0.{index}.1", "prefix_length": 24}]}
+                        {
+                            "name": f"Gi0/{index}",
+                            "vlan_mode": "trunk",
+                            "vlan_ids": vlans,
+                            "ips": [{"ip_address": f"10.0.{index}.1", "prefix_length": 24}],
+                        }
                     ]
                 },
                 expect=(200,),

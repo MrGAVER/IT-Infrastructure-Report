@@ -91,7 +91,9 @@ def test_the_gate_answers_before_an_oversized_body_is_read(client, admin_token):
 # --- ответы шлюза и заголовки безопасности (Н-8) ------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("header", ["x-content-type-options", "x-frame-options", "referrer-policy", "content-security-policy", "cache-control"])
+@pytest.mark.parametrize(
+    "header", ["x-content-type-options", "x-frame-options", "referrer-policy", "content-security-policy", "cache-control"]
+)
 def test_gate_denials_carry_each_security_header_exactly_once(client, admin_token, header):
     """401 отдаёт сам шлюз. Раньше заголовки ему же приходилось ставить, теперь их ставит один внешний слой — без дублей."""
     response = client.get(MANUFACTURERS)
@@ -100,7 +102,9 @@ def test_gate_denials_carry_each_security_header_exactly_once(client, admin_toke
 
 
 def test_a_viewer_denial_is_403_with_security_headers(client, admin_token):
-    created = client.post("/api/v1/auth/users", json={"username": "viewer", "password": "Viewer1234", "role": "viewer"}, headers=_bearer(admin_token))
+    created = client.post(
+        "/api/v1/auth/users", json={"username": "viewer", "password": "Viewer1234", "role": "viewer"}, headers=_bearer(admin_token)
+    )
     assert created.status_code == 201, created.text
     viewer = client.post("/api/v1/auth/login", json={"username": "viewer", "password": "Viewer1234"}).json()["token"]
 

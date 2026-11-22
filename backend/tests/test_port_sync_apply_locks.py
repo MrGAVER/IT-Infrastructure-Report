@@ -71,7 +71,9 @@ class TestWhatIsLocked:
 
         assert response.status_code == 200, response.text
         assert log.locked == [{a1, b1}]
-        assert log.events == ["lock", "load"], "блокировка должна предшествовать загрузке портов — иначе план строится из устаревшего снимка"
+        assert log.events == ["lock", "load"], (
+            "блокировка должна предшествовать загрузке портов — иначе план строится из устаревшего снимка"
+        )
 
     def test_preview_takes_no_locks(self, world, monkeypatch):
         _mismatching_pair(world, "P")
@@ -144,11 +146,16 @@ class TestConcurrentEditOnPostgres:
         ошибка: порт, который правит другой пользователь, не заблокирован, и его правка будет перезаписана."""
         deadline = time.monotonic() + TestConcurrentEditOnPostgres.LOCK_WAIT_SECONDS
         while time.monotonic() < deadline:
-            waiting = observer.execute(text("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'")).scalar()
+            waiting = observer.execute(
+                text("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'")
+            ).scalar()
             if waiting:
                 return
             if not thread.is_alive():
-                raise AssertionError(f"применение завершилось, не дождавшись порта, который правит другой пользователь, — чужая правка перезаписана: {outcome}")
+                raise AssertionError(
+                    "применение завершилось, не дождавшись порта, который правит другой пользователь, — чужая правка "
+                    f"перезаписана: {outcome}"
+                )
             time.sleep(0.05)
         raise AssertionError("применение не упёрлось в блокировку за отведённое время и не завершилось")
 
@@ -189,7 +196,9 @@ class TestConcurrentEditOnPostgres:
 
         assert not thread.is_alive(), "применение зависло после сохранения чужой правки"
         assert "error" not in outcome, outcome.get("error")
-        assert "http" in outcome and outcome["http"].status_code == 409, f"применение должно пересчитать план и отклонить устаревший хеш, а получило {outcome}"
+        assert "http" in outcome and outcome["http"].status_code == 409, (
+            f"применение должно пересчитать план и отклонить устаревший хеш, а получило {outcome}"
+        )
         assert world.port(a2)["vlans"] == [10, 20], "правка другого пользователя сохранилась"
 
     def test_ports_outside_the_plan_are_not_blocked(self, world, db_session, sessions):
@@ -199,7 +208,9 @@ class TestConcurrentEditOnPostgres:
         db_session.rollback()
 
         editor, applier = sessions(), sessions()
-        editor.execute(text("UPDATE device_interfaces SET sort_order = sort_order WHERE id = :id"), {"id": a2})  # держит порт чужого подключения
+        editor.execute(
+            text("UPDATE device_interfaces SET sort_order = sort_order WHERE id = :id"), {"id": a2}
+        )  # держит порт чужого подключения
 
         thread, outcome = self._run_apply_in_thread(applier, {"connection_ids": [c1], "plan_hash": plan["plan_hash"], "confirm": True})
         thread.join(timeout=self.LOCK_WAIT_SECONDS)
@@ -214,7 +225,9 @@ class TestConcurrentEditOnPostgres:
         db_session.rollback()
 
         editor, applier, observer = sessions(), sessions(), sessions()
-        editor.execute(text("UPDATE device_interfaces SET sort_order = sort_order WHERE id = :id"), {"id": a1})  # правка без смысловых изменений
+        editor.execute(
+            text("UPDATE device_interfaces SET sort_order = sort_order WHERE id = :id"), {"id": a1}
+        )  # правка без смысловых изменений
 
         thread, outcome = self._run_apply_in_thread(applier, {"plan_hash": plan["plan_hash"], "confirm": True})
         self._wait_until_apply_waits_for_a_lock(observer, thread, outcome)

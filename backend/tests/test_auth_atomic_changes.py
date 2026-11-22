@@ -56,7 +56,11 @@ def _sessions_of(db_session, user_id: str) -> int:
 
 
 def _audit_rows(db_session, entity_id: str, action: str, text: str = "") -> int:
-    stmt = select(func.count()).select_from(AuditLog).where(AuditLog.entity_type == "users", AuditLog.entity_id == entity_id, AuditLog.action == action)
+    stmt = (
+        select(func.count())
+        .select_from(AuditLog)
+        .where(AuditLog.entity_type == "users", AuditLog.entity_id == entity_id, AuditLog.action == action)
+    )
     if text:
         stmt = stmt.where(AuditLog.details.contains(text))
     return db_session.scalar(stmt)

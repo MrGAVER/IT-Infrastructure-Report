@@ -181,14 +181,23 @@ def _to_text(raw: Any, separator: str = "; ") -> str:
 
 
 def render_field(
-    ctx: ReportContext, entity_key: str, obj: Any, path: str, *, separator: str = "; ", expand_relation: str | None = None, expand_obj: Any = None
+    ctx: ReportContext,
+    entity_key: str,
+    obj: Any,
+    path: str,
+    *,
+    separator: str = "; ",
+    expand_relation: str | None = None,
+    expand_obj: Any = None,
 ) -> str:
     segments = _split_path(path)
     raw = _resolve(ctx, entity_key, obj, segments, expand_relation, expand_obj)
     return _to_text(raw, separator)
 
 
-def resolve_value(ctx: ReportContext, entity_key: str, obj: Any, path: str, *, expand_relation: str | None = None, expand_obj: Any = None) -> Any:
+def resolve_value(
+    ctx: ReportContext, entity_key: str, obj: Any, path: str, *, expand_relation: str | None = None, expand_obj: Any = None
+) -> Any:
     """Как render_field(), но возвращает "сырое" значение (число/дата/bool/None/список), а не
     готовую строку. Используется grid-движком (report_grid.py, только формат xlsx): числовые и
     датовые поля должны попадать в ячейку как настоящие Excel-значения — иначе в файле нельзя ни
@@ -382,7 +391,14 @@ def validate_config(meta: dict[str, dict[str, Any]], fmt: str, config: dict[str,
 
 
 def column_value(
-    ctx: ReportContext, root_entity: str, row: Any, expand_relation: str | None, expand_obj: Any, column: dict[str, Any], row_index: int, params: dict[str, Any]
+    ctx: ReportContext,
+    root_entity: str,
+    row: Any,
+    expand_relation: str | None,
+    expand_obj: Any,
+    column: dict[str, Any],
+    row_index: int,
+    params: dict[str, Any],
 ) -> Any:
     source = column.get("source", "field")
     if source == "index":

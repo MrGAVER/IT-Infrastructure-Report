@@ -135,12 +135,16 @@ class TestSides:
         assert updated.source == Side(mode="access")
         assert updated.relation == Side(mode="same", vlans="differs")
 
-    @pytest.mark.parametrize(("key", "label"), [("target", "Условия целевого порта"), ("source", "Условия порта-источника"), ("relation", "Отношение портов")])
+    @pytest.mark.parametrize(
+        ("key", "label"), [("target", "Условия целевого порта"), ("source", "Условия порта-источника"), ("relation", "Отношение портов")]
+    )
     @pytest.mark.parametrize("raw", ["trunk", 5, ["role"], True])
     def test_side_must_be_an_object(self, key, label, raw):
         assert _rejected(_payload(**{key: raw})) == f"{label} должно быть объектом"
 
-    @pytest.mark.parametrize(("key", "label"), [("target", "Условия целевого порта"), ("source", "Условия порта-источника"), ("relation", "Отношение портов")])
+    @pytest.mark.parametrize(
+        ("key", "label"), [("target", "Условия целевого порта"), ("source", "Условия порта-источника"), ("relation", "Отношение портов")]
+    )
     def test_unknown_fields_are_listed_sorted(self, key, label):
         assert _rejected(_payload(**{key: {"size": 1, "colour": "red", "mode": "any"}})) == f"{label}: неизвестные поля — colour, size"
 
@@ -151,7 +155,9 @@ class TestSides:
         # у отношения словарь другой: any / same / differs — и «same» недопустимо в условии на порт
         assert _rejected(_payload(target={"mode": "same"})) == "Условия целевого порта.mode: допустимые значения — any, access, trunk"
         assert _rejected(_payload(relation={"role": "set"})) == "Отношение портов.role: допустимые значения — any, same, differs"
-        assert rule_from_payload(_payload(relation={"role": "same", "mode": "differs", "vlans": "same"})).relation == Side("same", "differs", "same")
+        assert rule_from_payload(_payload(relation={"role": "same", "mode": "differs", "vlans": "same"})).relation == Side(
+            "same", "differs", "same"
+        )
 
     def test_non_string_values_are_rejected_as_not_allowed(self):
         assert _rejected(_payload(target={"role": 5})).startswith("Условия целевого порта.role: допустимые значения")
@@ -200,7 +206,10 @@ class TestCrossFieldRules:
 
     @pytest.mark.parametrize("apply", [{"role": True}, {"mode": True}, {"role": True, "mode": True}])
     def test_union_does_not_combine_with_role_or_mode_change(self, apply):
-        message = "Политика VLAN «объединить» меняет оба порта сразу и не сочетается со сменой роли или режима: их порт берёт у соседа, а не оба сразу"
+        message = (
+            "Политика VLAN «объединить» меняет оба порта сразу и не сочетается со сменой роли или режима: их "
+            "порт берёт у соседа, а не оба сразу"
+        )
         assert _rejected(_payload(apply={"vlans": "union", **apply})) == message
 
     def test_union_alone_is_fine(self):

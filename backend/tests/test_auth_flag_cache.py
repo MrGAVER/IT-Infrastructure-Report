@@ -108,7 +108,9 @@ class TestOnlyTheFlagIsCached:
         token = _enable_auth(client)
         second = client.post("/api/v1/auth/login", json={"username": "admin", "password": ADMIN_PASSWORD}).json()["token"]
         r = client.put(
-            "/api/v1/auth/me/password", json={"current_password": ADMIN_PASSWORD, "new_password": "Newpass5678"}, headers={"Authorization": f"Bearer {token}"}
+            "/api/v1/auth/me/password",
+            json={"current_password": ADMIN_PASSWORD, "new_password": "Newpass5678"},
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert r.status_code == 200, r.text
         assert client.get("/api/v1/resources/manufacturers", headers={"Authorization": f"Bearer {second}"}).status_code == 401

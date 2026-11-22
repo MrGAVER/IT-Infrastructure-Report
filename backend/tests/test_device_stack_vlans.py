@@ -49,7 +49,9 @@ def _stored(client, device_id: str) -> dict[str, dict]:
 
 
 def _apply(client, stack_id: str, vlan_id: str, ip, prefix, management: bool = False):
-    return client.put(f"/api/v1/device-stacks/{stack_id}/vlans/{vlan_id}", json={"ip_address": ip, "prefix_length": prefix, "is_management": management})
+    return client.put(
+        f"/api/v1/device-stacks/{stack_id}/vlans/{vlan_id}", json={"ip_address": ip, "prefix_length": prefix, "is_management": management}
+    )
 
 
 def _state(client, stack_id: str) -> dict:
@@ -72,7 +74,9 @@ class TestApplySharedSetting:
         stack = _stack(client, "Кластер МЭ", [a, b, c])
         v10 = _vlan(client, 10)
         assert (
-            _set_device_vlans(client, a["id"], [{"vlan_id": v10["id"], "ip_address": "10.0.10.2", "prefix_length": 24, "description": "mgmt"}]).status_code
+            _set_device_vlans(
+                client, a["id"], [{"vlan_id": v10["id"], "ip_address": "10.0.10.2", "prefix_length": 24, "description": "mgmt"}]
+            ).status_code
             == 200
         )
 
@@ -83,7 +87,13 @@ class TestApplySharedSetting:
             assert _triple(_stored(client, device["id"])[v10["id"]]) == ("10.0.10.1", 24, True)
         assert _stored(client, a["id"])[v10["id"]]["description"] == "mgmt"  # описание существующего назначения не затронуто
         row = _item(r.json(), v10["id"])
-        assert (row["is_shared"], row["is_uniform"], row["ip_address"], row["prefix_length"], row["is_management"]) == (True, True, "10.0.10.1", 24, True)
+        assert (row["is_shared"], row["is_uniform"], row["ip_address"], row["prefix_length"], row["is_management"]) == (
+            True,
+            True,
+            "10.0.10.1",
+            24,
+            True,
+        )
         assert (row["assigned_count"], row["member_count"]) == (3, 3)
 
     def test_management_flag_set_on_one_device_ends_up_on_all(self, client):
@@ -130,7 +140,10 @@ class TestApplySharedSetting:
         a, b, outsider = _device(client, "CL-X-1"), _device(client, "CL-X-2"), _device(client, "CL-X-3")
         stack = _stack(client, "Свой стек", [a, b])
         v = _vlan(client, 30)
-        assert _set_device_vlans(client, outsider["id"], [{"vlan_id": v["id"], "ip_address": "192.168.0.9", "prefix_length": 16}]).status_code == 200
+        assert (
+            _set_device_vlans(client, outsider["id"], [{"vlan_id": v["id"], "ip_address": "192.168.0.9", "prefix_length": 16}]).status_code
+            == 200
+        )
         assert _apply(client, stack["id"], v["id"], "10.0.30.1", 24).status_code == 200
         assert _triple(_stored(client, outsider["id"])[v["id"]]) == ("192.168.0.9", 16, False)
 
@@ -236,7 +249,13 @@ class TestLockedOnDevice:
             client,
             a["id"],
             [
-                {"vlan_id": v10["id"], "ip_address": "10.0.10.1", "prefix_length": 24, "is_management": True, "description": "новое описание"},
+                {
+                    "vlan_id": v10["id"],
+                    "ip_address": "10.0.10.1",
+                    "prefix_length": 24,
+                    "is_management": True,
+                    "description": "новое описание",
+                },
                 {"vlan_id": v20["id"], "ip_address": "10.0.20.7", "prefix_length": 24},
             ],
         )
@@ -258,16 +277,23 @@ class TestLockedOnDevice:
 
     def test_device_outside_the_stack_is_not_locked(self, client):
         _, _, outsider, _, v10, _ = self._shared(client)
-        assert _set_device_vlans(client, outsider["id"], [{"vlan_id": v10["id"], "ip_address": "172.16.0.1", "prefix_length": 16}]).status_code == 200
+        assert (
+            _set_device_vlans(client, outsider["id"], [{"vlan_id": v10["id"], "ip_address": "172.16.0.1", "prefix_length": 16}]).status_code
+            == 200
+        )
 
     def test_removing_the_device_from_the_stack_unlocks_it_keeping_values(self, client):
         a, _, _, stack, v10, _ = self._shared(client)
         member = next(
-            m for m in client.get("/api/v1/resources/device-stack-members", params={"limit": 100}).json()["items"] if m["physical_device_id"] == a["id"]
+            m
+            for m in client.get("/api/v1/resources/device-stack-members", params={"limit": 100}).json()["items"]
+            if m["physical_device_id"] == a["id"]
         )
         assert client.delete(f"/api/v1/resources/device-stack-members/{member['id']}").status_code == 200
         assert _triple(_stored(client, a["id"])[v10["id"]]) == ("10.0.10.1", 24, True)  # значения остались
-        assert _set_device_vlans(client, a["id"], [{"vlan_id": v10["id"], "ip_address": "10.0.10.50", "prefix_length": 24}]).status_code == 200
+        assert (
+            _set_device_vlans(client, a["id"], [{"vlan_id": v10["id"], "ip_address": "10.0.10.50", "prefix_length": 24}]).status_code == 200
+        )
 
 
 class TestListing:
@@ -296,7 +322,11 @@ class TestListing:
         assert (data["stack_name"], data["member_count"]) == ("Состояния", 2)
         by_id = {x["vlan_id"]: x for x in data["available"]}
         assert v10["id"] not in by_id
-        assert (by_id[v20["id"]]["ip_address"], by_id[v20["id"]]["prefix_length"], by_id[v20["id"]]["assigned_count"]) == ("10.0.20.1", 24, 2)  # сошлись
+        assert (by_id[v20["id"]]["ip_address"], by_id[v20["id"]]["prefix_length"], by_id[v20["id"]]["assigned_count"]) == (
+            "10.0.20.1",
+            24,
+            2,
+        )  # сошлись
         assert (by_id[v30["id"]]["ip_address"], by_id[v30["id"]]["prefix_length"]) == (None, None)  # адреса разные — подсказки нет
 
     def test_available_excludes_vlans_of_domains_that_do_not_contain_every_member(self, client):
@@ -305,7 +335,10 @@ class TestListing:
         free = _vlan(client, 90)
         # Доменный VLAN назначен одному участнику (он состоит в домене), второй участник в домен не входит.
         foreign_domain = client.post("/api/v1/resources/vlan-domains", json={"name": "Чужой домен"}).json()
-        assert client.post(f"/api/v1/vlan-domains/{foreign_domain['id']}/members", json={"physical_device_id": a["id"]}).status_code in (200, 201)
+        assert client.post(f"/api/v1/vlan-domains/{foreign_domain['id']}/members", json={"physical_device_id": a["id"]}).status_code in (
+            200,
+            201,
+        )
         foreign = _vlan(client, 92, domain_id=foreign_domain["id"])
         assert _set_device_vlans(client, a["id"], [{"vlan_id": free["id"]}, {"vlan_id": foreign["id"]}]).status_code == 200
         available = {x["vlan_id"] for x in _state(client, stack["id"])["available"]}
@@ -317,7 +350,9 @@ class TestListing:
         on_one_member, on_both, on_outsider, nowhere = (_vlan(client, n) for n in (91, 92, 93, 94))
         assert _set_device_vlans(client, a["id"], [{"vlan_id": on_one_member["id"]}, {"vlan_id": on_both["id"]}]).status_code == 200
         assert _set_device_vlans(client, b["id"], [{"vlan_id": on_both["id"]}]).status_code == 200
-        assert _set_device_vlans(client, outsider["id"], [{"vlan_id": on_outsider["id"]}]).status_code == 200  # устройство вне стека не в счёт
+        assert (
+            _set_device_vlans(client, outsider["id"], [{"vlan_id": on_outsider["id"]}]).status_code == 200
+        )  # устройство вне стека не в счёт
 
         data = _state(client, stack["id"])
 
@@ -346,7 +381,10 @@ class TestRemoveSetting:
         stack = _stack(client, "Удаление", [a, b])
         v = _vlan(client, 10)
         assert _apply(client, stack["id"], v["id"], "10.0.10.1", 24, True).status_code == 200
-        assert _set_device_vlans(client, outsider["id"], [{"vlan_id": v["id"], "ip_address": "172.16.0.1", "prefix_length": 16}]).status_code == 200
+        assert (
+            _set_device_vlans(client, outsider["id"], [{"vlan_id": v["id"], "ip_address": "172.16.0.1", "prefix_length": 16}]).status_code
+            == 200
+        )
         return a, b, outsider, stack, v
 
     def test_default_removes_only_the_setting_and_keeps_values_editable(self, client):
@@ -356,7 +394,9 @@ class TestRemoveSetting:
         data = r.json()
         assert data["items"] == [] and v["id"] in {x["vlan_id"] for x in data["available"]}
         assert [_triple(_stored(client, d["id"])[v["id"]]) for d in (a, b)] == [("10.0.10.1", 24, True)] * 2
-        assert _set_device_vlans(client, a["id"], [{"vlan_id": v["id"], "ip_address": "10.0.10.77", "prefix_length": 24}]).status_code == 200
+        assert (
+            _set_device_vlans(client, a["id"], [{"vlan_id": v["id"], "ip_address": "10.0.10.77", "prefix_length": 24}]).status_code == 200
+        )
 
     def test_remove_from_devices_deletes_the_vlan_on_every_member_only(self, client):
         a, b, outsider, stack, v = self._shared(client)
@@ -403,7 +443,10 @@ class TestAddingAMember:
     def test_preview_lists_vlans_to_add_and_values_to_replace(self, client):
         stack, v10, v20 = self._stack_with_settings(client)
         newcomer = _device(client, "CL-AM-2", system_name="fw-b")
-        assert _set_device_vlans(client, newcomer["id"], [{"vlan_id": v10["id"], "ip_address": "10.0.10.9", "prefix_length": 24}]).status_code == 200
+        assert (
+            _set_device_vlans(client, newcomer["id"], [{"vlan_id": v10["id"], "ip_address": "10.0.10.9", "prefix_length": 24}]).status_code
+            == 200
+        )
 
         data = self._preview(client, stack["id"], newcomer).json()
 
@@ -457,7 +500,9 @@ class TestAddingAMember:
     def test_adding_through_the_generic_resource_applies_them_too(self, client):
         stack, v10, _ = self._stack_with_settings(client)
         newcomer = _device(client, "CL-AM-7")
-        r = client.post("/api/v1/resources/device-stack-members", json={"stack_id": stack["id"], "physical_device_id": newcomer["id"], "position": 2})
+        r = client.post(
+            "/api/v1/resources/device-stack-members", json={"stack_id": stack["id"], "physical_device_id": newcomer["id"], "position": 2}
+        )
         assert r.status_code == 201, r.text
         assert _triple(_stored(client, newcomer["id"])[v10["id"]]) == ("10.0.10.1", 24, True)
 
@@ -489,5 +534,7 @@ class TestReferentialProtection:
         assert _apply(client, stack["id"], v["id"], "10.0.10.1", 24).status_code == 200
         r = client.delete(f"/api/v1/resources/vlans/{v['id']}")
         assert r.status_code == 409 and "Общие VLAN стеков" in r.text
-        assert client.delete(f"/api/v1/device-stacks/{stack['id']}/vlans/{v['id']}", params={"remove_from_devices": "true"}).status_code == 200
+        assert (
+            client.delete(f"/api/v1/device-stacks/{stack['id']}/vlans/{v['id']}", params={"remove_from_devices": "true"}).status_code == 200
+        )
         assert client.delete(f"/api/v1/resources/vlans/{v['id']}").status_code == 200

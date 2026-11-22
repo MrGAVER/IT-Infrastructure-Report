@@ -33,7 +33,9 @@ def _enable_auth_with_viewer(client) -> tuple[str, str]:
     r = client.put("/api/v1/auth/settings", json={"enabled": True})
     assert r.status_code == 200, r.text
     admin_token = _login(client, "admin", ADMIN_PASSWORD)
-    r = client.post("/api/v1/auth/users", json={"username": "viewer1", "password": VIEWER_PASSWORD, "role": "viewer"}, headers=_headers(admin_token))
+    r = client.post(
+        "/api/v1/auth/users", json={"username": "viewer1", "password": VIEWER_PASSWORD, "role": "viewer"}, headers=_headers(admin_token)
+    )
     assert r.status_code == 201, r.text
     return admin_token, _login(client, "viewer1", VIEWER_PASSWORD)
 

@@ -31,7 +31,9 @@ _LOCALHOST_ADDRESSES = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
 SETUP_TOKEN_FREE_ATTEMPTS = 5
 SETUP_TOKEN_BASE_DELAY = 2.0
 SETUP_TOKEN_MAX_DELAY = 300.0
-setup_token_throttle = LoginThrottle(free_attempts=SETUP_TOKEN_FREE_ATTEMPTS, base_delay=SETUP_TOKEN_BASE_DELAY, max_delay=SETUP_TOKEN_MAX_DELAY)
+setup_token_throttle = LoginThrottle(
+    free_attempts=SETUP_TOKEN_FREE_ATTEMPTS, base_delay=SETUP_TOKEN_BASE_DELAY, max_delay=SETUP_TOKEN_MAX_DELAY
+)
 
 
 def _auth_enabled(request: Request) -> bool:
@@ -90,7 +92,9 @@ def _setup_token_accepted(request: Request, token: str) -> bool:
         return True
     delay = setup_token_throttle.record_failure(client_ip)
     if delay > 0:
-        logger.warning("Подбор токена установки (X-Setup-Token) с адреса %s: следующая попытка не раньше чем через %.0f с.", client_ip, delay)
+        logger.warning(
+            "Подбор токена установки (X-Setup-Token) с адреса %s: следующая попытка не раньше чем через %.0f с.", client_ip, delay
+        )
     return False
 
 

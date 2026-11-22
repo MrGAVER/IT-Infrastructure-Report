@@ -35,7 +35,8 @@ from app.services.timeutil import utcnow_naive
 
 @pytest.fixture()
 def now() -> datetime:
-    """«Сейчас» теста — реальное время (запись об очистке получает настоящий created_at, и фиксированная дата в прошлом могла бы оказаться новее него)."""
+    """«Сейчас» теста — реальное время (запись об очистке получает настоящий created_at, и фиксированная дата в прошлом могла бы
+    оказаться новее него)."""
     return utcnow_naive().replace(microsecond=0)
 
 
@@ -153,7 +154,9 @@ class TestPurge:
         assert _details(db_session) == ["свежая"]
 
     def test_a_run_stops_at_the_batch_limit_oldest_first_and_reports_it_is_not_complete(self, db_session, now):
-        entries = [_entry(now - timedelta(days=100 - index), details=f"запись {index:02d}") for index in range(10)]  # запись 00 — самая старая
+        entries = [
+            _entry(now - timedelta(days=100 - index), details=f"запись {index:02d}") for index in range(10)
+        ]  # запись 00 — самая старая
         _seed(db_session, *entries)
 
         result = purge_expired_entries(db_session, 30, now=now, batch_size=2, max_batches=3)
@@ -198,7 +201,9 @@ class TestCleanupRecordsItselfInTheLog:
         run_scheduled_cleanup(db_session, now=now)
         run_cleanup(db_session, now=now + timedelta(days=1), actor=None)  # следующий проход (например, после сохранения срока)
 
-        assert len(_service_entries(db_session)) == 1, "запись об очистке свежая и осталась; второй проход ничего не удалил и ничего не дописал"
+        assert len(_service_entries(db_session)) == 1, (
+            "запись об очистке свежая и осталась; второй проход ничего не удалил и ничего не дописал"
+        )
 
     def test_a_run_that_removes_nothing_writes_no_entry_but_marks_the_cleanup_time(self, db_session, now):
         _seed(db_session, _entry(now, details="свежая"))
@@ -479,7 +484,10 @@ class TestUpdateRetention:
 
         assert update.row.retention_days is None
         assert retention_state(update.row).is_default is True
-        assert _service_entries(db_session)[-1].details == "Срок хранения журнала аудита: 90 дн. → не ограничен (сброшен к значению по умолчанию)"
+        assert (
+            _service_entries(db_session)[-1].details
+            == "Срок хранения журнала аудита: 90 дн. → не ограничен (сброшен к значению по умолчанию)"
+        )
 
     def test_a_failed_cleanup_keeps_the_saved_period_and_is_reported(self, db_session, now, monkeypatch):
         def broken(*_args, **_kwargs):

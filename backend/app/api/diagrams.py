@@ -54,13 +54,15 @@ EXPORT_FORMATS = {
 }
 
 # Тяжёлые для процессора форматы экспорта. Замер на 120 устройствах: .svg — единицы мс, .drawio — до 0,2 с, .vsdx — от 0,5 до
-# 2,5 с (с засечками портов). Раньше .vsdx занимал десятки секунд: библиотека vsdx при каждом копировании шаблонной фигуры обходила все фигуры
-# страницы (copy_shape → set_max_ids), рост квадратичный; теперь копирование без повторного обхода (diagram_export/vsdx.py:_ShapeTemplate), но
-# .vsdx по-прежнему самый тяжёлый формат.
-# Эндпоинт синхронный и работает в пуле потоков (по умолчанию ~40): десяток параллельных запросов .vsdx занял бы весь пул, и API перестало бы
-# отвечать всем, включая вход. Поэтому одновременно выполняется не больше HEAVY_EXPORT_MAX_CONCURRENT таких экспортов; лишний запрос сразу
-# получает 503 с Retry-After (как проверка паролей на входе, services/auth/login._password_hash_slot), а не ждёт в очереди и не держит поток.
-# Слот освобождается и по таймауту: .vsdx рендерится в дочернем процессе, который убивается через VSDX_RENDER_TIMEOUT_SECONDS.
+# 2,5 с (с засечками портов). Раньше .vsdx занимал десятки секунд: библиотека vsdx при каждом копировании шаблонной фигуры
+# обходила все фигуры страницы (copy_shape → set_max_ids), рост квадратичный; теперь копирование без повторного обхода
+# (diagram_export/vsdx.py:_ShapeTemplate), но .vsdx по-прежнему самый тяжёлый формат.
+# Эндпоинт синхронный и работает в пуле потоков (по умолчанию ~40): десяток параллельных запросов .vsdx занял бы весь пул, и API
+# перестало бы отвечать всем, включая вход. Поэтому одновременно выполняется не больше HEAVY_EXPORT_MAX_CONCURRENT таких
+# экспортов; лишний запрос сразу
+# получает 503 с Retry-After (как проверка паролей на входе, services/auth/login._password_hash_slot), а не ждёт в очереди и не
+# держит поток. Слот освобождается и по таймауту: .vsdx рендерится в дочернем процессе, который убивается через
+# VSDX_RENDER_TIMEOUT_SECONDS.
 # Новый формат с заметным временем работы добавляют сюда же; тест контракта проверяет, что имена в этом наборе — настоящие форматы экспорта.
 HEAVY_EXPORT_FORMATS = frozenset({"vsdx"})
 HEAVY_EXPORT_MAX_CONCURRENT = 2
@@ -255,7 +257,9 @@ def update_group_state(diagram_id: str, group_key: str, body: DiagramGroupStateU
     diagram = _get_diagram_or_404(session, diagram_id)
     if len(group_key) > MAX_LAYOUT_KEY_LENGTH:
         raise HTTPException(422, f"group_key не должен быть длиннее {MAX_LAYOUT_KEY_LENGTH} символов")
-    state = session.scalar(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == diagram_id, DiagramGroupState.group_key == group_key))
+    state = session.scalar(
+        select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == diagram_id, DiagramGroupState.group_key == group_key)
+    )
     if state is None:
         state = DiagramGroupState(saved_diagram_id=diagram.id, group_key=group_key, device_count=0)
         session.add(state)
@@ -332,12 +336,14 @@ _CONTENT_DISPOSITION_TEMPLATE = """attachment; filename="{ascii_fallback}"; file
 
 
 def _content_disposition(filename: str, default_name: str) -> str:
-    """Заголовок скачивания (RFC 6266): ASCII-запасной `filename` для старых клиентов и настоящее имя в `filename*` (percent-кодированный UTF-8).
+    """Заголовок скачивания (RFC 6266): ASCII-запасной `filename` для старых клиентов и настоящее имя в `filename*`
+    (percent-кодированный UTF-8).
 
-    В запасном имени кавычка, обратная косая, «;» и «/» заменяются на «_», в `filename*` кодируется всё, включая «/» (`safe=""`; у `quote` по
-    умолчанию `safe="/"`). HTTP-заголовки должны быть latin-1-совместимы (RFC 7230), а названия диаграмм обычно на русском —
-    поэтому ASCII-вариант идёт запасным. `isprintable()` отсекает CR/LF и прочие управляющие символы: имя, сохранённое до очистки названий, не
-    должно ломать заголовок. Пример: `План/А.svg` → `filename="______.svg"; filename*=UTF-8''%D0%9F…%2F….svg`.
+    В запасном имени кавычка, обратная косая, «;» и «/» заменяются на «_», в `filename*` кодируется всё, включая «/» (`safe=""`; у
+    `quote` по умолчанию `safe="/"`). HTTP-заголовки должны быть latin-1-совместимы (RFC 7230), а названия диаграмм обычно на
+    русском —
+    поэтому ASCII-вариант идёт запасным. `isprintable()` отсекает CR/LF и прочие управляющие символы: имя, сохранённое до очистки
+    названий, не должно ломать заголовок. Пример: `План/А.svg` → `filename="______.svg"; filename*=UTF-8''%D0%9F…%2F….svg`.
     """
     ascii_fallback = "".join(c if c.isascii() and c.isprintable() and c not in '"\\;/' else "_" for c in filename) or default_name
     return _CONTENT_DISPOSITION_TEMPLATE.format(ascii_fallback=ascii_fallback, encoded=quote(filename, safe=""))
@@ -349,7 +355,8 @@ def _check_export_size(export_format: str, graph: dict) -> None:
     if export_format == "vsdx" and nodes > MAX_VSDX_NODES:
         raise HTTPException(
             422,
-            f"Диаграмма слишком велика для .vsdx ({nodes} узлов, максимум {MAX_VSDX_NODES}). Скачайте .svg или .drawio либо сузьте фильтр диаграммы.",
+            f"Диаграмма слишком велика для .vsdx ({nodes} узлов, максимум {MAX_VSDX_NODES}). Скачайте .svg или "
+            ".drawio либо сузьте фильтр диаграммы.",
         )
 
 
@@ -366,7 +373,9 @@ def _serialize_graph(export_format: str, serialize, graph: dict, diagram_id: str
         try:
             data = serialize(graph)
         except VsdxRenderTimeout:
-            logger.warning("Экспорт диаграммы %s в формате %s прерван по таймауту (%g с)", diagram_id, export_format, VSDX_RENDER_TIMEOUT_SECONDS)
+            logger.warning(
+                "Экспорт диаграммы %s в формате %s прерван по таймауту (%g с)", diagram_id, export_format, VSDX_RENDER_TIMEOUT_SECONDS
+            )
             raise HTTPException(
                 504,
                 f"Формирование .{export_format} заняло больше {VSDX_RENDER_TIMEOUT_SECONDS:g} с и прервано. Скачайте .svg или "

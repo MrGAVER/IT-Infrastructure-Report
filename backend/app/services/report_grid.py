@@ -173,7 +173,9 @@ def _validate_cell_content(
     _validate_style(cell.get("style"), f"{style_where}, колонка {col}")
 
 
-def _validate_row(meta: dict[str, dict[str, Any]], n_cols: int, rows: list[Any], ri: int, pending_spans: list[tuple[int, int, int]], location: str) -> None:
+def _validate_row(
+    meta: dict[str, dict[str, Any]], n_cols: int, rows: list[Any], ri: int, pending_spans: list[tuple[int, int, int]], location: str
+) -> None:
     row = rows[ri]
     where = f"{location}: строка {ri + 1}"
     if not isinstance(row, dict):
@@ -275,7 +277,9 @@ def _formula_value(cell: dict[str, Any], params: dict[str, Any]) -> str:
     return text if text.startswith("=") else f"={text}"
 
 
-def _physical_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, Any], *, limit: int | None) -> tuple[list[dict[str, Any]], list[int]]:
+def _physical_rows(
+    ctx: ReportContext, sheet: dict[str, Any], params: dict[str, Any], *, limit: int | None
+) -> tuple[list[dict[str, Any]], list[int]]:
     """Возвращает (физические строки листа, список total-ов по каждой повторяющейся строке —
     сколько записей нашлось ДО применения limit, для предпросмотра "показаны N из M")."""
     physical: list[dict[str, Any]] = []
@@ -294,7 +298,13 @@ def _physical_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, 
                 # все остальные виды ячеек могут содержать пользовательские данные (например, статичный текст с
                 # параметром {{...}}) и защищаются при записи в .xlsx (guard_text, см. services/excel_safety.py).
                 resolved.append(
-                    {**_cell_geometry(cell), "value": value, "is_datetime": False, "style": cell.get("style") or {}, "guard_text": kind != "formula"}
+                    {
+                        **_cell_geometry(cell),
+                        "value": value,
+                        "is_datetime": False,
+                        "style": cell.get("style") or {},
+                        "guard_text": kind != "formula",
+                    }
                 )
             physical.append({"height": height, "cells": resolved})
             continue
@@ -333,7 +343,13 @@ def _physical_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, 
                 # намеренно, остальное (в первую очередь kind == "field" — данные из БД, потенциально
                 # пользовательский ввод) защищаем при записи в .xlsx.
                 resolved.append(
-                    {**_cell_geometry(cell), "value": value, "is_datetime": is_dt, "style": cell.get("style") or {}, "guard_text": kind != "formula"}
+                    {
+                        **_cell_geometry(cell),
+                        "value": value,
+                        "is_datetime": is_dt,
+                        "style": cell.get("style") or {},
+                        "guard_text": kind != "formula",
+                    }
                 )
             physical.append({"height": height, "cells": resolved})
 

@@ -243,7 +243,11 @@ class BuildXlsxGridTestCase(unittest.TestCase):
                             ]
                         ),
                         _repeat_row(
-                            [_cell(0, "index"), _cell(1, "field", path="name"), _cell(2, "field", path="description", **(extra_row_kwargs or {}))],
+                            [
+                                _cell(0, "index"),
+                                _cell(1, "field", path="name"),
+                                _cell(2, "field", path="description", **(extra_row_kwargs or {})),
+                            ],
                             {"root_entity": "information-systems", "sort_by": "name"},
                         ),
                     ],
@@ -300,7 +304,8 @@ class BuildXlsxGridTestCase(unittest.TestCase):
                     "rows": [
                         _static_row([_cell(0, text="Заголовок отчёта", colspan=3, style={"align": "center"})]),
                         _repeat_row(
-                            [_cell(0, "index"), _cell(1, "field", path="name"), _cell(2, "field", path="description")], {"root_entity": "information-systems"}
+                            [_cell(0, "index"), _cell(1, "field", path="name"), _cell(2, "field", path="description")],
+                            {"root_entity": "information-systems"},
                         ),
                     ],
                 }

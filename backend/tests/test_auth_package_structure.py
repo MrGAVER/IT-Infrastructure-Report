@@ -157,5 +157,9 @@ def test_tests_do_not_patch_names_on_the_package_itself():
     # monkeypatch.setattr(auth_module, "audit", …) подменил бы имя на пакете, а функции users/login/… читают своё, подмодульное:
     # тест прошёл бы с настоящим кодом. Подменять нужно в подмодуле, который имя читает.
     pattern = re.compile(r"setattr\(\s*(?:auth_module|auth)\s*,")
-    offenders = [path.name for path in sorted(TESTS_DIR.glob("*.py")) if path.name != Path(__file__).name and pattern.search(path.read_text(encoding="utf-8"))]
+    offenders = [
+        path.name
+        for path in sorted(TESTS_DIR.glob("*.py"))
+        if path.name != Path(__file__).name and pattern.search(path.read_text(encoding="utf-8"))
+    ]
     assert offenders == [], f"подмена имени на пакете services.auth: {offenders}"

@@ -106,7 +106,10 @@ def apply_error_formats(schema: dict[str, Any], max_body_bytes: int) -> dict[str
             operation.setdefault("responses", {}).setdefault(
                 "413",
                 {
-                    "description": f"Тело запроса больше {describe_limit(max_body_bytes)} (INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES); тело не разбирается.",
+                    "description": (
+                        f"Тело запроса больше {describe_limit(max_body_bytes)} (INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES); тело "
+                        "не разбирается."
+                    ),
                     "content": {"application/json": {"schema": {"$ref": _SCHEMA_REF_PREFIX + TOO_LARGE_SCHEMA}}},
                 },
             )

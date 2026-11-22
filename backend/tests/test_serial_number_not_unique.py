@@ -86,8 +86,12 @@ def test_two_devices_with_the_same_serial_number_are_accepted(client):
     first_vendor = client.post("/api/v1/resources/manufacturers", json={"name": "Производитель А"}).json()["id"]
     second_vendor = client.post("/api/v1/resources/manufacturers", json={"name": "Производитель Б"}).json()["id"]
 
-    first = client.post("/api/v1/resources/devices", json={"device_type_id": device_type, "manufacturer_id": first_vendor, "serial_number": SERIAL})
-    second = client.post("/api/v1/resources/devices", json={"device_type_id": device_type, "manufacturer_id": second_vendor, "serial_number": SERIAL})
+    first = client.post(
+        "/api/v1/resources/devices", json={"device_type_id": device_type, "manufacturer_id": first_vendor, "serial_number": SERIAL}
+    )
+    second = client.post(
+        "/api/v1/resources/devices", json={"device_type_id": device_type, "manufacturer_id": second_vendor, "serial_number": SERIAL}
+    )
 
     assert first.status_code == 201, first.text
     assert second.status_code == 201, second.text
@@ -202,8 +206,12 @@ def test_api_accepts_duplicate_serial_number_on_schema_built_by_migrations(alemb
             device_type = _device_type(client, "Тип A-03: схема из миграций")
             first_vendor = client.post("/api/v1/resources/manufacturers", json={"name": "Производитель М1"}).json()["id"]
             second_vendor = client.post("/api/v1/resources/manufacturers", json={"name": "Производитель М2"}).json()["id"]
-            first = client.post("/api/v1/resources/devices", json={"device_type_id": device_type, "manufacturer_id": first_vendor, "serial_number": SERIAL})
-            second = client.post("/api/v1/resources/devices", json={"device_type_id": device_type, "manufacturer_id": second_vendor, "serial_number": SERIAL})
+            first = client.post(
+                "/api/v1/resources/devices", json={"device_type_id": device_type, "manufacturer_id": first_vendor, "serial_number": SERIAL}
+            )
+            second = client.post(
+                "/api/v1/resources/devices", json={"device_type_id": device_type, "manufacturer_id": second_vendor, "serial_number": SERIAL}
+            )
             assert first.status_code == 201, first.text
             assert second.status_code == 201, second.text
     finally:
@@ -268,7 +276,9 @@ class TestUpgradeFunctionOnSchemasWithTheConstraint:
         engine.dispose()
 
     def test_schema_without_the_constraint_is_left_alone(self, tmp_path):
-        engine = _scratch_engine(tmp_path, ["CREATE TABLE physical_devices (id VARCHAR(36) PRIMARY KEY, serial_number VARCHAR(255) NOT NULL)"])
+        engine = _scratch_engine(
+            tmp_path, ["CREATE TABLE physical_devices (id VARCHAR(36) PRIMARY KEY, serial_number VARCHAR(255) NOT NULL)"]
+        )
         _run_upgrade(engine)
         _run_upgrade(engine)  # повторно — тоже без ошибок
         assert not _has_unique_on_serial(engine)
@@ -283,7 +293,9 @@ class TestPostgresConstraint:
     def _unique_on_serial(self, database) -> list[str]:
         inspector = sa.inspect(database.engine)
         names = [c["name"] for c in inspector.get_unique_constraints("physical_devices") if c["column_names"] == ["serial_number"]]
-        names += [i["name"] for i in inspector.get_indexes("physical_devices") if i.get("unique") and i["column_names"] == ["serial_number"]]
+        names += [
+            i["name"] for i in inspector.get_indexes("physical_devices") if i.get("unique") and i["column_names"] == ["serial_number"]
+        ]
         return names
 
     def test_constraint_exists_before_and_is_dropped_by_the_migration(self):
@@ -301,7 +313,9 @@ class TestPostgresConstraint:
             with database.engine.begin() as connection:
                 _insert(connection, "physical_devices", serial_number=SERIAL)
                 _insert(connection, "physical_devices", serial_number=SERIAL)
-                count = connection.execute(sa.text("SELECT COUNT(*) FROM physical_devices WHERE serial_number = :s"), {"s": SERIAL}).scalar()
+                count = connection.execute(
+                    sa.text("SELECT COUNT(*) FROM physical_devices WHERE serial_number = :s"), {"s": SERIAL}
+                ).scalar()
             assert count == 2
 
             # другие ограничения таблицы на месте: частичный уникальный индекс слота стойки

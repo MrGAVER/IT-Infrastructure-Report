@@ -107,7 +107,12 @@ def test_absent_as_null_fills_only_the_missing_names_and_keeps_the_input_intact(
 
 def test_diagram_bodies_share_the_common_request_body_base():
     assert not hasattr(diagram_schemas, "_Body")
-    for model in (diagram_schemas.DiagramCreate, diagram_schemas.DiagramRename, diagram_schemas.DiagramLayoutUpdate, diagram_schemas.DiagramGroupStateUpdate):
+    for model in (
+        diagram_schemas.DiagramCreate,
+        diagram_schemas.DiagramRename,
+        diagram_schemas.DiagramLayoutUpdate,
+        diagram_schemas.DiagramGroupStateUpdate,
+    ):
         assert issubclass(model, RequestBody)
     assert diagram_schemas.DiagramCreate.model_config["extra"] == "ignore"  # лишние поля по-прежнему игнорируются
 
@@ -140,7 +145,10 @@ def test_approve_request_by_match_carries_the_query_with_the_mismatch_status():
         ({}, "Передайте ровно одно из полей: connection_ids или match"),
         ({"connection_ids": ["a"], "match": {}}, "Передайте ровно одно из полей: connection_ids или match"),
         ({"connection_ids": []}, "Поле connection_ids должно быть непустым массивом идентификаторов подключений"),
-        ({"connection_ids": [str(i) for i in range(MAX_APPROVE_BATCH + 1)]}, f"За один запрос можно одобрить не более {MAX_APPROVE_BATCH} подключений"),
+        (
+            {"connection_ids": [str(i) for i in range(MAX_APPROVE_BATCH + 1)]},
+            f"За один запрос можно одобрить не более {MAX_APPROVE_BATCH} подключений",
+        ),
         ([], "Тело запроса должно быть объектом"),
     ],
 )

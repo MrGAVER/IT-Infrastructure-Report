@@ -120,7 +120,9 @@ def build_report_from_template(
     if template.format == "xlsx":
         from .report_grid import build_xlsx_grid  # локальный импорт: report_grid не зависит от этого модуля
 
-        return build_xlsx_grid(session, config, report_dir, template_name=template.name, params=params, structural_unit_ids=structural_unit_ids)
+        return build_xlsx_grid(
+            session, config, report_dir, template_name=template.name, params=params, structural_unit_ids=structural_unit_ids
+        )
     raise ReportBuilderError(f"Неизвестный формат отчёта: {template.format}")
 
 

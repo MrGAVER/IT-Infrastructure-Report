@@ -63,7 +63,8 @@ def cable(client) -> str:
 
 def _connect(client, cable_id: str, a: dict, b: dict, **extra) -> None:
     r = client.post(
-        f"{API}/resources/connections", json={"source_interface_id": a["id"], "destination_interface_id": b["id"], "connection_type_id": cable_id, **extra}
+        f"{API}/resources/connections",
+        json={"source_interface_id": a["id"], "destination_interface_id": b["id"], "connection_type_id": cable_id, **extra},
     )
     assert r.status_code == 201, r.text
 
@@ -218,7 +219,12 @@ def test_access_to_trunk_keeps_assigned_vlans_and_does_not_add_new_ones(client, 
     v10, v20 = _vlan(client, 10), _vlan(client, 20)
     a, b = _device(client, "CAS-AT-A", (v10, v20)), _device(client, "CAS-AT-B", (v10, v20))
     for dev, name in ((a, "a1"), (b, "b1")):
-        _sync(client, dev["id"], [{"name": name, "group_key": "g"}], [{"key": "g", "name": "Г", "vlan_mode": "access", "vlan_ids": [v10["id"]]}])
+        _sync(
+            client,
+            dev["id"],
+            [{"name": name, "group_key": "g"}],
+            [{"key": "g", "name": "Г", "vlan_mode": "access", "vlan_ids": [v10["id"]]}],
+        )
     pa, pb = _ports(client, a["id"])["a1"], _ports(client, b["id"])["b1"]
     _connect(client, cable, pa, pb)
 
@@ -252,7 +258,12 @@ def test_individual_port_with_several_vlans_keeps_lowest_number(client, cable):
 def test_chain_of_three_devices_is_followed_to_the_end(client, cable):
     a, b, c = _device(client, "CAS-CH-A"), _device(client, "CAS-CH-B"), _device(client, "CAS-CH-C")
     _sync(client, a["id"], [{"name": "a1", "vlan_mode": "trunk"}])
-    _sync(client, b["id"], [{"name": "b1", "group_key": "g"}, {"name": "b2", "group_key": "g"}], [{"key": "g", "name": "Г", "vlan_mode": "trunk"}])
+    _sync(
+        client,
+        b["id"],
+        [{"name": "b1", "group_key": "g"}, {"name": "b2", "group_key": "g"}],
+        [{"key": "g", "name": "Г", "vlan_mode": "trunk"}],
+    )
     _sync(client, c["id"], [{"name": "c1", "vlan_mode": "trunk"}, {"name": "c2", "vlan_mode": "access"}])
     pa, pb, pc = _ports(client, a["id"]), _ports(client, b["id"]), _ports(client, c["id"])
     _connect(client, cable, pa["a1"], pb["b1"])
@@ -336,11 +347,17 @@ def test_apply_rejects_plan_that_changed_since_preview(client, cable):
     _sync(
         client,
         b["id"],
-        [{"id": pb["b1"]["id"], "name": "b1"}, {"id": pb["b2"]["id"], "name": "b2", "group_key": group_id}, {"id": pb["b3"]["id"], "name": "b3"}],
+        [
+            {"id": pb["b1"]["id"], "name": "b1"},
+            {"id": pb["b2"]["id"], "name": "b2", "group_key": group_id},
+            {"id": pb["b3"]["id"], "name": "b3"},
+        ],
         [{"id": group_id, "key": group_id, "name": "Группа B", "vlan_mode": "trunk"}],
     )
 
-    r = client.post(f"{API}/interfaces/{pb['b1']['id']}/vlan-mode-cascade", json={"mode": "access", "plan_hash": stale_hash, "confirm": True})
+    r = client.post(
+        f"{API}/interfaces/{pb['b1']['id']}/vlan-mode-cascade", json={"mode": "access", "plan_hash": stale_hash, "confirm": True}
+    )
 
     assert r.status_code == 409
 
@@ -472,7 +489,9 @@ def test_apply_uses_the_same_form_state_as_preview(client, cable):
 def _trunk_pair_of_ports(client, cable, prefix: str):
     """Редактируемое устройство A (a1..a3, trunk, без групп в БД) и коммутатор B: a1-b1, a2-b2 (все trunk)."""
     a, b = _device(client, f"{prefix}-A"), _device(client, f"{prefix}-B")
-    _sync(client, a["id"], [{"name": "a1", "vlan_mode": "trunk"}, {"name": "a2", "vlan_mode": "trunk"}, {"name": "a3", "vlan_mode": "trunk"}])
+    _sync(
+        client, a["id"], [{"name": "a1", "vlan_mode": "trunk"}, {"name": "a2", "vlan_mode": "trunk"}, {"name": "a3", "vlan_mode": "trunk"}]
+    )
     _sync(client, b["id"], [{"name": "b1", "vlan_mode": "trunk"}, {"name": "b2", "vlan_mode": "trunk"}])
     pa, pb = _ports(client, a["id"]), _ports(client, b["id"])
     _connect(client, cable, pa["a1"], pb["b1"])
@@ -491,7 +510,9 @@ def test_new_unsaved_group_of_the_form_is_followed_with_all_its_draft_members(cl
     by_form = _preview(client, pa["a1"], "access", form).json()
 
     assert by_db["groups"] == [] and by_db["totals"]["ports"] == 2  # a1 и b1: a2 по БД с a1 никак не связан
-    assert [(g["id"], g["name"], g["deferred"], [p["name"] for p in g["ports"]]) for g in by_form["groups"]] == [("new-group-1", "Новая", True, ["a1", "a2"])]
+    assert [(g["id"], g["name"], g["deferred"], [p["name"] for p in g["ports"]]) for g in by_form["groups"]] == [
+        ("new-group-1", "Новая", True, ["a1", "a2"])
+    ]
     assert sorted((p["name"], p["deferred"]) for p in by_form["ports"]) == [("b1", False), ("b2", False)]
     assert by_form["totals"] == {**by_form["totals"], "ports": 4, "groups": 1, "deferred_ports": 2, "immediate_ports": 2}
     assert "groups" in _codes(by_form) and "cascade" in _codes(by_form)
@@ -598,7 +619,12 @@ def test_bogus_draft_reference_to_a_foreign_group_does_not_pull_that_group_into_
     через этот порт — её порты никак не связаны с изменяемыми."""
     a, b, c = _device(client, "CAS-FOR-A"), _device(client, "CAS-FOR-B"), _device(client, "CAS-FOR-C")
     _sync(client, a["id"], [{"name": "a1", "vlan_mode": "trunk"}])
-    _sync(client, b["id"], [{"name": "b1", "group_key": "g"}, {"name": "b2", "group_key": "g"}], [{"key": "g", "name": "Чужая", "vlan_mode": "trunk"}])
+    _sync(
+        client,
+        b["id"],
+        [{"name": "b1", "group_key": "g"}, {"name": "b2", "group_key": "g"}],
+        [{"key": "g", "name": "Чужая", "vlan_mode": "trunk"}],
+    )
     _sync(client, c["id"], [{"name": "c1", "vlan_mode": "trunk"}])
     pa, pc = _ports(client, a["id"])["a1"], _ports(client, c["id"])["c1"]
     foreign_group = next(iter(_groups(client, b["id"]).values()))

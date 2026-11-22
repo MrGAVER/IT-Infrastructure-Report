@@ -46,7 +46,9 @@ _VLAN_MODES = frozenset({"access", "trunk"})
 def list_interface_groups(device_id: str, session: Session) -> list[dict[str, Any]]:
     """Группы портов устройства с их VLAN и открытыми портами (GET /devices/{id}/interface-groups и
     поле groups ответа PUT /devices/{id}/interfaces). Порядок — по наименованию."""
-    groups = session.scalars(select(InterfaceGroup).where(InterfaceGroup.physical_device_id == device_id).order_by(InterfaceGroup.name)).all()
+    groups = session.scalars(
+        select(InterfaceGroup).where(InterfaceGroup.physical_device_id == device_id).order_by(InterfaceGroup.name)
+    ).all()
     subinterfaces = group_subinterfaces_by_group([g.id for g in groups], session)
     return [{**data, "subinterfaces": subinterfaces.get(data["id"], [])} for data in enrich_interface_groups(groups, session)]
 
@@ -342,9 +344,13 @@ def _apply_group_ips(iface: DeviceInterface, group_ips: list[dict[str, Any]], se
     сохраняются), остаток удаляется. Назначение — часть общего IP: группа записывает его безусловно (пустое очищает
     назначение порта). is_management наследуется от порта, как у IP, заданных вручную."""
     current = session.scalars(
-        select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id).order_by(IPAddress.created_at, IPAddress.id)
+        select(IPAddress)
+        .where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id)
+        .order_by(IPAddress.created_at, IPAddress.id)
     ).all()
-    wanted = with_reused_ids([(ip.id, (ip.ip_address, ip.prefix_length)) for ip in current], group_ips, lambda d: (d["ip_address"], d["prefix_length"]))
+    wanted = with_reused_ids(
+        [(ip.id, (ip.ip_address, ip.prefix_length)) for ip in current], group_ips, lambda d: (d["ip_address"], d["prefix_length"])
+    )
     sync_owner_ip_addresses(
         OwnerType.DEVICE_INTERFACE,
         iface.id,
@@ -362,7 +368,9 @@ def _apply_group_open_ports(iface: DeviceInterface, group_ports: list[dict[str, 
     запись справочника/транспорт, id и дата создания сохраняются (как при правке порта вручную и у ВМ);
     удаляются только строки, которым не хватило пары, создаются только порты группы без пары."""
     rows = session.scalars(
-        select(OpenPort).where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == iface.id).order_by(OpenPort.created_at, OpenPort.id)
+        select(OpenPort)
+        .where(OpenPort.owner_type == OwnerType.DEVICE_INTERFACE, OpenPort.owner_id == iface.id)
+        .order_by(OpenPort.created_at, OpenPort.id)
     ).all()
     wanted = {(p["protocol_catalog_id"], p["transport_protocol"]): p for p in group_ports}
     kept: set[tuple[str, str]] = set()
@@ -402,7 +410,11 @@ def _delete_stale_groups(device_id: str, kept_group_ids: set[str], session: Sess
     этом не стирает: PUT передаёт полное состояние порта, и в БД остаётся ровно то, что прислал
     клиент — форма шлёт значения, ранее записанные из группы («оставить»), либо пустые («стереть»,
     выбор пользователя при удалении группы)."""
-    stale = [g for g in session.scalars(select(InterfaceGroup).where(InterfaceGroup.physical_device_id == device_id)).all() if g.id not in kept_group_ids]
+    stale = [
+        g
+        for g in session.scalars(select(InterfaceGroup).where(InterfaceGroup.physical_device_id == device_id)).all()
+        if g.id not in kept_group_ids
+    ]
     purge_subinterfaces_of_groups([g.id for g in stale], session)
     for group in stale:
         session.execute(update(DeviceInterface).where(DeviceInterface.group_id == group.id).values(group_id=None))

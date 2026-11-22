@@ -39,7 +39,8 @@ class MigrationBackupError(RuntimeError):
 
 
 def backup_skipped_by_environment() -> bool:
-    """Оператор осознанно отключил копирование (INFRA_REGISTRY_SKIP_BACKUP = 1/true/yes без учёта регистра); остальные значения не отключают."""
+    """Оператор осознанно отключил копирование (INFRA_REGISTRY_SKIP_BACKUP = 1/true/yes без учёта регистра); остальные значения не
+    отключают."""
     return os.getenv(SKIP_BACKUP_ENV, "").strip().lower() in _SKIP_VALUES
 
 
@@ -55,7 +56,10 @@ def _timestamp() -> str:
 
 def _database_state(connection: sqlite3.Connection) -> tuple[bool, set[str]]:
     """(есть ли в БД пользовательские таблицы, текущие ревизии alembic). Пустая БД и БД без alembic_version — пустой набор ревизий."""
-    tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'")}
+    tables = {
+        row[0]
+        for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'")
+    }
     revisions: set[str] = set()
     if "alembic_version" in tables:
         revisions = {row[0] for row in connection.execute("SELECT version_num FROM alembic_version") if row[0]}
@@ -65,7 +69,9 @@ def _database_state(connection: sqlite3.Connection) -> tuple[bool, set[str]]:
 def _rotate_backups(db_path: Path, keep: int = BACKUPS_TO_KEEP) -> None:
     """Оставляет `keep` самых новых копий этой БД (по метке времени в имени), остальные удаляет; только файлы по маске."""
     pattern = _backup_pattern(db_path)
-    backups = sorted((p for p in db_path.parent.iterdir() if pattern.match(p.name) and p.is_file()), key=lambda p: p.name.split(".")[-2], reverse=True)
+    backups = sorted(
+        (p for p in db_path.parent.iterdir() if pattern.match(p.name) and p.is_file()), key=lambda p: p.name.split(".")[-2], reverse=True
+    )
     for stale in backups[keep:]:
         try:
             stale.unlink()
@@ -139,7 +145,8 @@ def _alembic_config():
 
 
 def main() -> int:
-    """Точка входа `python -m app.services.db_backup`: 0 — копия не нужна или сделана, 1 — копию сделать не удалось (миграцию не начинать)."""
+    """Точка входа `python -m app.services.db_backup`: 0 — копия не нужна или сделана, 1 — копию сделать не удалось (миграцию не
+    начинать)."""
     if backup_skipped_by_environment():
         print(f"Резервная копия базы пропущена: {SKIP_BACKUP_ENV} задана.")
         return 0
@@ -167,10 +174,12 @@ def configure_output() -> None:
     """Сообщения команды русские и не должны ронять её, когда вывод перенаправлен (файл, канал, служба, CI).
 
     Если stdout/stderr — не консоль, Python на Windows берёт ANSI-кодировку системы; на английской Windows это cp1252, и первый же `print` с
-    кириллицей падает с UnicodeEncodeError (код 1: миграция не стартует из-за сообщения, а не из-за ошибки копии). Для файла и канала включаем
-    UTF-8; у консоли кодировку не трогаем, но непредставимое заменяется, а не поднимает исключение. Тот же приём — `configure_stdio()` в
-    launcher.py (там он выполняется до того, как в sys.path попадёт каталог `backend`, поэтому импортировать его отсюда нельзя). Вызывается только
-    из точки входа процесса, а не из `main()`: тесты вызывают `main()` в процессе pytest и не должны менять его потоки."""
+    кириллицей падает с UnicodeEncodeError (код 1: миграция не стартует из-за сообщения, а не из-за ошибки копии). Для файла и
+    канала включаем UTF-8; у консоли кодировку не трогаем, но непредставимое заменяется, а не поднимает исключение. Тот же приём —
+    `configure_stdio()` в
+    launcher.py (там он выполняется до того, как в sys.path попадёт каталог `backend`, поэтому импортировать его отсюда нельзя).
+    Вызывается только из точки входа процесса, а не из `main()`: тесты вызывают `main()` в процессе pytest и не должны менять его
+    потоки."""
     for stream in (sys.stdout, sys.stderr):
         if stream is None or not hasattr(stream, "reconfigure"):
             continue

@@ -68,7 +68,9 @@ class Sheet1InformationSystems(ReportingTestCase):
         iface = C["DeviceInterface"](id="if1", physical_device_id="d1", is_management=True)
         dev_ip = C["IPAddress"](id="ip1", owner_type="device_interface", owner_id="if1", ip_address="10.0.0.5", prefix_length=24)
         vm = C["VirtualMachine"](id="v1", name="VM1", physical_device_id="d1", purpose="")
-        vm_ip = C["IPAddress"](id="vip1", owner_type="virtual_machine", owner_id="v1", ip_address="10.0.1.5", prefix_length=24, is_management=True)
+        vm_ip = C["IPAddress"](
+            id="vip1", owner_type="virtual_machine", owner_id="v1", ip_address="10.0.1.5", prefix_length=24, is_management=True
+        )
         isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)
         src_dev = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", owner_id="d1")
         src_vm = C["InformationSystemSource"](id="src2", information_system_id="is1", source_type="vm", owner_id="v1")
@@ -184,7 +186,9 @@ class Sheet2PhysicalDevices(ReportingTestCase):
         C = self.C
         dev = C["PhysicalDevice"](id="d1", serial_number="SN1")
         vlan = C["VLAN"](id="vl1", vlan_id=100, name="Mgmt")
-        dev_vlan = C["PhysicalDeviceVLAN"](id="dv1", physical_device_id="d1", vlan_id="vl1", is_management=True, ip_address="10.10.10.5", prefix_length=24)
+        dev_vlan = C["PhysicalDeviceVLAN"](
+            id="dv1", physical_device_id="d1", vlan_id="vl1", is_management=True, ip_address="10.10.10.5", prefix_length=24
+        )
         self.table.update({"PhysicalDevice": [dev], "VLAN": [vlan], "PhysicalDeviceVLAN": [dev_vlan]})
         wb = self.build(Path("/tmp/test_reports_5"))
         rows = self.sheet_rows(wb, "Инвентаризац. физ. устройств ИС")
@@ -241,7 +245,8 @@ class Sheet3Connections(ReportingTestCase):
         header = self.sheet_rows(wb, "Организация подключений")[0]
         port_idx = header.index("Номер физического или логического порта")
         purpose_idx = header.index(
-            "Сведения о назначении линий связи (передача данных или управление активами информационной системы, средствами защиты информации)"
+            "Сведения о назначении линий связи (передача данных или управление активами информационной системы, "
+            "средствами защиты информации)"
         )
         by_port = {r[port_idx]: r[purpose_idx] for r in rows}
         self.assertEqual(by_port["eth0"], "Передача данных")
@@ -279,7 +284,9 @@ class Sheet3Connections(ReportingTestCase):
         C = self.C
         dev1, dev2 = self._two_devices_two_connections()
         vlan = C["VLAN"](id="vl1", vlan_id=100, name="Mgmt")
-        dev_vlan = C["PhysicalDeviceVLAN"](id="dv1", physical_device_id="d1", vlan_id="vl1", is_management=True, ip_address="10.10.10.5", prefix_length=24)
+        dev_vlan = C["PhysicalDeviceVLAN"](
+            id="dv1", physical_device_id="d1", vlan_id="vl1", is_management=True, ip_address="10.10.10.5", prefix_length=24
+        )
         self.table.update({"VLAN": [vlan], "PhysicalDeviceVLAN": [dev_vlan]})
         wb = self.build(Path("/tmp/test_reports_10"))
         rows = self.sheet_rows(wb, "Организация подключений")[1:]
@@ -301,7 +308,9 @@ class Sheet3Connections(ReportingTestCase):
         cat_ssh = C["ProtocolPortCatalog"](id="cat-ssh", port=22, protocol_type="SSH")
         cat_snmp = C["ProtocolPortCatalog"](id="cat-snmp", port=161, protocol_type="SNMP")
         p1 = C["OpenPort"](id="op1", owner_type="device_interface", owner_id="if1", protocol_catalog_id="cat-ssh", transport_protocol="TCP")
-        p2 = C["OpenPort"](id="op2", owner_type="device_interface", owner_id="if1", protocol_catalog_id="cat-snmp", transport_protocol="UDP")
+        p2 = C["OpenPort"](
+            id="op2", owner_type="device_interface", owner_id="if1", protocol_catalog_id="cat-snmp", transport_protocol="UDP"
+        )
         self.table.update({"ProtocolPortCatalog": [cat_ssh, cat_snmp], "OpenPort": [p1, p2]})
         wb = self.build(Path("/tmp/test_reports_11"))
         rows = self.sheet_rows(wb, "Организация подключений")[1:]
@@ -329,7 +338,9 @@ class Sheet3Connections(ReportingTestCase):
         C = self.C
         self._two_devices_two_connections()
         cat_ssh = C["ProtocolPortCatalog"](id="cat-ssh", port=22, protocol_type="SSH")
-        legacy = C["OpenPort"](id="op-legacy", owner_type="physical_device", owner_id="d1", protocol_catalog_id="cat-ssh", transport_protocol="TCP")
+        legacy = C["OpenPort"](
+            id="op-legacy", owner_type="physical_device", owner_id="d1", protocol_catalog_id="cat-ssh", transport_protocol="TCP"
+        )
         self.table.update({"ProtocolPortCatalog": [cat_ssh], "OpenPort": [legacy]})
         wb = self.build(Path("/tmp/test_reports_11b"))
         rows = self.sheet_rows(wb, "Организация подключений")[1:]

@@ -56,10 +56,14 @@ def get_information_system_details(system_id: str, session: Session) -> dict[str
         ).all():
             ips_by_source.setdefault(ip.owner_id, []).append(serialize(ip))
     return {
-        "departments": [serialize(x) for x in session.scalars(select(ISDepartment).where(ISDepartment.information_system_id == system_id)).all()],
+        "departments": [
+            serialize(x) for x in session.scalars(select(ISDepartment).where(ISDepartment.information_system_id == system_id)).all()
+        ],
         "protocols": [serialize(x) for x in _load_protocols(system_id, session)],
         "sources": [{**serialize(x), "ips": ips_by_source.get(x.id, [])} for x in sources],
-        "placement_assets": [serialize(x) for x in session.scalars(select(ISPlacementAsset).where(ISPlacementAsset.information_system_id == system_id)).all()],
+        "placement_assets": [
+            serialize(x) for x in session.scalars(select(ISPlacementAsset).where(ISPlacementAsset.information_system_id == system_id)).all()
+        ],
     }
 
 
@@ -117,7 +121,9 @@ def _prepare_protocol_items(items: Any, system: InformationSystem, session: Sess
         raise HTTPException(422, "Поле protocols должно быть массивом")
     rows = [item for item in items if isinstance(item, dict) and item.get("protocol_catalog_id")]
     catalog_ids = {row["protocol_catalog_id"] for row in rows}
-    known = set(session.scalars(select(ProtocolPortCatalog.id).where(ProtocolPortCatalog.id.in_(catalog_ids))).all()) if catalog_ids else set()
+    known = (
+        set(session.scalars(select(ProtocolPortCatalog.id).where(ProtocolPortCatalog.id.in_(catalog_ids))).all()) if catalog_ids else set()
+    )
     if catalog_ids - known:
         raise HTTPException(422, "Не выбрана существующая запись справочника «Протоколы и порты»")
     validate_unique_open_port_numbers((row["protocol_catalog_id"] for row in rows), session, f"ИС «{system.name}»")
@@ -133,7 +139,9 @@ def _sync_source_ip_addresses(source_id: str, ip_items: Any, session: Session) -
     is_management от владельца — у источника ИС такого родительского флага нет."""
     if not isinstance(ip_items, list):
         raise HTTPException(422, "Поле ips источника должно быть массивом")
-    existing_ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE, IPAddress.owner_id == source_id)).all()
+    existing_ips = session.scalars(
+        select(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE, IPAddress.owner_id == source_id)
+    ).all()
     old_map = {x.id: x for x in existing_ips}
     seen_ip_ids: set[str] = set()
     for ip_data in ip_items:
@@ -201,7 +209,9 @@ def _sync_information_system_sources(system_id: str, source_items: Any, session:
     той же причине, что и _sync_linked_table()."""
     if not isinstance(source_items, list):
         raise HTTPException(422, "Поле sources должно быть массивом")
-    existing_sources = session.scalars(select(InformationSystemSource).where(InformationSystemSource.information_system_id == system_id)).all()
+    existing_sources = session.scalars(
+        select(InformationSystemSource).where(InformationSystemSource.information_system_id == system_id)
+    ).all()
     _assert_no_new_duplicate_sources(source_items, existing_sources, session)
     source_map = {x.id: x for x in existing_sources}
     seen = set()
@@ -231,7 +241,9 @@ def _sync_information_system_sources(system_id: str, source_items: Any, session:
     session.flush()
     for obj in existing_sources:
         if obj.id not in seen:
-            session.execute(delete(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE, IPAddress.owner_id == obj.id))
+            session.execute(
+                delete(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE, IPAddress.owner_id == obj.id)
+            )
             session.delete(obj)
 
 
@@ -246,7 +258,13 @@ def sync_information_system_details(system_id: str, payload: dict[str, Any], ses
                 items = _prepare_protocol_items(items, system, session)
             _sync_linked_table(key, model, items, system_id, session)
         _sync_information_system_sources(system_id, payload.get("sources", []), session)
-        audit(session, "information-systems", system_id, AuditAction.UPDATE, "Обновлены связанные данные ИС (подразделения/протоколы/источники/размещение)")
+        audit(
+            session,
+            "information-systems",
+            system_id,
+            AuditAction.UPDATE,
+            "Обновлены связанные данные ИС (подразделения/протоколы/источники/размещение)",
+        )
         session.commit()
         return get_information_system_details(system_id, session)
     except HTTPException:

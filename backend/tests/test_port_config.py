@@ -129,11 +129,17 @@ def test_trunk_against_access_is_mismatch_even_when_roles_and_vlans_match():
 
 
 def test_different_vlan_sets_are_mismatch_even_when_roles_and_modes_match():
-    assert evaluate_port_config(_cfg(PortRole.DATA, "trunk", {10, 20}), _cfg(PortRole.DATA, "trunk", {10, 30}), None) is PortConfigStatus.MISMATCH
+    assert (
+        evaluate_port_config(_cfg(PortRole.DATA, "trunk", {10, 20}), _cfg(PortRole.DATA, "trunk", {10, 30}), None)
+        is PortConfigStatus.MISMATCH
+    )
 
 
 def test_inactive_connection_is_never_a_mismatch():
-    assert evaluate_port_config(_cfg(PortRole.MANAGEMENT, "access"), _cfg(PortRole.DATA, "trunk", {10}), None, is_active=False) is PortConfigStatus.OK
+    assert (
+        evaluate_port_config(_cfg(PortRole.MANAGEMENT, "access"), _cfg(PortRole.DATA, "trunk", {10}), None, is_active=False)
+        is PortConfigStatus.OK
+    )
 
 
 # --- подпись и одобрение -----------------------------------------------------------------
@@ -146,7 +152,9 @@ def test_signature_for_role_only_difference_keeps_the_legacy_format():
 
 def test_signature_lists_only_differing_facets():
     assert approval_signature(_cfg(PortRole.DATA, "trunk"), _cfg(PortRole.DATA, "access")) == "|mode:trunk>access"
-    assert approval_signature(_cfg(PortRole.DATA, vlans={10}), _cfg(PortRole.DATA)) == f"|vlan:{vlan_fingerprint({10})}>{vlan_fingerprint(())}"
+    assert (
+        approval_signature(_cfg(PortRole.DATA, vlans={10}), _cfg(PortRole.DATA)) == f"|vlan:{vlan_fingerprint({10})}>{vlan_fingerprint(())}"
+    )
     full = approval_signature(_cfg(PortRole.MANAGEMENT, "trunk", {10}), _cfg(PortRole.DATA, "access", {20}))
     assert full == f"management>data|mode:trunk>access|vlan:{vlan_fingerprint({10})}>{vlan_fingerprint({20})}"
     assert approval_signature(_cfg(PortRole.DATA), _cfg(PortRole.DATA)) == ""

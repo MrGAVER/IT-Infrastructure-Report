@@ -4,7 +4,8 @@
 * Базовые образы Dockerfile закреплены только тегами (`node:22-slim`, `python:3.12-slim`): тег переписывается издателем, и образ, собранный
   завтра, мог оказаться другим, чем проверенный сегодня. Теперь к тегу добавлен digest (`node:22-slim@sha256:…`); тег остаётся для
   читателя и для Dependabot, который обновляет их вместе.
-* `.github/dependabot.yml` — автообновление pip, npm, docker и github-actions (действия CI закреплены по SHA, и обновлять их вручную некому).
+* `.github/dependabot.yml` — автообновление pip, npm, docker и github-actions (действия CI закреплены по SHA, и обновлять их
+  вручную некому).
 * В CI есть шаг `bandit -r backend/app -ll`, а сам bandit — в закреплённых dev-зависимостях с хешами.
 
 Тест статический: docker daemon и доступ к реестрам в окружении разработки недоступны, поэтому сборку образа проверяет CI (`docker build`).
@@ -48,14 +49,18 @@ def test_every_base_image_is_pinned_by_digest_and_keeps_its_tag(line):
 def test_the_pinned_images_match_the_versions_ci_runs_on():
     """Образ и CI живут на одной версии: сборка в Docker и проверки в CI не должны расходиться по Node и Python.
 
-    Версию задаёт ci.yml (`node-version`, `python-version`), а Dockerfile обязан её повторять. Так смена Node или Python остаётся одной миграцией
-    (Dockerfile и ci.yml вместе), а PR Dependabot, который меняет только образ (как были #7 и #8), ловится этим тестом, а не уже в CI на пустом месте.
+    Версию задаёт ci.yml (`node-version`, `python-version`), а Dockerfile обязан её повторять. Так смена Node или Python остаётся
+    одной миграцией (Dockerfile и ci.yml вместе), а PR Dependabot, который меняет только образ (как были #7 и #8), ловится этим
+    тестом, а не уже в
+    CI на пустом месте.
     """
     images = {m["image"]: m["tag"] for m in map(PINNED_FROM.match, _from_lines()) if m}
     ci = CI.read_text(encoding="utf-8")
     node = set(re.findall(r'node-version:\s*"?([0-9]+)"?', ci))
     python = set(re.findall(r'python-version:\s*"?([0-9]+\.[0-9]+)"?', ci))
-    assert len(node) == 1 and len(python) == 1, f"в ci.yml везде должна быть одна версия Node и одна Python, а сейчас: {sorted(node)}, {sorted(python)}"
+    assert len(node) == 1 and len(python) == 1, (
+        f"в ci.yml везде должна быть одна версия Node и одна Python, а сейчас: {sorted(node)}, {sorted(python)}"
+    )
     assert images == {"node": f"{node.pop()}-slim", "python": f"{python.pop()}-slim"}
 
 
@@ -105,9 +110,11 @@ def _ignore_rules(dependabot: dict, ecosystem: str) -> dict[str, dict]:
 def test_dependabot_does_not_propose_runtime_or_toolchain_version_jumps(dependabot):
     """Python и TypeScript меняются отдельной миграцией, а не PR Dependabot (PR #7 и #20 были красными).
 
-    Образ python:3.12-slim закреплён сознательно (CI, lock-файлы и тесты идут на 3.12; у Python нет LTS: каждая минорная линия поддерживается
-    5 лет, а исправления безопасности приходят обновлением digest тега). TypeScript 7 не ставится из-за peer-зависимостей vue-tsc и
-    typescript-eslint. Правила не должны пропасть незаметно. Node в этом списке нет: он на LTS, и его следующие линии Dependabot предлагает сам.
+    Образ python:3.12-slim закреплён сознательно (CI, lock-файлы и тесты идут на 3.12; у Python нет LTS: каждая минорная линия
+    поддерживается 5 лет, а исправления безопасности приходят обновлением digest тега). TypeScript 7 не ставится из-за
+    peer-зависимостей vue-tsc и
+    typescript-eslint. Правила не должны пропасть незаметно. Node в этом списке нет: он на LTS, и его следующие линии Dependabot
+    предлагает сам.
     """
     docker = _ignore_rules(dependabot, "docker")
     assert set(docker["python"]["update-types"]) >= {"version-update:semver-minor", "version-update:semver-major"}  # 3.12 → 3.15 — минорное

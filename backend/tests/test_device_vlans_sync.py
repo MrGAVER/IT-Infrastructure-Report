@@ -31,7 +31,11 @@ def _stored(client, device_id: str) -> dict[str, dict]:
 def test_creates_rows_with_normalized_values(client):
     dev, v10 = _device(client), None
     v10 = _vlan(client, 10)
-    r = _sync(client, dev["id"], [{"vlan_id": v10["id"], "ip_address": "10.0.10.1", "prefix_length": "24", "is_management": True, "description": ""}])
+    r = _sync(
+        client,
+        dev["id"],
+        [{"vlan_id": v10["id"], "ip_address": "10.0.10.1", "prefix_length": "24", "is_management": True, "description": ""}],
+    )
     assert r.status_code == 200, r.text
     (item,) = r.json()["items"]
     assert (item["ip_address"], item["prefix_length"], item["is_management"], item["description"]) == ("10.0.10.1", 24, True, None)
@@ -117,7 +121,9 @@ def test_domain_vlan_requires_membership_and_auto_assigned_rows_survive_sync(cli
 
     assert _sync(client, dev["id"], [{"vlan_id": v10["id"]}]).status_code == 422  # ещё не член домена
 
-    assert client.post("/api/v1/resources/vlan-domain-devices", json={"physical_device_id": dev["id"], "domain_id": domain["id"]}).status_code in (200, 201)
+    assert client.post(
+        "/api/v1/resources/vlan-domain-devices", json={"physical_device_id": dev["id"], "domain_id": domain["id"]}
+    ).status_code in (200, 201)
     auto = _stored(client, dev["id"])  # членство само назначило VLAN домена
     assert set(auto) == {v10["id"], v20["id"]}
 

@@ -312,7 +312,8 @@ def _warn_if_insecure_server_config(auth_enabled: bool) -> None:
         problems.append("CORS разрешён для любого origin (INFRA_REGISTRY_CORS_ORIGINS=*)")
     if problems:
         logger.warning(
-            "Небезопасная конфигурация серверного развёртывания на PostgreSQL: %s. Эти дефолты рассчитаны на локальный однопользовательский "
+            "Небезопасная конфигурация серверного развёртывания на PostgreSQL: %s. Эти дефолты рассчитаны на "
+            "локальный однопользовательский "
             "сценарий — для сервера, доступного нескольким сотрудникам, включите аутентификацию (см. раздел 'Аутентификация' в README) и "
             "ограничьте INFRA_REGISTRY_CORS_ORIGINS конкретными адресами.",
             "; ".join(problems),

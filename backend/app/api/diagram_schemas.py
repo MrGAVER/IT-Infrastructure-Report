@@ -103,12 +103,17 @@ class DiagramCreate(RequestBody):
         max_length=MAX_DIAGRAM_NAME_LENGTH,
         description="Название диаграммы; управляющие символы заменяются пробелом, не длиннее 255 символов.",
     )
-    group_by: str = Field(default="structural_unit", description="Измерение группировки узлов.", json_schema_extra={"enum": list(GROUP_DIMENSIONS)})
+    group_by: str = Field(
+        default="structural_unit", description="Измерение группировки узлов.", json_schema_extra={"enum": list(GROUP_DIMENSIONS)}
+    )
     scope_filter: dict[str, Any] = Field(default_factory=dict, description="Фильтр охвата: какие устройства попадают на диаграмму.")
     description: str | None = None
     # ge/le нужны только схеме OpenAPI (minimum/maximum): сообщение об ошибке даёт валидатор ниже.
     collapse_threshold: int = Field(
-        default=DEFAULT_COLLAPSE_THRESHOLD, ge=1, le=MAX_COLLAPSE_THRESHOLD, description="Группа крупнее этого числа устройств сворачивается."
+        default=DEFAULT_COLLAPSE_THRESHOLD,
+        ge=1,
+        le=MAX_COLLAPSE_THRESHOLD,
+        description="Группа крупнее этого числа устройств сворачивается.",
     )
 
     @field_validator("name", mode="before")

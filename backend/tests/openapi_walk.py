@@ -17,7 +17,21 @@ from app.main import app
 JSON_TYPE = "application/json"
 WRITE_METHODS = ("post", "put", "patch")
 # Для объекта без описанных полей (произвольный dict: правила синхронизации портов, сверка) — ключи, которые реально читают сервисы.
-GENERIC_KEYS = ("name", "description", "enabled", "priority", "apply", "action", "ids", "rule_id", "connection_ids", "plan_hash", "confirm", "limit", "offset")
+GENERIC_KEYS = (
+    "name",
+    "description",
+    "enabled",
+    "priority",
+    "apply",
+    "action",
+    "ids",
+    "rule_id",
+    "connection_ids",
+    "plan_hash",
+    "confirm",
+    "limit",
+    "offset",
+)
 MAX_DEPTH = 4
 PATH_PARAM = re.compile(r"\{(\w+)\}")
 MISSING_ID = "does-not-exist"
@@ -67,7 +81,8 @@ def variants(spec: dict, schema: dict) -> list[dict]:
 
 
 class Builder:
-    """Строит тело запроса по схеме. ``leaves`` собирает пути листьев (путь, вид) при первом проходе; ``overrides`` подменяет значения листьев."""
+    """Строит тело запроса по схеме. ``leaves`` собирает пути листьев (путь, вид) при первом проходе; ``overrides`` подменяет
+    значения листьев."""
 
     def __init__(self, spec: dict) -> None:
         self.spec = spec

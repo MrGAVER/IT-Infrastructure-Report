@@ -73,7 +73,9 @@ def _port(conn: sqlite3.Connection, device_id: str, name: str, created_at: str |
 
 
 def _order(conn: sqlite3.Connection, device_id: str) -> list[str]:
-    rows = conn.execute("SELECT name FROM device_interfaces WHERE physical_device_id=? ORDER BY sort_order, created_at, id", (device_id,)).fetchall()
+    rows = conn.execute(
+        "SELECT name FROM device_interfaces WHERE physical_device_id=? ORDER BY sort_order, created_at, id", (device_id,)
+    ).fetchall()
     return [r["name"] for r in rows]
 
 
@@ -98,7 +100,9 @@ def test_upgrade_sorts_existing_ports_naturally_per_device(alembic_config):
         assert _order(conn, second) == ["Te1/0/1", "Te1/0/2"]
         positions = [
             r["sort_order"]
-            for r in conn.execute("SELECT sort_order FROM device_interfaces WHERE physical_device_id=? ORDER BY sort_order", (first,)).fetchall()
+            for r in conn.execute(
+                "SELECT sort_order FROM device_interfaces WHERE physical_device_id=? ORDER BY sort_order", (first,)
+            ).fetchall()
         ]
         assert positions == [0, 1, 2, 3, 4]
     finally:
@@ -119,7 +123,10 @@ def test_upgrade_breaks_ties_by_creation_time(alembic_config):
 
     conn = _connect(db_path)
     try:
-        orders = {r["id"]: r["sort_order"] for r in conn.execute("SELECT id, sort_order FROM device_interfaces WHERE physical_device_id=?", (dev,)).fetchall()}
+        orders = {
+            r["id"]: r["sort_order"]
+            for r in conn.execute("SELECT id, sort_order FROM device_interfaces WHERE physical_device_id=?", (dev,)).fetchall()
+        }
         assert orders[early] == 0 and orders[late] == 1
     finally:
         conn.close()

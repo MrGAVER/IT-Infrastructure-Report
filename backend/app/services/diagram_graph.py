@@ -175,7 +175,9 @@ class GraphContext:
         # (подинтерфейс на VLAN 10 — это VLAN 10 на линии). Порядок — по номеру VLAN, затем по имени.
         self.subinterfaces_by_interface: dict[str, list[DeviceSubinterface]] = defaultdict(list)
         subinterfaces = session.scalars(select(DeviceSubinterface)).all()
-        subinterfaces.sort(key=lambda sub: (self.vlans[sub.vlan_id].vlan_id if sub.vlan_id in self.vlans else 0, sub.name.casefold(), sub.id))
+        subinterfaces.sort(
+            key=lambda sub: (self.vlans[sub.vlan_id].vlan_id if sub.vlan_id in self.vlans else 0, sub.name.casefold(), sub.id)
+        )
         for sub in subinterfaces:
             self.subinterfaces_by_interface[sub.parent_interface_id].append(sub)
         self.subinterface_ips_by_subinterface: dict[str, list[IPAddress]] = defaultdict(list)
@@ -194,7 +196,9 @@ class GraphContext:
                 self.interface_vlan_ids_by_interface[link.interface_id].append(link.vlan_id)
         if all_vlans_ids:
             for interface_id, vlan_ids in effective_vlan_ids(session, all_vlans_ids).items():
-                self.interface_vlan_ids_by_interface[interface_id] = sorted(vlan_ids, key=lambda v: (self.vlans[v].vlan_id if v in self.vlans else 0, v))
+                self.interface_vlan_ids_by_interface[interface_id] = sorted(
+                    vlan_ids, key=lambda v: (self.vlans[v].vlan_id if v in self.vlans else 0, v)
+                )
 
         self.connections = list(session.scalars(select(Connection)).all())
 
@@ -342,7 +346,9 @@ def _insert_missing_group_states(session: Session, states: list[DiagramGroupStat
     session.execute(dialect_insert(DiagramGroupState).on_conflict_do_nothing(index_elements=["saved_diagram_id", "group_key"]), rows)
 
 
-def apply_grouping(session: Session, saved_diagram: SavedDiagram, group_counts: dict[str, int], *, persist: bool = True) -> dict[str, DiagramGroupState]:
+def apply_grouping(
+    session: Session, saved_diagram: SavedDiagram, group_counts: dict[str, int], *, persist: bool = True
+) -> dict[str, DiagramGroupState]:
     """Раздел 8 ТЗ. Группа НИЖЕ порога без существующей записи не получает DiagramGroupState вообще —
     отсутствие записи трактуется как "не свёрнута" (см. build_graph). Существующая запись никогда не получает
     переписанный is_collapsed/custom_threshold — только device_count обновляется при каждом regenerate.
@@ -355,7 +361,10 @@ def apply_grouping(session: Session, saved_diagram: SavedDiagram, group_counts: 
     несохранённое состояние ``is_collapsed=True`` — результат тот же, что дала бы запись, но безопасный метод GET не
     меняет данные (в том числе от имени роли viewer) и не конкурирует с другими запросами; device_count у существующих
     записей не обновляется (граф берёт число устройств из текущего расчёта, а не из записи)."""
-    existing = {s.group_key: s for s in session.scalars(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == saved_diagram.id)).all()}
+    existing = {
+        s.group_key: s
+        for s in session.scalars(select(DiagramGroupState).where(DiagramGroupState.saved_diagram_id == saved_diagram.id)).all()
+    }
     result: dict[str, DiagramGroupState] = {}
     created: list[DiagramGroupState] = []
     for group_key, device_count in group_counts.items():
@@ -409,7 +418,13 @@ def _build_ip_addresses(device: PhysicalDevice, ctx: GraphContext) -> list[dict]
                 if address in seen:
                     continue
                 seen.add(address)
-                addresses.append({"address": address, "purpose": f"{sub.name}: {ip.purpose}" if ip.purpose else sub.name, "is_management": ip.is_management})
+                addresses.append(
+                    {
+                        "address": address,
+                        "purpose": f"{sub.name}: {ip.purpose}" if ip.purpose else sub.name,
+                        "is_management": ip.is_management,
+                    }
+                )
     for link in ctx.device_vlans_by_device.get(device.id, []):
         if not link.ip_address:
             continue
@@ -484,8 +499,12 @@ def build_edge(connection: Connection, ctx: GraphContext, source_node_id: str, t
     # САМОГО устройства, а не свёрнут в узел-группу (build_graph.resolve_node_id) — у узла-группы
     # нет своих засечек порта, анкерить туда конкретный port_index было бы некуда (см. пункт 5
     # docstring модуля).
-    source_supports_port_index = bool(source_device is not None and source_node_id == source_device.id and ctx.device_supports_port_index(source_device))
-    target_supports_port_index = bool(target_device is not None and target_node_id == target_device.id and ctx.device_supports_port_index(target_device))
+    source_supports_port_index = bool(
+        source_device is not None and source_node_id == source_device.id and ctx.device_supports_port_index(source_device)
+    )
+    target_supports_port_index = bool(
+        target_device is not None and target_node_id == target_device.id and ctx.device_supports_port_index(target_device)
+    )
 
     vlans: dict[str, dict] = {}
     for iface in (source_iface, target_iface):

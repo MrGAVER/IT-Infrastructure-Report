@@ -224,7 +224,10 @@ def _links_table(doc: DocumentObject, data: AppendixData, is_name: str) -> None:
 def _vlan_table(doc: DocumentObject, data: AppendixData, is_name: str) -> None:
     widths = _VLAN_WIDTHS
     table = _new_table(
-        doc, widths, f"Перечень виртуальных локальных вычислительных сетей (VLAN) ИС {is_name}", ("Идентификатор VLAN", "Имя VLAN", "IP-адресация")
+        doc,
+        widths,
+        f"Перечень виртуальных локальных вычислительных сетей (VLAN) ИС {is_name}",
+        ("Идентификатор VLAN", "Имя VLAN", "IP-адресация"),
     )
     if not data.vlan_groups:
         _empty_row(table, widths)
@@ -289,7 +292,9 @@ def render_structural_appendix(data: AppendixData, is_name: str) -> DocumentObje
     return doc
 
 
-def build_structural_appendix(session: Session, report_dir: Path, *, is_name: Optional[str], structural_unit_ids: Optional[list[str]] = None) -> Path:
+def build_structural_appendix(
+    session: Session, report_dir: Path, *, is_name: Optional[str], structural_unit_ids: Optional[list[str]] = None
+) -> Path:
     """Формирует docx в report_dir и возвращает путь к файлу.
 
     Пример: build_structural_appendix(session, REPORT_DIR, is_name="ЕАИС ТО")  # в заголовках — «ЕАИС ТО», «… ИС ТО»

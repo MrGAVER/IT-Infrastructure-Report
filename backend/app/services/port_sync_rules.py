@@ -400,7 +400,8 @@ def _check_apply_consistency(action: str, apply_role: bool, apply_mode: bool, vl
         raise RuleValidationError("Политика VLAN «по режиму» имеет смысл только вместе со сменой режима (apply.mode)")
     if vlan_policy == "union" and (apply_role or apply_mode):
         raise RuleValidationError(
-            "Политика VLAN «объединить» меняет оба порта сразу и не сочетается со сменой роли или режима: их порт берёт у соседа, а не оба сразу"
+            "Политика VLAN «объединить» меняет оба порта сразу и не сочетается со сменой роли или режима: их "
+            "порт берёт у соседа, а не оба сразу"
         )
     if action == "auto" and not (apply_role or apply_mode or vlan_policy != "keep"):
         raise RuleValidationError("Правило с действием «автоматически» должно что-то менять: роль, режим или VLAN")

@@ -92,7 +92,9 @@ def _insert_information_system(conn: sqlite3.Connection) -> str:
     return is_id
 
 
-def _insert_source(conn: sqlite3.Connection, is_id: str, source_type: str, *, physical_device_id=None, virtual_machine_id=None, container_id=None) -> str:
+def _insert_source(
+    conn: sqlite3.Connection, is_id: str, source_type: str, *, physical_device_id=None, virtual_machine_id=None, container_id=None
+) -> str:
     source_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(

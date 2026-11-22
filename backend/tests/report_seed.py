@@ -135,23 +135,44 @@ def seed_registry(session: Session) -> None:
             ),
             PhysicalDevice(id="sw2", device_type_id="dt-sw", serial_number="SN-SW2", system_name="SW-2", building_id="b2"),
             PhysicalDevice(id="rt1", device_type_id="dt-rt", serial_number="SN-RT1", building_id="b1"),
-            PhysicalDevice(id="srv1", device_type_id="dt-srv", serial_number="SN-SRV1", system_name="SRV-1", building_id="b3", operating_system_id="os1"),
+            PhysicalDevice(
+                id="srv1",
+                device_type_id="dt-srv",
+                serial_number="SN-SRV1",
+                system_name="SRV-1",
+                building_id="b3",
+                operating_system_id="os1",
+            ),
         ]
     )
     session.flush()
     add(
         [
             PhysicalDeviceVLAN(id="pdv1", physical_device_id="sw1", vlan_id="v10"),
-            PhysicalDeviceVLAN(id="pdv2", physical_device_id="sw1", vlan_id="v20", ip_address="192.168.20.1", prefix_length=24, is_management=True),
+            PhysicalDeviceVLAN(
+                id="pdv2", physical_device_id="sw1", vlan_id="v20", ip_address="192.168.20.1", prefix_length=24, is_management=True
+            ),
         ]
     )
     add(
         [
             DeviceInterface(
-                id="p1", physical_device_id="sw1", name="Gi1/0/1", is_management=True, is_data_transfer=True, vlan_mode="trunk", interface_type_id="it1"
+                id="p1",
+                physical_device_id="sw1",
+                name="Gi1/0/1",
+                is_management=True,
+                is_data_transfer=True,
+                vlan_mode="trunk",
+                interface_type_id="it1",
             ),
             DeviceInterface(
-                id="p2", physical_device_id="sw1", name="Gi1/0/2", is_data_transfer=True, vlan_mode="trunk", all_vlans=True, interface_type_id="it1"
+                id="p2",
+                physical_device_id="sw1",
+                name="Gi1/0/2",
+                is_data_transfer=True,
+                vlan_mode="trunk",
+                all_vlans=True,
+                interface_type_id="it1",
             ),
             DeviceInterface(id="p3", physical_device_id="sw1", name="Gi1/0/3", is_data_transfer=True, interface_type_id="it1"),
             DeviceInterface(id="p4", physical_device_id="sw1", name="Gi1/0/4", is_data_transfer=True),
@@ -176,7 +197,9 @@ def seed_registry(session: Session) -> None:
         [
             InterfaceVLAN(id="iv1", interface_id="p1", vlan_id="v10", mode="trunk"),
             InterfaceVLAN(id="iv2", interface_id="p1", vlan_id="v20", mode="trunk"),
-            InterfaceVLAN(id="iv3", interface_id="p2", vlan_id="v40", mode="trunk"),  # у порта «Все VLAN» связи игнорируются (VLAN 40 нет у устройства)
+            InterfaceVLAN(
+                id="iv3", interface_id="p2", vlan_id="v40", mode="trunk"
+            ),  # у порта «Все VLAN» связи игнорируются (VLAN 40 нет у устройства)
             InterfaceVLAN(
                 id="iv6", interface_id="p3", vlan_id="v10", mode="access"
             ),  # у порта n1 (сервер) своих VLAN нет — в строке сервера берутся VLAN соседа
@@ -187,7 +210,13 @@ def seed_registry(session: Session) -> None:
     add(
         [
             Connection(id="c1", source_interface_id="p1", destination_interface_id="q1", connection_type_id="ct1", created_at=T0),
-            Connection(id="c2", source_interface_id="p2", destination_interface_id="r1", connection_type_id="ct1", created_at=T0 + timedelta(minutes=1)),
+            Connection(
+                id="c2",
+                source_interface_id="p2",
+                destination_interface_id="r1",
+                connection_type_id="ct1",
+                created_at=T0 + timedelta(minutes=1),
+            ),
             Connection(
                 id="c3",
                 source_interface_id="p3",
@@ -200,13 +229,29 @@ def seed_registry(session: Session) -> None:
     )
     add(
         [
-            IPAddress(id="ip1", owner_type=OwnerType.DEVICE_INTERFACE, owner_id="p1", ip_address="192.168.1.2", prefix_length=24, is_management=True),
+            IPAddress(
+                id="ip1",
+                owner_type=OwnerType.DEVICE_INTERFACE,
+                owner_id="p1",
+                ip_address="192.168.1.2",
+                prefix_length=24,
+                is_management=True,
+            ),
             IPAddress(id="ip2", owner_type=OwnerType.DEVICE_INTERFACE, owner_id="p1", ip_address="192.168.1.1", prefix_length=24),
             IPAddress(id="ip3", owner_type=OwnerType.DEVICE_INTERFACE, owner_id="q2", ip_address="10.0.0.2", prefix_length=24),
             IPAddress(id="ip4", owner_type=OwnerType.DEVICE_INTERFACE, owner_id="q3", ip_address="10.0.0.2", prefix_length=24),
             IPAddress(id="ip5", owner_type=OwnerType.DEVICE_SUBINTERFACE, owner_id="s-a", ip_address="172.16.0.1", prefix_length=30),
-            IPAddress(id="ip6", owner_type=OwnerType.DEVICE_SUBINTERFACE, owner_id="s-c", ip_address="172.16.99.1", prefix_length=24, is_management=True),
-            IPAddress(id="ip7", owner_type=OwnerType.VIRTUAL_MACHINE, owner_id="vm1", ip_address="10.1.1.20", prefix_length=24, is_management=True),
+            IPAddress(
+                id="ip6",
+                owner_type=OwnerType.DEVICE_SUBINTERFACE,
+                owner_id="s-c",
+                ip_address="172.16.99.1",
+                prefix_length=24,
+                is_management=True,
+            ),
+            IPAddress(
+                id="ip7", owner_type=OwnerType.VIRTUAL_MACHINE, owner_id="vm1", ip_address="10.1.1.20", prefix_length=24, is_management=True
+            ),
             IPAddress(id="ip8", owner_type=OwnerType.VIRTUAL_MACHINE, owner_id="vm1", ip_address="10.1.1.10", prefix_length=24),
             IPAddress(id="ip9", owner_type=OwnerType.INFORMATION_SYSTEM_SOURCE, owner_id="src-vm", ip_address="10.9.9.9"),
             IPAddress(id="ip10", owner_type=OwnerType.PHYSICAL_DEVICE, owner_id="sw1", ip_address="1.1.1.1"),  # в выборки отчёта не входит
@@ -256,14 +301,22 @@ def seed_registry(session: Session) -> None:
             InformationSystemSource(id="src-dev", information_system_id="is1", source_type="device", owner_id="sw1"),
             InformationSystemSource(id="src-vm", information_system_id="is1", source_type="vm", owner_id="vm1"),
             InformationSystemSource(id="src-ct", information_system_id="is1", source_type="container", owner_id="ct-b"),
-            InformationSystemSource(id="src-ct2", information_system_id="is2", source_type="container", owner_id="ct-a"),  # контейнер на ВМ → хост ВМ
+            InformationSystemSource(
+                id="src-ct2", information_system_id="is2", source_type="container", owner_id="ct-a"
+            ),  # контейнер на ВМ → хост ВМ
             InformationSystemSource(id="src-lost", information_system_id="is3", source_type="vm", owner_id="vm2"),  # ВМ без хоста
-            InformationSystemSource(id="src-dup", information_system_id="is1", source_type="device", owner_id="sw1"),  # повтор — в связях один раз
+            InformationSystemSource(
+                id="src-dup", information_system_id="is1", source_type="device", owner_id="sw1"
+            ),  # повтор — в связях один раз
             InformationSystemSource(
                 id="src-ct3", information_system_id="is5", source_type="container", owner_id="ct-d"
             ),  # контейнер на ВМ, хост ВМ — в выбранной единице
-            InformationSystemSource(id="src-ct4", information_system_id="is6", source_type="container", owner_id="ct-e"),  # контейнер прямо на устройстве
-            InformationSystemSource(id="src-vm3", information_system_id="is7", source_type="vm", owner_id="vm3"),  # ВМ на устройстве из выбранной единицы
+            InformationSystemSource(
+                id="src-ct4", information_system_id="is6", source_type="container", owner_id="ct-e"
+            ),  # контейнер прямо на устройстве
+            InformationSystemSource(
+                id="src-vm3", information_system_id="is7", source_type="vm", owner_id="vm3"
+            ),  # ВМ на устройстве из выбранной единицы
             InformationSystemSource(id="src-gone", information_system_id="is1", source_type="device", owner_id="нет-такого"),
         ]
     )

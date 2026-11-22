@@ -94,7 +94,12 @@ def _authorize(method: str, path: str, authorization: Optional[str]) -> _GateDec
         user = resolve_session(db_session, token) if token else None
         if user is None:
             return _GateDecision(True, None, 401, "Требуется аутентификация.")
-        if user.role != UserRole.ADMIN and method in WRITE_METHODS and not _is_role_check_exempt(path) and not _is_read_only_post(method, path):
+        if (
+            user.role != UserRole.ADMIN
+            and method in WRITE_METHODS
+            and not _is_role_check_exempt(path)
+            and not _is_read_only_post(method, path)
+        ):
             return _GateDecision(True, user, 403, "Недостаточно прав: требуется роль администратора.")
         return _GateDecision(True, user)
     finally:

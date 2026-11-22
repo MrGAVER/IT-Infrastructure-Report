@@ -142,14 +142,48 @@ def test_destructive_cleanup_cascades_fully_and_spares_unrelated_device(alembic_
     server_type = get_or_create_named("device_types", "Сервер")
 
     switch, server = _uid(), _uid()
-    insert("physical_devices", id=switch, device_type_id=net_type, serial_number="SW-1", system_name="sw-01", siem_enabled=0, created_at=now, updated_at=now)
     insert(
-        "physical_devices", id=server, device_type_id=server_type, serial_number="SRV-1", system_name="srv-01", siem_enabled=0, created_at=now, updated_at=now
+        "physical_devices",
+        id=switch,
+        device_type_id=net_type,
+        serial_number="SW-1",
+        system_name="sw-01",
+        siem_enabled=0,
+        created_at=now,
+        updated_at=now,
+    )
+    insert(
+        "physical_devices",
+        id=server,
+        device_type_id=server_type,
+        serial_number="SRV-1",
+        system_name="srv-01",
+        siem_enabled=0,
+        created_at=now,
+        updated_at=now,
     )
 
     iface_sw, iface_srv = _uid(), _uid()
-    insert("device_interfaces", id=iface_sw, physical_device_id=switch, name="Gi0/1", is_management=1, is_data_transfer=0, created_at=now, updated_at=now)
-    insert("device_interfaces", id=iface_srv, physical_device_id=server, name="eth0", is_management=0, is_data_transfer=1, created_at=now, updated_at=now)
+    insert(
+        "device_interfaces",
+        id=iface_sw,
+        physical_device_id=switch,
+        name="Gi0/1",
+        is_management=1,
+        is_data_transfer=0,
+        created_at=now,
+        updated_at=now,
+    )
+    insert(
+        "device_interfaces",
+        id=iface_srv,
+        physical_device_id=server,
+        name="eth0",
+        is_management=0,
+        is_data_transfer=1,
+        created_at=now,
+        updated_at=now,
+    )
 
     conn_type = get_or_create_named("connection_types", "Витая пара")
     connection = _uid()
@@ -182,8 +216,26 @@ def test_destructive_cleanup_cascades_fully_and_spares_unrelated_device(alembic_
     container_on_device, container_on_vm = _uid(), _uid()
     insert("containers", id=container_on_device, name="ctr-on-switch", physical_device_id=switch, created_at=now, updated_at=now)
     insert("containers", id=container_on_vm, name="ctr-on-vm", virtual_machine_id=vm, created_at=now, updated_at=now)
-    insert("open_ports", id=_uid(), owner_type="physical_device", owner_id=switch, transport_protocol="TCP", port=22, created_at=now, updated_at=now)
-    insert("open_ports", id=_uid(), owner_type="virtual_machine", owner_id=vm, transport_protocol="TCP", port=80, created_at=now, updated_at=now)
+    insert(
+        "open_ports",
+        id=_uid(),
+        owner_type="physical_device",
+        owner_id=switch,
+        transport_protocol="TCP",
+        port=22,
+        created_at=now,
+        updated_at=now,
+    )
+    insert(
+        "open_ports",
+        id=_uid(),
+        owner_type="virtual_machine",
+        owner_id=vm,
+        transport_protocol="TCP",
+        port=80,
+        created_at=now,
+        updated_at=now,
+    )
 
     isys = _uid()
     insert(
@@ -199,7 +251,14 @@ def test_destructive_cleanup_cascades_fully_and_spares_unrelated_device(alembic_
     )
     insert("information_system_devices", id=_uid(), information_system_id=isys, physical_device_id=switch, created_at=now, updated_at=now)
     insert("information_system_vms", id=_uid(), information_system_id=isys, virtual_machine_id=vm, created_at=now, updated_at=now)
-    insert("information_system_containers", id=_uid(), information_system_id=isys, container_id=container_on_device, created_at=now, updated_at=now)
+    insert(
+        "information_system_containers",
+        id=_uid(),
+        information_system_id=isys,
+        container_id=container_on_device,
+        created_at=now,
+        updated_at=now,
+    )
     insert(
         "information_system_sources",
         id=_uid(),
@@ -232,9 +291,13 @@ def test_destructive_cleanup_cascades_fully_and_spares_unrelated_device(alembic_
 
     assert count("SELECT count(*) FROM device_types WHERE id=?", net_type) == 0
     assert count("SELECT count(*) FROM physical_devices WHERE id=?", switch) == 0
-    assert count("SELECT count(*) FROM physical_devices WHERE id=?", server) == 1, "несвязанное устройство сохраняемого типа не должно пострадать"
+    assert count("SELECT count(*) FROM physical_devices WHERE id=?", server) == 1, (
+        "несвязанное устройство сохраняемого типа не должно пострадать"
+    )
     assert count("SELECT count(*) FROM device_interfaces WHERE id=?", iface_srv) == 1, "интерфейс сохраняемого устройства должен выжить"
-    assert count("SELECT count(*) FROM connections WHERE id=?", connection) == 0, "связь с ОДНИМ концом на удаляемом устройстве удаляется целиком"
+    assert count("SELECT count(*) FROM connections WHERE id=?", connection) == 0, (
+        "связь с ОДНИМ концом на удаляемом устройстве удаляется целиком"
+    )
     assert count("SELECT count(*) FROM interface_vlans") == 0
     assert count("SELECT count(*) FROM physical_device_vlans") == 0
     assert count("SELECT count(*) FROM virtual_machines WHERE id=?", vm) == 0

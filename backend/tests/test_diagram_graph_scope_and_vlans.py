@@ -1,5 +1,6 @@
 """
-A-06 (код-ревью main @ b375f58): ветки diagram_graph.py, которых не касался ни один тест, — фильтр охвата диаграммы и работа с VLAN устройства.
+A-06 (код-ревью main @ b375f58): ветки diagram_graph.py, которых не касался ни один тест, — фильтр охвата диаграммы и работа с
+VLAN устройства.
 
 Что проверяется: «Все VLAN» у порта (`carries_all_vlans` → `effective_vlan_ids`: порт несёт все VLAN устройства, выбранные вручную
 игнорируются, access-порт «все VLAN» не несёт),
@@ -46,14 +47,18 @@ def types(db_session):
 
 
 def _device(session, device_type, serial, *, building=None, name=None) -> PhysicalDevice:
-    device = PhysicalDevice(device_type_id=device_type.id, serial_number=serial, system_name=name or serial, building_id=building.id if building else None)
+    device = PhysicalDevice(
+        device_type_id=device_type.id, serial_number=serial, system_name=name or serial, building_id=building.id if building else None
+    )
     session.add(device)
     session.flush()
     return device
 
 
 def _graph_ids(session, scope: dict, group_by: str = "building", threshold: int = 50) -> set[str]:
-    diagram = SavedDiagram(name=f"Д-{uuid.uuid4().hex[:8]}", scope_filter=json.dumps(scope), group_by=group_by, collapse_threshold=threshold)
+    diagram = SavedDiagram(
+        name=f"Д-{uuid.uuid4().hex[:8]}", scope_filter=json.dumps(scope), group_by=group_by, collapse_threshold=threshold
+    )
     session.add(diagram)
     session.flush()
     return {node["id"] for node in build_graph(session, diagram, persist=False)["nodes"]}
@@ -66,7 +71,12 @@ class TestAllVlansPort:
         v20, v10, v30 = VLAN(vlan_id=20, name="Гости"), VLAN(vlan_id=10, name="Серверы"), VLAN(vlan_id=30, name="Чужой")
         db_session.add_all([v20, v10, v30])
         db_session.flush()
-        db_session.add_all([PhysicalDeviceVLAN(physical_device_id=device.id, vlan_id=v20.id), PhysicalDeviceVLAN(physical_device_id=device.id, vlan_id=v10.id)])
+        db_session.add_all(
+            [
+                PhysicalDeviceVLAN(physical_device_id=device.id, vlan_id=v20.id),
+                PhysicalDeviceVLAN(physical_device_id=device.id, vlan_id=v10.id),
+            ]
+        )
         db_session.flush()
         return SimpleDevice(device, v10, v20, v30)
 
@@ -178,14 +188,19 @@ class TestManagementVlanAndGroupingByVlan:
 class TestScopeFilter:
     @pytest.fixture()
     def world(self, db_session, types):
-        head, branch, other = StructuralUnit(name="Головной офис"), StructuralUnit(name="Филиал"), StructuralUnit(name="Сторонняя организация")
+        head, branch, other = (
+            StructuralUnit(name="Головной офис"),
+            StructuralUnit(name="Филиал"),
+            StructuralUnit(name="Сторонняя организация"),
+        )
         db_session.add_all([head, other])
         db_session.flush()
         branch.parent_id = head.id  # филиал вложен в головной офис
         db_session.add(branch)
         db_session.flush()
         b_head, b_branch, b_other = (
-            Building(name=name, structural_unit_id=unit.id) for name, unit in (("Здание ГО", head), ("Здание филиала", branch), ("Чужое здание", other))
+            Building(name=name, structural_unit_id=unit.id)
+            for name, unit in (("Здание ГО", head), ("Здание филиала", branch), ("Чужое здание", other))
         )
         db_session.add_all([b_head, b_branch, b_other])
         db_session.flush()
@@ -228,7 +243,11 @@ class TestScopeFilter:
         assert _graph_ids(db_session, {"vlan_ids": [world["vlan"].id]}) == self._ids(db_session, world, "branch_server", "homeless")
 
     def test_dimensions_are_combined_with_and_and_values_within_a_dimension_with_or(self, db_session, world):
-        scope = {"structural_unit_ids": [world["head"].id], "device_category_ids": [world["types"]["srv"].id], "vlan_ids": [world["vlan"].id, "no-such-vlan"]}
+        scope = {
+            "structural_unit_ids": [world["head"].id],
+            "device_category_ids": [world["types"]["srv"].id],
+            "vlan_ids": [world["vlan"].id, "no-such-vlan"],
+        }
 
         assert _graph_ids(db_session, scope) == self._ids(db_session, world, "branch_server")
 

@@ -46,7 +46,11 @@ def _rejected(db_session, device_id: str, payload: dict) -> HTTPException:
 
 def _ports(db_session, device_id: str) -> list[DeviceInterface]:
     db_session.expire_all()
-    return list(db_session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.sort_order)).all())
+    return list(
+        db_session.scalars(
+            select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.sort_order)
+        ).all()
+    )
 
 
 class TestInputValidation:
@@ -67,7 +71,10 @@ class TestInputValidation:
             ({"interfaces": [{"name": "a", "vlan_ids": "10"}]}, "vlan_ids интерфейса должно быть массивом"),
             ({"interfaces": [{"name": "a", "vlan_ids": ["не-разрешён"]}]}, "не разрешены для типа данного устройства"),
             ({"interfaces": [{"name": "a", "ips": "10.0.0.1"}]}, "ips интерфейса должно быть массивом"),
-            ({"interfaces": [{"name": "a", "ips": [{"ip_address": "10.0.0.1", "id": "чужой-ip"}]}]}, "IP не принадлежит выбранному интерфейсу"),
+            (
+                {"interfaces": [{"name": "a", "ips": [{"ip_address": "10.0.0.1", "id": "чужой-ip"}]}]},
+                "IP не принадлежит выбранному интерфейсу",
+            ),
         ],
     )
     def test_invalid_item_is_rejected_with_a_specific_message(self, client, db_session, payload, fragment):
@@ -78,7 +85,9 @@ class TestInputValidation:
     def test_access_port_cannot_have_two_vlans(self, client, db_session):
         device = _device(client)
         first, second = _vlans_on_device(client, device, 10, 20)
-        error = _rejected(db_session, device["id"], {"interfaces": [{"name": "a", "vlan_mode": "access", "vlan_ids": [first["id"], second["id"]]}]})
+        error = _rejected(
+            db_session, device["id"], {"interfaces": [{"name": "a", "vlan_mode": "access", "vlan_ids": [first["id"], second["id"]]}]}
+        )
         assert error.status_code == 422 and "не более одного VLAN" in error.detail
 
     def test_invalid_ipv4_is_rejected(self, client, db_session):
@@ -123,7 +132,9 @@ class TestSavedState:
     def test_ips_are_diffed_by_id_and_inherit_management_flag(self, client, db_session):
         device = _device(client)
         port = _put(
-            client, device["id"], [{"name": "m", "is_management": True, "ips": [{"ip_address": "10.0.0.1", "prefix_length": 24}, {"ip_address": "10.0.0.2"}]}]
+            client,
+            device["id"],
+            [{"name": "m", "is_management": True, "ips": [{"ip_address": "10.0.0.1", "prefix_length": 24}, {"ip_address": "10.0.0.2"}]}],
         )["items"][0]
         kept_id = next(ip["id"] for ip in port["ips"] if ip["ip_address"] == "10.0.0.1")
         result = _put(

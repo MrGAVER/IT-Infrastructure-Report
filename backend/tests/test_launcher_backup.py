@@ -80,7 +80,10 @@ def templates(tmp_path_factory):
             patch.setattr(app_config, "DATABASE_URL", f"sqlite:///{path}")
             command.upgrade(_make_cfg(path), revision)
         with sqlite3.connect(old) as conn:
-            conn.execute("INSERT INTO manufacturers (id, name, created_at, updated_at) VALUES ('m-1', 'Производитель А-12', '2026-01-01', '2026-01-01')")
+            conn.execute(
+                "INSERT INTO manufacturers (id, name, created_at, updated_at) VALUES ('m-1', 'Производитель А-12', "
+                "'2026-01-01', '2026-01-01')"
+            )
     finally:
         patch.undo()
     return {"old": old, "head": head}
@@ -311,7 +314,9 @@ class TestMigrateWiring:
         shutil.copy(templates["old"], data_dir / DB_NAME)
         upgrades = []
         monkeypatch.setattr(command, "upgrade", lambda *args, **kwargs: upgrades.append(args))
-        monkeypatch.setattr(db_backup, "backup_before_migration", lambda *a, **k: (_ for _ in ()).throw(db_backup.MigrationBackupError("нет места")))
+        monkeypatch.setattr(
+            db_backup, "backup_before_migration", lambda *a, **k: (_ for _ in ()).throw(db_backup.MigrationBackupError("нет места"))
+        )
         with pytest.raises(db_backup.MigrationBackupError):
             launcher.migrate()
         assert upgrades == [], "без копии миграцию не начинаем"

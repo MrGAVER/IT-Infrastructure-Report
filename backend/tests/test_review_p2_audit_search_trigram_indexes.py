@@ -4,7 +4,8 @@
 - без расширения pg_trgm миграция НЕ падает (предупреждение в лог, индексы не создаются) — на заглушке соединения, любая СУБД;
 - на SQLite миграция ничего не делает;
 - на PostgreSQL индексы создаются, downgrade их убирает, а настоящий запрос `list_audit_log(q=…)` выполняется по ним (EXPLAIN запроса,
-  который реально отправило приложение) и быстрее полного перебора минимум вдвое (замер, метка slow: 200 000 записей; решает не он, а планы EXPLAIN).
+  который реально отправило приложение) и быстрее полного перебора минимум вдвое (замер, метка slow: 200 000 записей; решает не
+  он, а планы EXPLAIN).
 
 Запуск: pytest backend/tests/test_review_p2_audit_search_trigram_indexes.py -v   (PostgreSQL-часть: INFRA_REGISTRY_TEST_DATABASE_URL)
 """
@@ -74,7 +75,9 @@ def test_the_migration_names_match_the_alembic_check_filter():
 
 
 def test_without_the_extension_the_migration_succeeds_and_tells_how_to_finish_manually(monkeypatch, caplog):
-    unavailable = sa.exc.NotSupportedError("CREATE EXTENSION", {}, Exception('extension "pg_trgm" is not available\nHINT: install postgresql-contrib'))
+    unavailable = sa.exc.NotSupportedError(
+        "CREATE EXTENSION", {}, Exception('extension "pg_trgm" is not available\nHINT: install postgresql-contrib')
+    )
     bind = _FakeBind("postgresql", extension_error=unavailable)
 
     with caplog.at_level(logging.WARNING, logger="alembic.runtime.migration"):
@@ -82,7 +85,9 @@ def test_without_the_extension_the_migration_succeeds_and_tells_how_to_finish_ma
 
     assert not any("CREATE INDEX" in sql for sql in bind.statements), "без расширения индексы не создаются"
     warning = next(record.getMessage() for record in caplog.records if record.levelno == logging.WARNING)
-    assert "pg_trgm" in warning and "CREATE INDEX IF NOT EXISTS ix_audit_log_details_trgm" in warning and "работает без ускорения" in warning
+    assert (
+        "pg_trgm" in warning and "CREATE INDEX IF NOT EXISTS ix_audit_log_details_trgm" in warning and "работает без ускорения" in warning
+    )
 
 
 def test_with_the_extension_it_creates_both_expression_indexes(monkeypatch):
@@ -90,7 +95,9 @@ def test_with_the_extension_it_creates_both_expression_indexes(monkeypatch):
     _run(monkeypatch, "upgrade", bind)
     indexes = [sql for sql in bind.statements if "CREATE INDEX" in sql]
     assert [sql.split()[5] for sql in indexes] == ["ix_audit_log_details_trgm", "ix_audit_log_entity_id_trgm"]
-    assert all("USING gin (lower(" in sql and "gin_trgm_ops" in sql for sql in indexes), "выражение lower(колонка) — то, что строит audit_query"
+    assert all("USING gin (lower(" in sql and "gin_trgm_ops" in sql for sql in indexes), (
+        "выражение lower(колонка) — то, что строит audit_query"
+    )
 
 
 @pytest.mark.parametrize("direction", ["upgrade", "downgrade"])
@@ -124,7 +131,9 @@ def pg_database():
 
 def _index_names(engine) -> set[str]:
     with engine.connect() as connection:
-        rows = connection.execute(sa.text("SELECT indexname FROM pg_indexes WHERE tablename = 'audit_log' AND indexdef LIKE '%gin_trgm_ops%'"))
+        rows = connection.execute(
+            sa.text("SELECT indexname FROM pg_indexes WHERE tablename = 'audit_log' AND indexdef LIKE '%gin_trgm_ops%'")
+        )
         return {row[0] for row in rows}
 
 
@@ -148,8 +157,10 @@ def _seed_audit_log(engine, rows: int) -> None:
         connection.execute(
             sa.text(
                 """
-                INSERT INTO audit_log (id, entity_type, entity_id, action, details, actor_id, actor_username, actor_ip, created_at, updated_at)
-                SELECT gen_random_uuid()::text, (ARRAY['devices','vms','connections','interfaces','vlans'])[1 + (g % 5)], gen_random_uuid()::text,
+                INSERT INTO audit_log (id, entity_type, entity_id, action, details, actor_id, actor_username, actor_ip,
+                                       created_at, updated_at)
+                SELECT gen_random_uuid()::text, (ARRAY['devices','vms','connections','interfaces','vlans'])[1 + (g % 5)],
+                       gen_random_uuid()::text,
                        (ARRAY['CREATE','UPDATE','DELETE'])[1 + (g % 3)],
                        'name: Устройство-' || g || ' → Коммутатор-' || (g * 7) || '; serial: SN' || md5(g::text),
                        gen_random_uuid()::text, 'user' || (g % 20), '10.0.' || (g % 250) || '.' || (g % 200),
@@ -167,7 +178,12 @@ def _timed_search(engine) -> tuple[float, str, int]:
     sent: list[tuple[str, dict]] = []
 
     def capture(_connection, _cursor, statement, parameters, _context, _executemany):
-        if "audit_log" in statement and "LIKE" in statement and statement.lstrip().upper().startswith("SELECT") and "count(" not in statement.lower():
+        if (
+            "audit_log" in statement
+            and "LIKE" in statement
+            and statement.lstrip().upper().startswith("SELECT")
+            and "count(" not in statement.lower()
+        ):
             sent.append((statement, parameters))
 
     sa.event.listen(engine, "before_cursor_execute", capture)
@@ -195,7 +211,9 @@ def test_search_uses_the_trigram_indexes_and_is_much_faster_than_a_full_scan(pg_
 
     indexed_seconds, indexed_plan, found = _timed_search(engine)
     assert found >= 1, "поисковый фрагмент должен находить записи"
-    assert "ix_audit_log_details_trgm" in indexed_plan and "ix_audit_log_entity_id_trgm" in indexed_plan and "Bitmap" in indexed_plan, indexed_plan
+    assert "ix_audit_log_details_trgm" in indexed_plan and "ix_audit_log_entity_id_trgm" in indexed_plan and "Bitmap" in indexed_plan, (
+        indexed_plan
+    )
 
     migrate(url, PREVIOUS_REVISION, downgrade=True)  # те же данные без индексов
     try:
@@ -206,6 +224,8 @@ def test_search_uses_the_trigram_indexes_and_is_much_faster_than_a_full_scan(pg_
         migrate(url, "head")
     assert "Seq Scan" in scan_plan and found_without_index == found, "индексы ускоряют поиск, но не меняют его результат"
     print(f"\nпоиск по журналу аудита (200 000 записей): с индексами {indexed_seconds * 1000:.1f} мс, без — {scan_seconds * 1000:.1f} мс")
-    # Главные гарантии — планы EXPLAIN выше (индексы использованы / Seq Scan без них, результат тот же): они детерминированы. Замер времени лишь
-    # страхует от индекса, который есть, но не помогает; на общем раннере он шумит (в CI одного и того же кода: 4,5 раза при пороге 5), поэтому порог — 2.
+    # Главные гарантии — планы EXPLAIN выше (индексы использованы / Seq Scan без них, результат тот же): они детерминированы.
+    # Замер времени лишь страхует от индекса, который есть, но не помогает; на общем раннере он шумит (в CI одного и того же кода:
+    # 4,5 раза при
+    # пороге 5), поэтому порог — 2.
     assert indexed_seconds * 2 < scan_seconds, f"ожидалось ускорение минимум в 2 раза: {indexed_seconds:.4f} с против {scan_seconds:.4f} с"

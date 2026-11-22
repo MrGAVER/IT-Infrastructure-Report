@@ -51,7 +51,9 @@ def write_port_roles(items: Sequence[tuple[DeviceInterface, PortRole]], session:
     for is_management, port_ids in by_flag.items():
         for chunk in _chunks(port_ids):
             session.execute(
-                update(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id.in_(chunk)).values(is_management=is_management)
+                update(IPAddress)
+                .where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id.in_(chunk))
+                .values(is_management=is_management)
             )
 
 

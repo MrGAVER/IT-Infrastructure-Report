@@ -123,7 +123,9 @@ def test_interface_ip_migrated_with_device_interface_owner_type(alembic_config):
 
     command.upgrade(cfg, TARGET_REVISION)
     conn = _connect(db_path)
-    row = conn.execute("SELECT owner_type, owner_id, ip_address, prefix_length, purpose, is_management FROM ip_addresses WHERE id=?", (ip_id,)).fetchone()
+    row = conn.execute(
+        "SELECT owner_type, owner_id, ip_address, prefix_length, purpose, is_management FROM ip_addresses WHERE id=?", (ip_id,)
+    ).fetchone()
     assert row is not None
     assert row["owner_type"] == "device_interface"
     assert row["owner_id"] == iface_id
@@ -141,7 +143,8 @@ def test_vm_ip_migrated_with_virtual_machine_owner_type(alembic_config):
     ip_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO vm_ips (id, virtual_machine_id, ip_address, is_management, created_at, updated_at) VALUES (?, ?, '192.168.1.5', 0, ?, ?)",
+        "INSERT INTO vm_ips (id, virtual_machine_id, ip_address, is_management, created_at, updated_at) "
+        "VALUES (?, ?, '192.168.1.5', 0, ?, ?)",
         (ip_id, vm_id, now, now),
     )
     conn.commit()
@@ -187,7 +190,9 @@ def test_source_without_ip_address_produces_no_rows(alembic_config):
 
     command.upgrade(cfg, TARGET_REVISION)
     conn = _connect(db_path)
-    count = conn.execute("SELECT COUNT(*) FROM ip_addresses WHERE owner_type='information_system_source' AND owner_id=?", (source_id,)).fetchone()[0]
+    count = conn.execute(
+        "SELECT COUNT(*) FROM ip_addresses WHERE owner_type='information_system_source' AND owner_id=?", (source_id,)
+    ).fetchone()[0]
     assert count == 0
     conn.close()
 
@@ -214,7 +219,17 @@ def test_ip_addresses_real_ddl_after_migration(alembic_config):
     command.upgrade(cfg, TARGET_REVISION)
     conn = _connect(db_path)
     columns = {r["name"]: r for r in conn.execute("PRAGMA table_info(ip_addresses)").fetchall()}
-    assert set(columns) == {"id", "owner_type", "owner_id", "ip_address", "prefix_length", "purpose", "is_management", "created_at", "updated_at"}
+    assert set(columns) == {
+        "id",
+        "owner_type",
+        "owner_id",
+        "ip_address",
+        "prefix_length",
+        "purpose",
+        "is_management",
+        "created_at",
+        "updated_at",
+    }
     assert columns["ip_address"]["notnull"] == 1
     assert columns["prefix_length"]["notnull"] == 0
     indexes = {r["name"] for r in conn.execute("PRAGMA index_list(ip_addresses)").fetchall()}
