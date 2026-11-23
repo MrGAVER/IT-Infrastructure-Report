@@ -108,6 +108,11 @@ export const routes = [
     component: () => import('../views/DiagramView.vue'),
   },
   {
+    path: '/consistency',
+    name: 'consistency',
+    component: () => import('../views/ConsistencyView.vue'),
+  },
+  {
     path: '/port-sync-rules',
     name: 'port-sync-rules',
     component: () => import('../views/PortSyncRulesView.vue'),
