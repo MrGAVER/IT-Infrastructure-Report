@@ -30,6 +30,7 @@ from .config import (
 )
 from .api.audit_log import router as audit_log_router
 from .api.auth import router as auth_router
+from .api.consistency import router as consistency_router
 from .api.device_stacks import router as device_stacks_router
 from .api.devices import router as devices_router
 from .api.diagrams import router as diagrams_router
@@ -160,6 +161,7 @@ app.include_router(auth_router)
 app.include_router(preferences_router)
 # Бывший api/system.py (357 строк) разрезан по темам; адреса эндпоинтов не менялись.
 app.include_router(system_router)
+app.include_router(consistency_router)
 app.include_router(listings_router)
 app.include_router(vms_router)
 app.include_router(vlan_router)
