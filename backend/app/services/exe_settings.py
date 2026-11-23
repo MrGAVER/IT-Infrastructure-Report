@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import ipaddress
+import math
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,7 @@ LOOPBACK_NETWORK = "127.0.0.0/8"
 _KNOWN_KEYS: dict[str, frozenset[str]] = {
     "server": frozenset({"port", "open_browser"}),
     "access": frozenset({"allowed_clients", "allowed_hosts"}),
+    "backup": frozenset({"interval_hours", "keep", "directory"}),
 }
 
 
@@ -42,6 +44,12 @@ class ExeSettings:
     allowed_clients: tuple[str, ...] = ()
     # Дополнительные имена в заголовке Host (по IP-адресу сервера открывается и без них).
     allowed_hosts: tuple[str, ...] = ()
+    # Плановые копии базы (раздел [backup]). None — параметр в файле не задан: действует значение по умолчанию приложения
+    # (24 часа, 7 копий, каталог «backups» рядом с базой) — и его можно менять в самом приложении; заданный здесь параметр
+    # важнее и в приложении доступен только для чтения.
+    backup_interval_hours: float | None = None
+    backup_keep: int | None = None
+    backup_directory: str | None = None
 
     @property
     def network_access(self) -> bool:
@@ -60,6 +68,12 @@ class ExeSettings:
         env = {"INFRA_REGISTRY_ALLOWED_CLIENTS": ",".join([LOOPBACK_NETWORK, *self.allowed_clients])}
         if self.allowed_hosts:
             env["INFRA_REGISTRY_ALLOWED_HOSTS"] = ",".join(["localhost", LOCAL_ONLY_HOST, *self.allowed_hosts])
+        if self.backup_interval_hours is not None:
+            env["INFRA_REGISTRY_BACKUP_INTERVAL_HOURS"] = f"{self.backup_interval_hours:g}"
+        if self.backup_keep is not None:
+            env["INFRA_REGISTRY_BACKUP_KEEP"] = str(self.backup_keep)
+        if self.backup_directory is not None:
+            env["INFRA_REGISTRY_BACKUP_DIR"] = self.backup_directory
         return env
 
 
@@ -123,6 +137,27 @@ allowed_clients = []
 # Пример:
 #     allowed_hosts = ["reestr-pc", "reestr-pc.corp.local"]
 allowed_hosts = []
+
+[backup]
+# Плановые резервные копии базы. Приложение само делает копию при запуске, если плановых копий ещё нет или последняя старше
+# интервала, и затем через каждый интервал, пока оно работает (ночью, когда компьютер выключен, копии не делаются — поэтому проверка
+# выполняется при каждом запуске). Копия делается средствами SQLite, это безопасно при работающей базе, и проверяется на целостность.
+# Если база не менялась с прошлой копии, новая не создаётся. Копии лежат в каталоге «backups» рядом с базой под именем
+# infra_registry.auto.<дата-время>.bak и открываются любым клиентом SQLite (как восстановить — в README).
+#
+# По умолчанию параметры ниже не заданы, и значения берутся по умолчанию (24 часа, 7 копий, каталог «backups» рядом с базой).
+# Их можно менять и в самом приложении («Настройки»); значение, заданное в этом файле, важнее — тогда в приложении оно
+# показывается только для чтения. Чтобы задать значение здесь, уберите «#» в начале строки.
+#
+# Как часто делать копию, часов. 0 — не делать плановых копий. Допускаются дробные значения (0.5 — раз в полчаса).
+#     interval_hours = 24
+#
+# Сколько последних плановых копий хранить (не меньше 1); более старые удаляются. Копии перед обновлением (.pre-...) — отдельно.
+#     keep = 7
+#
+# Каталог для копий: полный путь (абсолютный). РЕКОМЕНДУЕТСЯ другой физический диск или сетевая папка: копия на том же диске,
+# что и база, не защитит от поломки этого диска. Путь пишите в одинарных кавычках — тогда обратные косые черты не нужно удваивать.
+#     directory = 'D:\\RIS-backups'
 """
 
 
@@ -180,6 +215,39 @@ def _parse_hosts(entries: list[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(entries))
 
 
+def _backup_interval(section: dict) -> float | None:
+    value = section.get("interval_hours")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+        raise SettingsError(f"[backup] interval_hours: ожидается число часов не меньше 0 (0 — выключить), получено {value!r}.")
+    return float(value)
+
+
+def _backup_keep(section: dict) -> int | None:
+    value = section.get("keep")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise SettingsError(f"[backup] keep: ожидается целое число копий не меньше 1, получено {value!r}.")
+    return value
+
+
+def _backup_directory(section: dict) -> str | None:
+    value = section.get("directory")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise SettingsError(f"[backup] directory: ожидается путь к каталогу в кавычках, получено {value!r}.")
+    path = value.strip()
+    if not Path(path).is_absolute():
+        raise SettingsError(
+            f"[backup] directory: нужен полный путь (например, 'D:\\RIS-backups'), получено {value!r}: от какой папки считать "
+            "относительный путь, зависит от способа запуска."
+        )
+    return path
+
+
 def parse_settings(text: str) -> ExeSettings:
     """Настройки из текста TOML. Ошибки — ``SettingsError`` с русским пояснением; неизвестные параметры тоже
     ошибка: опечатка в ``allowed_clients`` иначе молча оставила бы доступ закрытым, а в имени параметра
@@ -195,6 +263,7 @@ def parse_settings(text: str) -> ExeSettings:
         )
     server = _section(data, "server")
     access = _section(data, "access")
+    backup = _section(data, "backup")
 
     port = server.get("port", DEFAULT_PORT)
     if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
@@ -204,6 +273,9 @@ def parse_settings(text: str) -> ExeSettings:
         raise SettingsError("[server] open_browser: ожидается true или false (без кавычек).")
 
     return ExeSettings(
+        backup_interval_hours=_backup_interval(backup),
+        backup_keep=_backup_keep(backup),
+        backup_directory=_backup_directory(backup),
         port=port,
         open_browser=open_browser,
         allowed_clients=_parse_clients(_string_list(access, "allowed_clients", "[access] allowed_clients")),

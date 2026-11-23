@@ -65,6 +65,21 @@ def _flag_env(name: str, *, env: Environ | None = None) -> bool:
 BASE_DIR = Path(__file__).resolve().parents[2]
 
 
+def _backup_dir(data_dir: Path, *, env: Environ | None = None) -> Path:
+    """Каталог плановых копий: ``INFRA_REGISTRY_BACKUP_DIR`` (абсолютный путь; пусто — по умолчанию) или ``<каталог данных>/backups``.
+
+    По умолчанию — внутри каталога данных: в Docker он лежит в томе и переживает пересоздание контейнера. Копия на том же диске, что и база,
+    от поломки диска не спасает — для этого каталог задают на другом диске или сетевом ресурсе. Относительный путь не принимается: от
+    какого каталога его считать, у EXE, службы и контейнера разное, и копии оказались бы там, где их не ищут."""
+    raw = _environ(env).get("INFRA_REGISTRY_BACKUP_DIR", "").strip()
+    if not raw:
+        return data_dir / "backups"
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        raise ValueError(f"INFRA_REGISTRY_BACKUP_DIR: нужен абсолютный путь, получено {raw!r}")
+    return path
+
+
 def _database_url(data_dir: Path | None = None, *, env: Environ | None = None) -> str:
     """Адрес базы данных.
 
@@ -114,6 +129,9 @@ class Settings:
     report_dir: Path
     report_retention_days: int
     audit_retention_days: int
+    backup_interval_hours: float
+    backup_keep: int
+    backup_dir: Path
     database_url: str
     report_max_files: int
     db_pool_options: Mapping[str, Any]
@@ -157,6 +175,10 @@ class Settings:
             audit_retention_days=_number_env(
                 "INFRA_REGISTRY_AUDIT_RETENTION_DAYS", 0, int, minimum=0, maximum=AUDIT_RETENTION_MAX_DAYS, env=variables
             ),
+            # Плановые копии SQLite (services/backup_scheduler.py): интервал 0 — выключено, допустимы дробные значения (для тестов).
+            backup_interval_hours=_number_env("INFRA_REGISTRY_BACKUP_INTERVAL_HOURS", 24.0, float, minimum=0, env=variables),
+            backup_keep=_number_env("INFRA_REGISTRY_BACKUP_KEEP", 7, int, minimum=1, env=variables),
+            backup_dir=_backup_dir(data_dir, env=variables),
             database_url=_database_url(data_dir, env=variables),
             report_max_files=200 if report_max_files is None else report_max_files,
             db_pool_options=MappingProxyType(pool_options),

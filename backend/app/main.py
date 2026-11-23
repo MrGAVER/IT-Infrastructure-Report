@@ -47,6 +47,7 @@ from .api.vms import router as vms_router
 from .db import SessionLocal
 from .services.auth import AuthGateMiddleware, get_or_create_auth_settings
 from .services.auth.security_headers import SecurityHeadersMiddleware
+from .services.backup_scheduler import start_backup_scheduler, stop_backup_scheduler
 from .services.body_limit import BodySizeLimitMiddleware
 from .services.catalogs import seed_defaults
 from .services.csrf_guard import SameOriginGuardMiddleware, forwarded_host_trusted
@@ -75,7 +76,11 @@ async def lifespan(app: FastAPI):
     ensure_data_dirs()  # config при импорте ничего не создаёт: каталог данных и отчётов появляются здесь
     seed_catalogs_on_startup()
     cleanup_audit_log_on_startup()
-    yield
+    backup_task = start_backup_scheduler()  # плановые копии SQLite; None — выключены или база не SQLite
+    try:
+        yield
+    finally:
+        await stop_backup_scheduler(backup_task)
 
 
 # Документация API выключена по умолчанию (config.ENABLE_DOCS): None вместо адреса снимает сами маршруты.

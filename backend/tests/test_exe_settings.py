@@ -165,9 +165,77 @@ class TestValidationErrors:
             parse_settings("[server\nport = 8000")
 
     def test_duplicated_key_after_pasting_an_example_without_removing_the_default_line(self):
-        text = DEFAULT_SETTINGS_TEXT + 'allowed_clients = ["192.168.1.15"]\n'
+        text = DEFAULT_SETTINGS_TEXT.replace("allowed_clients = []\n", 'allowed_clients = []\nallowed_clients = ["192.168.1.15"]\n')
         with pytest.raises(SettingsError, match="повреждён"):
             parse_settings(text)
+
+
+# ---------------------------------------------------------------------------
+# Плановые копии: раздел [backup]
+# ---------------------------------------------------------------------------
+def _with_backup(*lines: str) -> str:
+    return DEFAULT_SETTINGS_TEXT + "\n".join(lines) + "\n"
+
+
+class TestBackupSection:
+    def test_not_set_by_default_so_the_application_can_manage_it(self):
+        settings = parse_settings(DEFAULT_SETTINGS_TEXT)
+        assert (settings.backup_interval_hours, settings.backup_keep, settings.backup_directory) == (None, None, None)
+        assert not [name for name in ExeSettings().environment() if "BACKUP" in name]
+
+    def test_values_become_environment_for_app_config(self, tmp_path):
+        settings = parse_settings(_with_backup("interval_hours = 12", "keep = 14", f"directory = '{tmp_path}'"))
+        assert settings.environment() == {
+            "INFRA_REGISTRY_ALLOWED_CLIENTS": "127.0.0.0/8",
+            "INFRA_REGISTRY_BACKUP_INTERVAL_HOURS": "12",
+            "INFRA_REGISTRY_BACKUP_KEEP": "14",
+            "INFRA_REGISTRY_BACKUP_DIR": str(tmp_path),
+        }
+
+    def test_file_values_reach_app_settings_through_the_environment(self, tmp_path):
+        """Цепочка целиком: infra_registry.toml → переменные окружения лаунчера → app.config.Settings."""
+        from app.config import Settings
+
+        exe = parse_settings(_with_backup("interval_hours = 6", "keep = 10", f"directory = '{tmp_path}'"))
+
+        settings = Settings.from_env(exe.environment())
+
+        assert (settings.backup_interval_hours, settings.backup_keep, settings.backup_dir) == (6.0, 10, tmp_path)
+
+    def test_fractional_interval_and_zero_are_accepted(self):
+        assert parse_settings(_with_backup("interval_hours = 0.5")).environment()["INFRA_REGISTRY_BACKUP_INTERVAL_HOURS"] == "0.5"
+        assert parse_settings(_with_backup("interval_hours = 0")).environment()["INFRA_REGISTRY_BACKUP_INTERVAL_HOURS"] == "0"
+
+    def test_every_commented_example_is_valid_when_uncommented(self, tmp_path):
+        """Администратор убирает «#» у строки примера: пример обязан быть рабочим (путь Windows подменяется путём этой ОС)."""
+        examples = re.findall(r"^#\s+((?:interval_hours|keep|directory) = .+)$", DEFAULT_SETTINGS_TEXT, re.M)
+        assert len(examples) == 3
+        lines = [f"directory = '{tmp_path}'" if line.startswith("directory") else line for line in examples]
+        settings = parse_settings(_with_backup(*lines))
+        assert (settings.backup_interval_hours, settings.backup_keep) == (24.0, 7)
+        assert settings.backup_directory == str(tmp_path)
+
+    def test_template_recommends_another_disk(self):
+        assert "другой физический диск" in DEFAULT_SETTINGS_TEXT
+
+    @pytest.mark.parametrize("line", ["interval_hours = -1", "interval_hours = true", 'interval_hours = "24"', "interval_hours = nan"])
+    def test_invalid_interval_names_the_parameter(self, line):
+        with pytest.raises(SettingsError, match=r"\[backup\] interval_hours"):
+            parse_settings(_with_backup(line))
+
+    @pytest.mark.parametrize("line", ["keep = 0", "keep = -3", "keep = 2.5", "keep = true", 'keep = "7"'])
+    def test_invalid_keep_names_the_parameter(self, line):
+        with pytest.raises(SettingsError, match=r"\[backup\] keep"):
+            parse_settings(_with_backup(line))
+
+    @pytest.mark.parametrize("line", ["directory = ''", "directory = 5", "directory = 'backups'", "directory = '..\\x'"])
+    def test_invalid_directory_must_be_an_absolute_path(self, line):
+        with pytest.raises(SettingsError, match=r"\[backup\] directory"):
+            parse_settings(_with_backup(line))
+
+    def test_unknown_backup_key_is_an_error(self):
+        with pytest.raises(SettingsError, match="Неизвестный параметр в разделе \\[backup\\]: interval"):
+            parse_settings(_with_backup("interval = 5"))
 
 
 # ---------------------------------------------------------------------------

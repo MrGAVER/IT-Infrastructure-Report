@@ -12,6 +12,10 @@
 сделать не удалось, — тогда `docker-entrypoint.sh` (`set -e`) не доходит до миграции. Для PostgreSQL копию делает оператор средствами
 СУБД (pg_dump, профиль `backup` в docker-compose.yml): команда сообщает об этом и ничего не делает. Переменная окружения
 INFRA_REGISTRY_SKIP_BACKUP=1 отключает копирование (на свой риск).
+
+Второй вид копий — плановые (``backup_scheduled``, их запускает ``services/backup_scheduler.py`` из lifespan): защита от потери данных
+между обновлениями, а не от неудачной миграции. Лежат в отдельном каталоге (по умолчанию ``<каталог данных>/backups``) под именем
+``<имя БД>.auto.<ГГГГММДД-ЧЧММСС>.bak``; маски двух видов не пересекаются, и ротация одного вида другой не трогает.
 """
 
 from __future__ import annotations
@@ -30,12 +34,21 @@ from sqlalchemy.engine import make_url
 logger = logging.getLogger(__name__)
 
 BACKUPS_TO_KEEP = 5
+AUTO_BACKUPS_TO_KEEP = 7
+_TIMESTAMP_FORMAT = "%Y%m%d-%H%M%S"
+# Недописанный временный файл (процесс убили посреди копирования) старше этого срока ротация удаляет; свежий может быть чужой
+# работающей копией.
+_STALE_TEMPORARY_SECONDS = 3600
 SKIP_BACKUP_ENV = "INFRA_REGISTRY_SKIP_BACKUP"
 _SKIP_VALUES = {"1", "true", "yes"}
 
 
 class MigrationBackupError(RuntimeError):
     """Не удалось создать резервную копию БД перед миграцией: миграцию без копии не начинаем."""
+
+
+class ScheduledBackupError(RuntimeError):
+    """Не удалось создать плановую копию (нет места или прав, копия не прошла проверку целостности). Сообщение — для журнала."""
 
 
 def backup_skipped_by_environment() -> bool:
@@ -51,7 +64,7 @@ def _backup_pattern(db_path: Path) -> re.Pattern[str]:
 
 
 def _timestamp() -> str:
-    return time.strftime("%Y%m%d-%H%M%S")
+    return time.strftime(_TIMESTAMP_FORMAT)
 
 
 def _database_state(connection: sqlite3.Connection) -> tuple[bool, set[str]]:
@@ -66,17 +79,25 @@ def _database_state(connection: sqlite3.Connection) -> tuple[bool, set[str]]:
     return bool(tables - {"alembic_version"}), revisions
 
 
-def _rotate_backups(db_path: Path, keep: int = BACKUPS_TO_KEEP) -> None:
-    """Оставляет `keep` самых новых копий этой БД (по метке времени в имени), остальные удаляет; только файлы по маске."""
-    pattern = _backup_pattern(db_path)
-    backups = sorted(
-        (p for p in db_path.parent.iterdir() if pattern.match(p.name) and p.is_file()), key=lambda p: p.name.split(".")[-2], reverse=True
-    )
+def _matching_backups(directory: Path, pattern: re.Pattern[str]) -> list[Path]:
+    """Файлы каталога по маске, от новых к старым (по метке времени в имени). Нет каталога — пусто."""
+    if not directory.is_dir():
+        return []
+    found = (p for p in directory.iterdir() if pattern.match(p.name) and p.is_file())
+    return sorted(found, key=lambda p: p.name.split(".")[-2], reverse=True)
+
+
+def _remove_old(backups: list[Path], keep: int) -> None:
     for stale in backups[keep:]:
         try:
             stale.unlink()
         except OSError as exc:
             logger.warning("Не удалось удалить старую резервную копию %s: %s", stale, exc)
+
+
+def _rotate_backups(db_path: Path, keep: int = BACKUPS_TO_KEEP) -> None:
+    """Оставляет `keep` самых новых копий этой БД (по метке времени в имени), остальные удаляет; только файлы по маске."""
+    _remove_old(_matching_backups(db_path.parent, _backup_pattern(db_path)), keep)
 
 
 def backup_before_migration(db_path: Path, cfg) -> Path | None:
@@ -116,6 +137,78 @@ def backup_before_migration(db_path: Path, cfg) -> Path | None:
             pass
         raise MigrationBackupError(f"не удалось создать резервную копию базы {db_path} в {target.parent}: {exc}") from exc
     _rotate_backups(db_path)
+    return target
+
+
+def _auto_backup_pattern(db_path: Path) -> re.Pattern[str]:
+    """Маска плановых копий: `<имя БД>.auto.<ГГГГММДД-ЧЧММСС>.bak` (отличается от `.pre-…` копий перед миграцией)."""
+    return re.compile(rf"^{re.escape(db_path.stem)}\.auto\.\d{{8}}-\d{{6}}\.bak$")
+
+
+def latest_auto_backup(db_path: Path, backup_dir: Path) -> Path | None:
+    """Самая новая плановая копия этой БД в каталоге или None."""
+    backups = _matching_backups(backup_dir, _auto_backup_pattern(db_path))
+    return backups[0] if backups else None
+
+
+def auto_backup_time(backup: Path) -> float:
+    """Время создания плановой копии (секунды с эпохи) — по метке в имени: время изменения файла несёт состояние БД, а не момент копирования
+    (см. backup_scheduled)."""
+    return time.mktime(time.strptime(backup.name.split(".")[-2], _TIMESTAMP_FORMAT))
+
+
+def _rotate_auto_backups(db_path: Path, backup_dir: Path, keep: int) -> None:
+    """Оставляет `keep` самых новых плановых копий; удаляет только файлы по маске и давно брошенные временные файлы копирования."""
+    _remove_old(_matching_backups(backup_dir, _auto_backup_pattern(db_path)), keep)
+    leftovers = re.compile(rf"^{re.escape(db_path.stem)}\.auto\.\d{{8}}-\d{{6}}\.bak\.tmp$")
+    for temporary in backup_dir.iterdir():
+        if leftovers.match(temporary.name) and time.time() - temporary.stat().st_mtime > _STALE_TEMPORARY_SECONDS:
+            temporary.unlink(missing_ok=True)
+
+
+def backup_scheduled(db_path: Path, backup_dir: Path, keep: int = AUTO_BACKUPS_TO_KEEP) -> Path | None:
+    """Плановая согласованная копия SQLite-БД в `backup_dir`; возвращает путь копии или None, если база не менялась с прошлой копии.
+
+    Защита от потери данных между обновлениями (копия перед миграцией делается отдельно, см. backup_before_migration): сбой диска, ошибочное
+    массовое удаление, вредоносная правка. Копия делается API `sqlite3.Connection.backup` — согласована, даже если базу кто-то пишет;
+    пишется во временный файл, проходит `PRAGMA quick_check` и только потом переименовывается в `.bak`: готовой выглядит лишь проверенная
+    копия, а негодность обнаруживается сразу, а не при восстановлении. Копия, не прошедшая проверку, удаляется, и поднимается
+    ScheduledBackupError.
+
+    Неизменённую базу не копируем: сравнивается время изменения файла БД с временем изменения последней копии. Копии выставляется время
+    изменения БД, замеренное ДО начала копирования: правка, попавшая в базу во время копирования, делает базу «новее» копии и попадёт в
+    следующую. Хранится не более `keep` последних плановых копий (включая новую); чужие файлы в каталоге не затрагиваются. Каталог
+    создаётся при необходимости (на POSIX — с правами только владельца: в копии хэши паролей и весь журнал аудита).
+
+    Пример:
+        backup = backup_scheduled(db_file, db_file.parent / "backups")   # -> .../backups/infra_registry.auto.20261124-030000.bak
+    """
+    if keep < 1:
+        raise ValueError(f"keep: нужно хранить не менее одной копии, получено {keep}")
+    if not db_path.is_file() or db_path.stat().st_size == 0:
+        return None
+    try:
+        backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        database_mtime_ns = db_path.stat().st_mtime_ns
+        latest = latest_auto_backup(db_path, backup_dir)
+        if latest is not None and latest.stat().st_mtime_ns >= database_mtime_ns:
+            return None
+        target = backup_dir / f"{db_path.stem}.auto.{_timestamp()}.bak"
+        temporary = target.with_name(target.name + ".tmp")
+        try:
+            with closing(sqlite3.connect(db_path)) as source, closing(sqlite3.connect(temporary)) as destination:
+                source.backup(destination)
+                verdict = destination.execute("PRAGMA quick_check").fetchone()
+                if verdict is None or verdict[0] != "ok":
+                    raise sqlite3.DatabaseError(f"копия не прошла PRAGMA quick_check: {verdict[0] if verdict else 'нет ответа'}")
+            os.chmod(temporary, 0o600)
+            os.utime(temporary, ns=(database_mtime_ns, database_mtime_ns))
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+        _rotate_auto_backups(db_path, backup_dir, keep)
+    except (OSError, sqlite3.Error) as exc:
+        raise ScheduledBackupError(f"не удалось создать плановую копию базы {db_path} в {backup_dir}: {exc}") from exc
     return target
 
 
