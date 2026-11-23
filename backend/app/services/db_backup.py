@@ -25,6 +25,7 @@ import os
 import re
 import sqlite3
 import sys
+import threading
 import time
 from contextlib import closing
 from pathlib import Path
@@ -35,6 +36,9 @@ logger = logging.getLogger(__name__)
 
 BACKUPS_TO_KEEP = 5
 AUTO_BACKUPS_TO_KEEP = 7
+# Две плановые копии одновременно (перезапуск планировщика из настроек, пока рабочий поток ещё дописывает прежнюю) не должны ни писать в
+# один временный файл, ни ротировать друг друга: вторая дожидается первой и видит её копию (база не менялась — копии не будет).
+_SCHEDULED_BACKUP_LOCK = threading.Lock()
 _TIMESTAMP_FORMAT = "%Y%m%d-%H%M%S"
 # Недописанный временный файл (процесс убили посреди копирования) старше этого срока ротация удаляет; свежий может быть чужой
 # работающей копией.
@@ -188,25 +192,26 @@ def backup_scheduled(db_path: Path, backup_dir: Path, keep: int = AUTO_BACKUPS_T
     if not db_path.is_file() or db_path.stat().st_size == 0:
         return None
     try:
-        backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        database_mtime_ns = db_path.stat().st_mtime_ns
-        latest = latest_auto_backup(db_path, backup_dir)
-        if latest is not None and latest.stat().st_mtime_ns >= database_mtime_ns:
-            return None
-        target = backup_dir / f"{db_path.stem}.auto.{_timestamp()}.bak"
-        temporary = target.with_name(target.name + ".tmp")
-        try:
-            with closing(sqlite3.connect(db_path)) as source, closing(sqlite3.connect(temporary)) as destination:
-                source.backup(destination)
-                verdict = destination.execute("PRAGMA quick_check").fetchone()
-                if verdict is None or verdict[0] != "ok":
-                    raise sqlite3.DatabaseError(f"копия не прошла PRAGMA quick_check: {verdict[0] if verdict else 'нет ответа'}")
-            os.chmod(temporary, 0o600)
-            os.utime(temporary, ns=(database_mtime_ns, database_mtime_ns))
-            os.replace(temporary, target)
-        finally:
-            temporary.unlink(missing_ok=True)
-        _rotate_auto_backups(db_path, backup_dir, keep)
+        with _SCHEDULED_BACKUP_LOCK:
+            backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            database_mtime_ns = db_path.stat().st_mtime_ns
+            latest = latest_auto_backup(db_path, backup_dir)
+            if latest is not None and latest.stat().st_mtime_ns >= database_mtime_ns:
+                return None
+            target = backup_dir / f"{db_path.stem}.auto.{_timestamp()}.bak"
+            temporary = target.with_name(target.name + ".tmp")
+            try:
+                with closing(sqlite3.connect(db_path)) as source, closing(sqlite3.connect(temporary)) as destination:
+                    source.backup(destination)
+                    verdict = destination.execute("PRAGMA quick_check").fetchone()
+                    if verdict is None or verdict[0] != "ok":
+                        raise sqlite3.DatabaseError(f"копия не прошла PRAGMA quick_check: {verdict[0] if verdict else 'нет ответа'}")
+                os.chmod(temporary, 0o600)
+                os.utime(temporary, ns=(database_mtime_ns, database_mtime_ns))
+                os.replace(temporary, target)
+            finally:
+                temporary.unlink(missing_ok=True)
+            _rotate_auto_backups(db_path, backup_dir, keep)
     except (OSError, sqlite3.Error) as exc:
         raise ScheduledBackupError(f"не удалось создать плановую копию базы {db_path} в {backup_dir}: {exc}") from exc
     return target

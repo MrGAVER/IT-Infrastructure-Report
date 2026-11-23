@@ -29,6 +29,7 @@ from .config import (
     weak_setup_token,
 )
 from .api.audit_log import router as audit_log_router
+from .api.backup_settings import router as backup_settings_router
 from .api.auth import router as auth_router
 from .api.device_stacks import router as device_stacks_router
 from .api.devices import router as devices_router
@@ -47,7 +48,7 @@ from .api.vms import router as vms_router
 from .db import SessionLocal
 from .services.auth import AuthGateMiddleware, get_or_create_auth_settings
 from .services.auth.security_headers import SecurityHeadersMiddleware
-from .services.backup_scheduler import start_backup_scheduler, stop_backup_scheduler
+from .services.backup_scheduler import BackupScheduler
 from .services.body_limit import BodySizeLimitMiddleware
 from .services.catalogs import seed_defaults
 from .services.csrf_guard import SameOriginGuardMiddleware, forwarded_host_trusted
@@ -76,11 +77,15 @@ async def lifespan(app: FastAPI):
     ensure_data_dirs()  # config при импорте ничего не создаёт: каталог данных и отчётов появляются здесь
     seed_catalogs_on_startup()
     cleanup_audit_log_on_startup()
-    backup_task = start_backup_scheduler()  # плановые копии SQLite; None — выключены или база не SQLite
+    scheduler = (
+        BackupScheduler()
+    )  # плановые копии SQLite (задачи нет, если выключены или база не SQLite); администратор перезапускает его из настроек
+    app.state.backup_scheduler = scheduler
+    await scheduler.start()
     try:
         yield
     finally:
-        await stop_backup_scheduler(backup_task)
+        await scheduler.stop()
 
 
 # Документация API выключена по умолчанию (config.ENABLE_DOCS): None вместо адреса снимает сами маршруты.
@@ -176,6 +181,7 @@ app.include_router(resources_router)
 app.include_router(port_config_router)
 app.include_router(port_sync_router)
 app.include_router(audit_log_router)
+app.include_router(backup_settings_router)
 app.include_router(report_builder_router)
 app.include_router(diagrams_router)
 

@@ -365,12 +365,10 @@ class TestStartBackupScheduler:
         tasks_seen: list[asyncio.Task] = []
         real_start = backup_scheduler.start_backup_scheduler
 
-        def spy():
-            task = real_start()
+        def spy(*args, **kwargs):
+            task = real_start(*args, **kwargs)
             tasks_seen.append(task)
             return task
-
-        from app import main as app_main
 
         stopped: list = []
         real_stop = backup_scheduler.stop_backup_scheduler
@@ -379,8 +377,8 @@ class TestStartBackupScheduler:
             stopped.append(task)
             await real_stop(task)
 
-        monkeypatch.setattr(app_main, "start_backup_scheduler", spy)
-        monkeypatch.setattr(app_main, "stop_backup_scheduler", stop_spy)
+        monkeypatch.setattr(backup_scheduler, "start_backup_scheduler", spy)
+        monkeypatch.setattr(backup_scheduler, "stop_backup_scheduler", stop_spy)
         client = client_factory()
 
         deadline = time.time() + 15
@@ -424,6 +422,28 @@ class TestSettings:
         )
 
         assert (settings.backup_interval_hours, settings.backup_keep, settings.backup_dir) == (24.0, 7, tmp_path.resolve() / "backups")
+
+    def test_parameters_set_by_the_environment_are_marked_so_the_dashboard_does_not_override_them(self, tmp_path):
+        assert config.Settings.from_env({"INFRA_REGISTRY_DATA_DIR": str(tmp_path)}).backup_from_env == frozenset()
+
+        some = config.Settings.from_env({"INFRA_REGISTRY_DATA_DIR": str(tmp_path), "INFRA_REGISTRY_BACKUP_KEEP": "30"})
+        every = config.Settings.from_env(
+            {
+                "INFRA_REGISTRY_BACKUP_INTERVAL_HOURS": "6",
+                "INFRA_REGISTRY_BACKUP_KEEP": "30",
+                "INFRA_REGISTRY_BACKUP_DIR": str(tmp_path / "b"),
+            }
+        )
+
+        assert some.backup_from_env == frozenset({"keep"})
+        assert every.backup_from_env == frozenset({"interval_hours", "keep", "directory"})
+
+    def test_empty_variables_do_not_pin_a_parameter(self, tmp_path):
+        settings = config.Settings.from_env(
+            {"INFRA_REGISTRY_DATA_DIR": str(tmp_path), "INFRA_REGISTRY_BACKUP_INTERVAL_HOURS": " ", "INFRA_REGISTRY_BACKUP_DIR": ""}
+        )
+
+        assert settings.backup_from_env == frozenset()
 
     @pytest.mark.parametrize(
         ("name", "value"),

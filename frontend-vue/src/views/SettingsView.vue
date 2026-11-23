@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import AccountPanel from '../components/AccountPanel.vue'
 import AuditSettingsButton from '../components/AuditSettingsButton.vue'
 import AuthSettingsPanel from '../components/AuthSettingsPanel.vue'
+import BackupSettingsPanel from '../components/BackupSettingsPanel.vue'
 import ThemeSwitcher from '../components/ThemeSwitcher.vue'
 import { useAuthStore } from '../stores/auth'
 import { useThemeStore, COLOR_SCHEMES } from '../stores/theme'
@@ -173,6 +174,9 @@ function resetCollapseLimit() {
       </p>
       <AuditSettingsButton />
     </section>
+
+    <!-- Плановые копии БД — тот же доступ, что у журнала аудита: администратору (и единственному пользователю при выключенной аутентификации). -->
+    <BackupSettingsPanel v-if="auth.canManageBackups" />
 
     <AuthSettingsPanel />
     <AccountPanel v-if="auth.enabled && auth.user" />

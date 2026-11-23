@@ -13,7 +13,12 @@ import { declaration, readSource, readStyles, ruleBody } from '../../__tests__/c
 // шрифта в настоящем браузере проверяет e2e/filled-data.spec.ts.
 
 const sectionCss = readStyles('src/styles/settings-section.css')
-const PANELS = ['src/views/SettingsView.vue', 'src/components/AuthSettingsPanel.vue', 'src/components/AccountPanel.vue']
+const PANELS = [
+  'src/views/SettingsView.vue',
+  'src/components/AuthSettingsPanel.vue',
+  'src/components/AccountPanel.vue',
+  'src/components/BackupSettingsPanel.vue',
+]
 
 describe('styles/settings-section.css', () => {
   it('задаёт единый заголовок панели 15px и притушённую подпись .hint', () => {
@@ -84,8 +89,8 @@ describe('разметка панелей «Настроек»', () => {
     const settings = mount(SettingsView)
     await flushPromises()
     const panels = settings.findAll('section.settings-section')
-    // организация, формы, цветовая схема, предпросмотр, журнал аудита (администратору), аутентификация, учётная запись
-    expect(panels).toHaveLength(7)
+    // организация, формы, цветовая схема, предпросмотр, журнал аудита и резервные копии (администратору), аутентификация, учётная запись
+    expect(panels).toHaveLength(8)
     for (const panel of panels) expect(panel.find('h2').exists()).toBe(true)
 
     expect(mount(AuthSettingsPanel).find('section.settings-section h2').text()).toBe('Аутентификация')
