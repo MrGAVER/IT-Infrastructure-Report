@@ -37,6 +37,27 @@ def data_dir() -> Path:
     return base
 
 
+class MigrationUpgradeError(Exception):
+    """``alembic upgrade head`` завершился ошибкой. Хранит путь к базе и к копии, сделанной перед миграцией (``None`` — копии нет)."""
+
+    def __init__(self, db_path: Path, backup: Path | None, cause: BaseException) -> None:
+        self.db_path = db_path
+        self.backup = backup
+        self.cause = cause
+        super().__init__(f"не удалось обновить базу данных {db_path}: {self._cause_text()}")
+
+    def _cause_text(self) -> str:
+        return str(self.cause).strip() or type(self.cause).__name__
+
+    def describe(self, skip_backup_env: str) -> str:
+        """Текст для пользователя: что случилось и как вернуть прежнюю версию."""
+        if self.backup is not None:
+            restore = f"Чтобы вернуть прежнюю версию: закройте программу и замените файл {self.db_path} копией {self.backup}."
+        else:
+            restore = f"Резервной копии нет: база была пустой или копирование отключено ({skip_backup_env}). Обратитесь к администратору."
+        return f"Не удалось обновить базу данных {self.db_path}: {self._cause_text()}\n{restore}"
+
+
 def migrate():
     from alembic import command
     from alembic.config import Config
@@ -50,22 +71,34 @@ def migrate():
     cfg = Config(str(ini_path))
     cfg.set_main_option("script_location", str(alembic_root))
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+    backup = None
     if not backup_skipped_by_environment():
         backup = backup_before_migration(db_path, cfg)
         if backup is not None:
             print(f"Резервная копия базы перед обновлением: {backup}")
-    command.upgrade(cfg, "head")
+    try:
+        command.upgrade(cfg, "head")
+    except Exception as exc:  # граница: любой сбой миграции превращаем в ошибку с путём к копии, ничего не проглатывая
+        raise MigrationUpgradeError(db_path, backup, exc) from exc
 
 
 def migrate_or_fail() -> None:
-    """migrate() для main(): сбой резервной копии — понятная ошибка запуска, а не трассировка; миграция при этом не начата."""
+    """migrate() для main(): сбой миграции или резервной копии — понятная ошибка запуска, а не трассировка.
+
+    Окно консоли EXE при двойном клике закрывается вместе с процессом, поэтому текст ошибки (и путь к копии, откуда вернуть прежнюю версию)
+    должен быть выведен и удержан ``fail()``. Сбой копии — миграция не начата, база не изменена; сбой самой миграции — база могла
+    измениться частично (DDL в SQLite нетранзакционен), и единственный путь отката — копия, сделанная перед миграцией."""
     from app.services.db_backup import SKIP_BACKUP_ENV, MigrationBackupError
 
     try:
         migrate()
     except MigrationBackupError as exc:
-        fail(f"{exc}\nОсвободите место на диске и проверьте права на запись в каталог с базой. База не изменена. "
-             f"Запуск без резервной копии (на свой риск): переменная окружения {SKIP_BACKUP_ENV}=1.")
+        fail(
+            f"{exc}\nОсвободите место на диске и проверьте права на запись в каталог с базой. База не изменена. "
+            f"Запуск без резервной копии (на свой риск): переменная окружения {SKIP_BACKUP_ENV}=1."
+        )
+    except MigrationUpgradeError as exc:
+        fail(exc.describe(SKIP_BACKUP_ENV))
 
 
 def open_browser_when_ready(port: int):
@@ -80,6 +113,7 @@ def open_browser_when_ready(port: int):
         except Exception:
             time.sleep(0.25)
     webbrowser.open(url)
+
 
 def load_exe_settings():
     """Настройки из infra_registry.toml рядом с EXE; при отсутствии файла он создаётся со значениями по умолчанию.
@@ -135,6 +169,43 @@ def fail(message: str) -> NoReturn:
     sys.exit(2)
 
 
+def prepare_environment(settings, root: Path) -> None:
+    """Окружение приложения, каталоги данных и первый импорт ``app.config``; любой ожидаемый сбой — ``fail()`` с понятным текстом.
+
+    Окружение выставляется ДО первого импорта app.config (apply_environment проверяет порядок). Единственный UI — собранный
+    Vue-фронтенд (см. backend/app/config.py:FRONTEND_DIR), упакован в EXE как данные, см. datas в infra_registry.spec.
+
+    Ожидаемые сбои: нельзя создать каталог данных (нет прав, диск только для чтения) — ``OSError``; значение переменной окружения
+    не разобралось при импорте ``app.config`` — ``ValueError`` с именем переменной. Без перехвата пользователь EXE видел бы трассировку,
+    а окно консоли закрывалось бы вместе с процессом. ``RuntimeError`` от ``apply_environment`` (нарушен порядок импорта) —
+    ошибка программиста, её не прячем."""
+    try:
+        data = data_dir()
+    except OSError as exc:
+        fail(
+            f"Не удалось создать каталог данных: {exc}\n"
+            "Проверьте права на запись или задайте другой каталог переменной окружения INFRA_REGISTRY_DATA_DIR."
+        )
+    apply_environment(
+        {
+            "INFRA_REGISTRY_BUNDLE_DIR": str(root),
+            "INFRA_REGISTRY_FRONTEND_DIR": str(root / "frontend-vue" / "dist"),
+            "INFRA_REGISTRY_DATA_DIR": str(data),
+            "DATABASE_URL": f"sqlite:///{data / DB_FILENAME}",
+            # Список разрешённых клиентов и имён Host из файла настроек рядом с EXE
+            **settings.environment(),
+        }
+    )
+    try:
+        from app.config import ensure_data_dirs
+
+        ensure_data_dirs()  # app.config при импорте каталогов не создаёт
+    except OSError as exc:
+        fail(f"Не удалось создать каталоги приложения: {exc}\nПроверьте права на запись в каталог данных.")
+    except ValueError as exc:
+        fail(f"Неверное значение настройки: {exc}\nИсправьте переменную окружения или файл настроек рядом с EXE.")
+
+
 def main():
     configure_stdio()
     parser = argparse.ArgumentParser(description="РИС — Реестр ИТ-инфраструктуры")
@@ -154,22 +225,7 @@ def main():
         fail(f"{exc}\nИсправьте файл {app_dir() / SETTINGS_FILENAME} или удалите его (он будет создан заново).")
     port = args.port if args.port is not None else settings.port
 
-    # Окружение выставляется ДО первого импорта app.config (apply_environment проверяет порядок). Единственный UI — собранный
-    # Vue-фронтенд (см. backend/app/config.py:FRONTEND_DIR), упакован в EXE как данные, см. datas в infra_registry.spec.
-    apply_environment(
-        {
-            "INFRA_REGISTRY_BUNDLE_DIR": str(root),
-            "INFRA_REGISTRY_FRONTEND_DIR": str(root / "frontend-vue" / "dist"),
-            "INFRA_REGISTRY_DATA_DIR": str(data_dir()),
-            "DATABASE_URL": f"sqlite:///{data_dir() / DB_FILENAME}",
-            # Список разрешённых клиентов и имён Host из файла настроек рядом с EXE
-            **settings.environment(),
-        }
-    )
-
-    from app.config import ensure_data_dirs
-
-    ensure_data_dirs()  # app.config при импорте каталогов не создаёт
+    prepare_environment(settings, root)
     migrate_or_fail()
 
     import uvicorn

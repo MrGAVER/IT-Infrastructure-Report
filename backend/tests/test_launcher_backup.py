@@ -4,6 +4,10 @@
 (удаляет данные), DDL в SQLite нетранзакционен, и пользователь, обновивший EXE и получивший ошибку миграции, не имел пути
 отката. Теперь перед миграцией старой БД создаётся согласованная копия `<имя>.pre-<ревизия>.<время>.bak`, хранятся 5 последних.
 
+F-02 код-ревью: сбой САМОЙ миграции (`command.upgrade` упал посреди цепочки — DDL в SQLite нетранзакционен) раньше уходил наружу сырой
+трассировкой, а окно консоли EXE закрывалось вместе с процессом; пользователь не узнавал, что копия есть и как к ней вернуться.
+Теперь `migrate_or_fail()` выводит причину и путь к копии (см. TestUpgradeFailure).
+
 Запуск: pytest backend/tests/test_launcher_backup.py -v  (launcher.py лежит в корне репозитория — тест добавляет его в sys.path)
 """
 
@@ -336,3 +340,88 @@ class TestMigrateWiring:
         monkeypatch.setenv(db_backup.SKIP_BACKUP_ENV, value)
         launcher.migrate()
         assert len(_backups(data_dir)) == 1
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# F-02: сбой самой миграции
+# ---------------------------------------------------------------------------------------------------------------------
+class TestUpgradeFailure:
+    @pytest.fixture()
+    def data_dir(self, tmp_path, monkeypatch, point_alembic_at):
+        monkeypatch.setenv("INFRA_REGISTRY_DATA_DIR", str(tmp_path))
+        monkeypatch.delenv("INFRA_REGISTRY_SKIP_BACKUP", raising=False)
+        point_alembic_at(tmp_path / DB_NAME)
+        return tmp_path
+
+    @staticmethod
+    def _break_upgrade(monkeypatch, error: BaseException) -> None:
+        def broken(*args, **kwargs):
+            raise error
+
+        monkeypatch.setattr(command, "upgrade", broken)
+
+    def test_failed_upgrade_exits_with_the_reason_and_the_path_to_the_backup(self, launcher, templates, data_dir, monkeypatch, capsys):
+        shutil.copy(templates["old"], data_dir / DB_NAME)
+        self._break_upgrade(monkeypatch, RuntimeError("миграция оборвана посередине"))
+
+        with pytest.raises(SystemExit) as exit_info:
+            launcher.migrate_or_fail()
+
+        assert exit_info.value.code == 2
+        error = capsys.readouterr().err
+        backup = data_dir / _backups(data_dir)[0]
+        assert "миграция оборвана посередине" in error, "причина сбоя"
+        assert str(backup) in error and str(data_dir / DB_NAME) in error, "откуда и куда возвращать"
+        assert "вернуть прежнюю версию" in error
+        assert "Traceback" not in error
+
+    def test_the_backup_named_in_the_message_really_restores_the_previous_version(self, launcher, templates, data_dir, monkeypatch):
+        shutil.copy(templates["old"], data_dir / DB_NAME)
+        self._break_upgrade(monkeypatch, RuntimeError("сбой"))
+        with pytest.raises(launcher.MigrationUpgradeError) as caught:
+            launcher.migrate()
+
+        backup = caught.value.backup
+        assert backup is not None and backup.is_file()
+        shutil.copy(backup, data_dir / DB_NAME)
+        with sqlite3.connect(data_dir / DB_NAME) as conn:
+            assert conn.execute("SELECT version_num FROM alembic_version").fetchone() == (OLD_REVISION,)
+            assert conn.execute("SELECT name FROM manufacturers WHERE id = 'm-1'").fetchone() == ("Производитель А-12",)
+
+    def test_without_a_backup_the_message_says_so_instead_of_inventing_a_path(
+        self, launcher, db_backup, templates, data_dir, monkeypatch, capsys
+    ):
+        shutil.copy(templates["old"], data_dir / DB_NAME)
+        monkeypatch.setenv(db_backup.SKIP_BACKUP_ENV, "1")
+        self._break_upgrade(monkeypatch, RuntimeError("сбой"))
+
+        with pytest.raises(SystemExit) as exit_info:
+            launcher.migrate_or_fail()
+
+        assert exit_info.value.code == 2
+        error = capsys.readouterr().err
+        assert "Резервной копии нет" in error and db_backup.SKIP_BACKUP_ENV in error
+        assert "заменит" not in error and ".bak" not in error
+
+    def test_an_exception_without_text_is_still_identified_by_its_type(self, launcher, templates, data_dir, monkeypatch, capsys):
+        shutil.copy(templates["old"], data_dir / DB_NAME)
+        self._break_upgrade(monkeypatch, KeyError())
+        with pytest.raises(SystemExit):
+            launcher.migrate_or_fail()
+        assert "KeyError" in capsys.readouterr().err
+
+    def test_the_original_exception_is_chained_not_swallowed(self, launcher, templates, data_dir, monkeypatch):
+        shutil.copy(templates["old"], data_dir / DB_NAME)
+        original = RuntimeError("исходная причина")
+        self._break_upgrade(monkeypatch, original)
+        with pytest.raises(launcher.MigrationUpgradeError) as caught:
+            launcher.migrate()
+        assert caught.value.__cause__ is original and caught.value.cause is original
+
+    @pytest.mark.parametrize("interrupt", [KeyboardInterrupt, SystemExit])
+    def test_interrupts_are_not_turned_into_a_migration_error(self, launcher, templates, data_dir, monkeypatch, interrupt):
+        """Ctrl+C во время миграции — не «сбой миграции»: перехват только `Exception`."""
+        shutil.copy(templates["old"], data_dir / DB_NAME)
+        self._break_upgrade(monkeypatch, interrupt())
+        with pytest.raises(interrupt):
+            launcher.migrate()

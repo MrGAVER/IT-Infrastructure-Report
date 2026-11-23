@@ -41,6 +41,59 @@ services:
         mv "$${target}.tmp" "$${target}"
         ls -1t /backup/db-backups/*.dump | tail -n +6 | xargs -r rm --
         echo "Резервная копия базы: $${target}"
+  # ПЕРИОДИЧЕСКАЯ резервная копия PostgreSQL (профиль backup-schedule; без него сервис не стартует):
+  #   docker compose --profile backup-schedule up -d db-backup-scheduled
+  # Дамп (pg_dump, формат custom) пишется в каталог ХОСТА BACKUP_HOST_DIR (по умолчанию ./backups), а не в том appdata: потеря тома или
+  # диска Docker не должна уничтожать и базу, и копии. Хранится BACKUP_KEEP последних, копия делается при старте сервиса и затем каждые
+  # BACKUP_INTERVAL_SECONDS секунд. Каждый дамп проверяется `pg_restore --list` до переименования в .dump; сбой копирования виден в логе
+  # (`docker compose logs db-backup-scheduled`), а healthcheck считает сервис нездоровым, если свежей копии нет дольше двух интервалов.
+  # Копии содержат хеши паролей и журнал аудита: права только у владельца (umask 077), при выносе за пределы хоста шифруйте их.
+  # Работает с сервисом `db` из этого файла; для внешнего PostgreSQL (DATABASE_URL) используйте средства поставщика или pg_dump на хосте.
+  db-backup-scheduled:
+    profiles: ["backup-schedule"]
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER:-infra}
+      PGDATABASE: ${POSTGRES_DB:-infra_registry}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Задайте POSTGRES_PASSWORD в .env (см. .env.example)}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
+    volumes:
+      - ${BACKUP_HOST_DIR:-./backups}:/backup
+    healthcheck:
+      test: ["CMD-SHELL", "find /backup -maxdepth 1 -name '*.dump' -mmin -$$(( (2 * BACKUP_INTERVAL_SECONDS + 59) / 60 )) | grep -q ."]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    entrypoint: ["sh", "-c"]
+    # `$$` — экранирование для compose: в контейнер попадает одиночный `$`. Неверное значение параметра — выход сразу, а не бесконечный цикл
+    # копий; `sleep … & wait` и trap — чтобы `docker stop` останавливал сервис сразу, а не через 10 с по SIGKILL.
+    command:
+      - |
+        set -eu
+        umask 077
+        case "$${BACKUP_INTERVAL_SECONDS}" in ''|*[!0-9]*|0) echo "BACKUP_INTERVAL_SECONDS: нужно целое число секунд больше нуля" >&2; exit 64;; esac
+        case "$${BACKUP_KEEP}" in ''|*[!0-9]*|0) echo "BACKUP_KEEP: нужно целое число копий больше нуля" >&2; exit 64;; esac
+        trap 'exit 0' TERM INT
+        rm -f /backup/*.dump.tmp
+        while true; do
+          target="/backup/$${PGDATABASE}.$$(date +%Y%m%d-%H%M%S).dump"
+          if pg_dump --format=custom --file="$${target}.tmp" && pg_restore --list "$${target}.tmp" > /dev/null; then
+            mv "$${target}.tmp" "$${target}"
+            echo "Резервная копия: $${target}"
+            ls -1t /backup/*.dump | tail -n +$$((BACKUP_KEEP + 1)) | xargs -r rm -- || echo "ПРЕДУПРЕЖДЕНИЕ: не удалось удалить старые копии" >&2
+          else
+            rm -f "$${target}.tmp"
+            echo "ОШИБКА резервного копирования" >&2
+          fi
+          sleep "$${BACKUP_INTERVAL_SECONDS}" & wait $$!
+        done
   app:
     build:
       context: .
@@ -84,7 +137,7 @@ services:
       INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES: ${INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES:-2097152}
       INFRA_REGISTRY_ENABLE_DOCS: ${INFRA_REGISTRY_ENABLE_DOCS:-}
       # Сессии и блокировка входа (действуют, когда аутентификация включена). Значения по умолчанию совпадают с config.py; пустым
-      # числовое значение не оставляйте — до исправления A-03 приложение на нём не запускалось, поэтому явные умолчания, а не `:-`.
+      # числовое значение не оставляйте — в старых версиях приложение на нём не запускалось, поэтому явные умолчания, а не `:-`.
       INFRA_REGISTRY_SESSION_TTL_HOURS: ${INFRA_REGISTRY_SESSION_TTL_HOURS:-12}
       INFRA_REGISTRY_AUTH_MAX_ATTEMPTS: ${INFRA_REGISTRY_AUTH_MAX_ATTEMPTS:-10}
       INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES: ${INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES:-15}
