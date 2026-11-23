@@ -135,12 +135,28 @@ def test_every_name_in_all_resolves_to_its_defining_module():
             assert owner.startswith("app.services.crud."), name
 
 
+# Наибольший модуль пакета (`interface_groups.py`) — 259 операторов, порог оставляет около 15 % запаса на рост.
+MAX_STATEMENTS_PER_MODULE = 300
+
+
+def count_statements(source: str) -> int:
+    """Размер модуля числом операторов AST: не зависит от ширины строки (`line-length`) и от переноса docstring и комментариев."""
+    return sum(isinstance(node, ast.stmt) for node in ast.walk(ast.parse(source)))
+
+
 def test_modules_are_small_enough_to_review():
-    # Цель п. 10 — перестать держать 1300 строк в одном файле; порог оставляет запас на рост. Порог считает строки, а не символы:
-    # при снижении line-length с 400 до 140 те же модули стали длиннее (самый большой — 429 строк вместо 400), поэтому порог поднят до 450.
-    for module in SUBMODULES:
-        lines = len((PACKAGE_DIR / f"{module}.py").read_text(encoding="utf-8").splitlines())
-        assert lines <= 450, f"{module}.py вырос до {lines} строк — разрежьте его"
+    # Цель п. 10 — перестать держать 1300 строк в одном файле; порог оставляет запас на рост. Раньше порог считал физические строки и при
+    # снижении line-length с 400 до 140 пришлось поднимать его с 400 до 450 (те же модули стали длиннее на 20-25 %): трещотка упиралась
+    # в перенос строк, а не в рост кода. Число операторов от переноса не зависит.
+    sizes = {module: count_statements((PACKAGE_DIR / f"{module}.py").read_text(encoding="utf-8")) for module in SUBMODULES}
+    oversized = {module: size for module, size in sizes.items() if size > MAX_STATEMENTS_PER_MODULE}
+    assert not oversized, f"модули выросли свыше {MAX_STATEMENTS_PER_MODULE} операторов — разрежьте их: {oversized}"
+
+
+def test_module_size_does_not_depend_on_line_wrapping():
+    compact = "def f(a, b):\n    result = call(a, b, keyword=1)\n    return result\n"
+    wrapped = "def f(\n    a,\n    b,\n):\n    result = call(\n        a,\n        b,\n        keyword=1,\n    )\n    return result\n"
+    assert count_statements(compact) == count_statements(wrapped) == 3
 
 
 def test_old_flat_module_is_gone():

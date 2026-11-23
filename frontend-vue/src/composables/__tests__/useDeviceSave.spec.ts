@@ -15,6 +15,7 @@ import type { DeviceDomains } from '../useDeviceDomains'
 const calls: string[] = []
 const createResource = vi.fn()
 const updateResource = vi.fn()
+const getResource = vi.fn()
 const syncDeviceDeployedSoftware = vi.fn()
 const persistDeviceVlans = vi.fn()
 const persistDeviceInterfaces = vi.fn()
@@ -25,6 +26,7 @@ vi.mock('../../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api/client')>()),
   createResource: (...args: unknown[]) => createResource(...args),
   updateResource: (...args: unknown[]) => updateResource(...args),
+  getResource: (...args: unknown[]) => getResource(...args),
 }))
 vi.mock('../../api/deviceDeployedSoftware', () => ({ syncDeviceDeployedSoftware: (...args: unknown[]) => syncDeviceDeployedSoftware(...args) }))
 vi.mock('../../api/deviceVlans', () => ({ persistDeviceVlans: (...args: unknown[]) => persistDeviceVlans(...args) }))
@@ -83,6 +85,7 @@ beforeEach(() => {
     calls.push('update')
     return { ...savedDevice, id }
   })
+  getResource.mockImplementation(async (_resource: string, id: string) => ({ id }))
   syncDeviceDeployedSoftware.mockImplementation(async () => void calls.push('software'))
   persistDeviceVlans.mockImplementation(async () => void calls.push('vlans'))
   persistDeviceInterfaces.mockImplementation(async () => {
@@ -412,6 +415,7 @@ describe('сбой после создания устройства', () => {
 describe('конфликт версий записи (409 STALE_RECORD)', () => {
   const OPENED = '2026-11-01T10:00:00.000Z'
   const UPDATED = '2026-11-01T10:05:00.000Z'
+  const REFRESHED = '2026-11-01T10:07:00.000Z'
 
   /** Отвечает на вопрос о конфликте так, как это сделало бы окно StaleRecordHost. */
   async function answer(choice: StaleRecordChoice) {
@@ -468,17 +472,62 @@ describe('конфликт версий записи (409 STALE_RECORD)', () => 
     expect(syncDeviceDeployedSoftware).not.toHaveBeenCalled()
   })
 
-  it('новое устройство: после создания токен берётся из ответа, повторное сохранение обновляет его с этим токеном', async () => {
+  it('новое устройство: после сбоя вложенного шага токен перечитывается у сервера, повторное сохранение обновляет устройство с ним', async () => {
     updateResource.mockReset()
     updateResource.mockResolvedValue({ ...savedDevice, id: 'dev-new', updated_at: UPDATED })
     createResource.mockResolvedValue({ ...savedDevice, id: 'dev-new', updated_at: OPENED })
+    getResource.mockResolvedValue({ id: 'dev-new', updated_at: REFRESHED }) // вложенные шаги успели сдвинуть версию
     persistDeviceVlans.mockRejectedValueOnce(new Error('сбой VLAN'))
     const { save } = setup()
     await save.submit() // создано, но следующий шаг упал: форма остаётся открытой
     await save.submit()
 
     expect(createResource).toHaveBeenCalledTimes(1)
-    expect(updateResource).toHaveBeenCalledWith('devices', 'dev-new', expect.anything(), OPENED)
+    expect(getResource).toHaveBeenCalledWith('devices', 'dev-new')
+    expect(updateResource).toHaveBeenCalledWith('devices', 'dev-new', expect.anything(), REFRESHED)
+  })
+
+  it('сбой порта при редактировании: повторное «Сохранить» не конфликтует с собственной правкой формы (токен перечитан)', async () => {
+    updateResource.mockReset()
+    updateResource.mockResolvedValue({ ...savedDevice, id: 'dev-1', updated_at: UPDATED })
+    getResource.mockResolvedValue({ id: 'dev-1', updated_at: REFRESHED })
+    persistDeviceInterfaces.mockRejectedValueOnce(new Error('порт занят'))
+    const { draft, save, deps } = setup(deviceOf({ id: 'dev-1', updated_at: OPENED }))
+    await save.submit()
+    expect(draft.errorMessage.value).toBe('порт занят')
+    expect(getResource).toHaveBeenCalledWith('devices', 'dev-1')
+
+    await save.submit()
+    expect(updateResource).toHaveBeenNthCalledWith(1, 'devices', 'dev-1', expect.anything(), OPENED)
+    expect(updateResource).toHaveBeenNthCalledWith(2, 'devices', 'dev-1', expect.anything(), REFRESHED)
+    expect(deps.onSaved).toHaveBeenCalledTimes(1)
+  })
+
+  it('сбой самой записи устройства: токен не перечитывается — чужую правку нельзя принять за свою', async () => {
+    updateResource.mockReset()
+    updateResource.mockRejectedValue(new Error('Серийный номер занят'))
+    const { save } = setup(deviceOf({ id: 'dev-1', updated_at: OPENED }))
+    await save.submit()
+    expect(getResource).not.toHaveBeenCalled()
+  })
+
+  it('успешное сохранение не делает лишнего запроса за версией: форма закрывается', async () => {
+    updateResource.mockReset()
+    updateResource.mockResolvedValue({ ...savedDevice, id: 'dev-1', updated_at: UPDATED })
+    const { save, deps } = setup(deviceOf({ id: 'dev-1', updated_at: OPENED }))
+    await save.submit()
+    expect(deps.onSaved).toHaveBeenCalledTimes(1)
+    expect(getResource).not.toHaveBeenCalled()
+  })
+
+  it('не удалось перечитать версию: исходная причина сбоя остаётся в форме', async () => {
+    updateResource.mockReset()
+    updateResource.mockResolvedValue({ ...savedDevice, id: 'dev-1', updated_at: UPDATED })
+    getResource.mockRejectedValue(new Error('сеть'))
+    persistDeviceInterfaces.mockRejectedValueOnce(new Error('порт занят'))
+    const { draft, save } = setup(deviceOf({ id: 'dev-1', updated_at: OPENED }))
+    await save.submit()
+    expect(draft.errorMessage.value).toBe('порт занят')
   })
 })
 

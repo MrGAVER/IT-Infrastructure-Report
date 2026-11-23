@@ -16,6 +16,7 @@ API пакета видна в самом импорте. Модули:
   - hooks: Хуки ресурсов: особое поведение отдельных моделей (порядок строк, обогащение, проверки, побочные действия).
   - generic: Generic CRUD: список с фильтрами и пагинацией, создание и изменение записей любого ресурса.
   - deletion: Удаление записей: проверка ссылающихся записей, очистка полиморфных владельцев.
+  - versioning: Версия записи-родителя (updated_at) при правке вложенных коллекций: защита от потерянных обновлений.
   - owned_rows: Синхронизация «собственных» строк владельца: открытые порты, IP-адреса, развёрнутое ПО (устройства, ВМ, интерфейсы).
   - interfaces: Синхронизация портов (интерфейсов) устройства и чтение VLAN портов формы.
   - interface_groups: Группы портов устройства: чтение, синхронизация и применение значений группы к её портам.
@@ -80,6 +81,10 @@ from .generic import (
 from .deletion import (
     assert_deletable,
     delete_resource,
+)
+from .versioning import (
+    touch_parent,
+    track_nested_changes,
 )
 from .owned_rows import (
     sync_owner_open_ports,
@@ -185,6 +190,8 @@ __all__ = [
     "sync_vm_deployed_software",
     "sync_vm_ip_addresses",
     "sync_vm_open_ports",
+    "touch_parent",
+    "track_nested_changes",
     "update_resource",
     "validate_column_types",
     "validate_device_subinterfaces",

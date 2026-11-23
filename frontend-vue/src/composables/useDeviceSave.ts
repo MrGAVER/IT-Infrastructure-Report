@@ -123,6 +123,9 @@ export function useDeviceSave(draft: DeviceDraft, deps: DeviceSaveDeps) {
     // Устройство создано именно этим сохранением (а не раньше) — нужно, чтобы при сбое следующих шагов
     // честно сказать об этом пользователю (см. catch ниже).
     let createdByThisSubmit = false
+    // Основная запись сохранена этим нажатием: вложенные шаги ниже (ПО, VLAN, порты) сами сдвигают версию устройства, и при их сбое
+    // токен формы нужно перечитать (см. catch и useStaleRecordGuard.refresh).
+    let savedThisSubmit: Device | null = null
     try {
       let extra: Record<string, unknown> | undefined
       // До трёх попыток: обычная отправка, затем до двух ре-отправок с флагами
@@ -135,6 +138,7 @@ export function useDeviceSave(draft: DeviceDraft, deps: DeviceSaveDeps) {
           const saved = deviceId ? await stale.update<Device>(deviceId, payload) : await createResource<Device>('devices', payload)
           // Конфликт версий: пользователь отказался сохранять (остался в форме или закрыл её со свежими данными).
           if (!saved) return
+          savedThisSubmit = saved
           if (!deviceId) {
             stale.remember(saved)
             draft.createdDevice.value = saved
@@ -212,6 +216,7 @@ export function useDeviceSave(draft: DeviceDraft, deps: DeviceSaveDeps) {
       }
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'Не удалось сохранить устройство'
+      if (savedThisSubmit) await stale.refresh(savedThisSubmit.id)
       if (createdByThisSubmit) {
         // Устройство уже в БД, а остальное не сохранилось: говорим об этом прямо и обновляем список —
         // родитель перезагружает его только по 'saved', а форма остаётся открытой для исправления.

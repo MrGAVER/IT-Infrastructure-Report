@@ -267,9 +267,8 @@ async function submit() {
     const payload = toPayload()
     const saved = isEdit.value ? await stale.update<VirtualMachine>(props.vm!.id, payload) : await createResource<VirtualMachine>('vms', payload)
     if (!saved) return // при конфликте версий пользователь отказался сохранять
-    await persistVmIps(saved.id)
-    await persistOpenPorts(saved.id)
-    await persistSoftwareAssets(saved.id)
+    // списки ВМ сами сдвигают её версию: при сбое любого шага токен формы перечитывается
+    await stale.afterSave(saved.id, persistVmIps, persistOpenPorts, persistSoftwareAssets)
     emit('saved', saved)
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось сохранить виртуальную машину'

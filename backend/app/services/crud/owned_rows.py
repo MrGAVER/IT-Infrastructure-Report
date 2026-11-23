@@ -13,6 +13,7 @@ from ..serialization import enrich_open_ports, serialize
 from ..integrity import integrity_error_response
 from ..validation import validate_ipv4_field, validate_prefix_length_field, validate_unique_open_port_numbers
 from .audit_log import audit
+from .versioning import touch_parent
 
 
 # Длина колонки ip_addresses.purpose (models.IPAddress): назначение общего IP группы копируется в неё.
@@ -274,14 +275,16 @@ def _sync_owner_collection(
     """Общий каркас атомарной синхронизации одного вложенного списка владельца (ВМ или физического
     устройства: порты, IP-адреса, ПО): владелец существует (404 с текстом not_found), список
     применяется одной транзакцией (любая ошибка откатывает весь запрос), запись в журнал аудита
-    (сущность entity — слаг ресурса) пишется только если что-то реально изменилось. Ответ:
-    {'items': [...]} — сохранённые записи списка."""
+    (сущность entity — слаг ресурса) пишется только если что-то реально изменилось. В этом же случае сдвигается
+    версия владельца (updated_at, см. versioning.touch_parent): иначе форма, открытая до чужой правки списка, проходила бы проверку
+    expected_updated_at и затирала её. Ответ: {'items': [...]} — сохранённые записи списка."""
     owner = session.get(owner_model, owner_id)
     if not owner:
         raise HTTPException(404, not_found)
     try:
         created, updated, removed = sync(owner)
         if created or updated or removed:
+            touch_parent(owner)
             audit(session, entity, owner.id, AuditAction.UPDATE, f"{label}: добавлено {created}, изменено {updated}, удалено {removed}")
         session.commit()
     except HTTPException:

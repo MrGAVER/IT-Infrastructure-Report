@@ -14,13 +14,14 @@
 
 from __future__ import annotations
 
+import math
 import re
 from datetime import date
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
-from .constants import AUDIT_RETENTION_MAX_DAYS
+from .constants import AUDIT_RETENTION_MAX_DAYS, BACKUP_MAX_INTERVAL_HOURS, BACKUP_MAX_KEEP, BACKUP_MIN_INTERVAL_HOURS
 
 
 class PhysicalDeviceCreate(BaseModel):
@@ -203,6 +204,73 @@ class AuditSettingsSaveOut(AuditSettingsOut):
 
     removed_now: Optional[int] = None  # сколько записей удалено сразу при сохранении
     cleanup_failed: Optional[bool] = None  # срок сохранён, но очистка не удалась; повторится при ближайшем ленивом запуске
+
+
+class BackupSettingsUpdate(BaseModel):
+    """PUT /api/v1/backup/settings. Поле, которого нет в теле, не меняется; null сбрасывает параметр к значению по умолчанию.
+    interval_hours: 0 — плановые копии выключены, иначе не меньше BACKUP_MIN_INTERVAL_HOURS (чаще — только переменной окружения);
+    keep — сколько последних копий хранить (от 1). Строка «6» и true — не числа, а ошибка клиента; extra="forbid": опечатка в имени
+    поля — 422, а не молчаливое «сохранено». Каталог копий здесь не меняется намеренно: он задаётся окружением (README, «Плановые
+    резервные копии (SQLite…)»)."""
+
+    model_config = ConfigDict(extra="forbid")
+    interval_hours: Optional[float] = None
+    keep: Optional[StrictInt] = Field(default=None, ge=1, le=BACKUP_MAX_KEEP)
+
+    @field_validator("interval_hours", mode="before")
+    @classmethod
+    def _interval_is_a_number_that_is_off_or_within_bounds(cls, value: Any) -> Optional[float]:
+        # До разбора типа: float() без проверки принял бы строку «6» и true, а ответ 422 обязан назвать поле.
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("Поле «interval_hours»: ожидается число")
+        if value != 0 and (not math.isfinite(value) or not BACKUP_MIN_INTERVAL_HOURS <= value <= BACKUP_MAX_INTERVAL_HOURS):
+            raise ValueError(
+                f"Поле «interval_hours»: 0 (выключить) или от {BACKUP_MIN_INTERVAL_HOURS:g} до {BACKUP_MAX_INTERVAL_HOURS:g} ч; "
+                "чаще раза в час — только переменной окружения INFRA_REGISTRY_BACKUP_INTERVAL_HOURS"
+            )
+        return float(value)
+
+
+BackupSource = Literal["environment", "settings", "default"]
+
+
+class BackupLatestOut(BaseModel):
+    name: str
+    size_bytes: int
+    created_at: str  # ISO 8601 UTC
+
+
+class BackupAttemptOut(BaseModel):
+    at: str  # ISO 8601 UTC
+    ok: bool
+    created: Optional[str]  # имя новой копии; null — копия не понадобилась (база не менялась) или попытка неудачна
+    error: Optional[str]
+
+
+class BackupSettingsOut(BaseModel):
+    """GET/PUT /api/v1/backup/settings (только администратору). supported=false — плановых копий средствами приложения нет (PostgreSQL,
+    база не в файле): остальные поля тогда справочные. *_source — откуда действующее значение: environment (переменная или
+    infra_registry.toml, в форме не меняется), settings (задано в форме), default. Форму JSON повторяет вручную написанный тип
+    frontend-vue/src/api/types/backup.ts: менять поля только вместе с ним."""
+
+    supported: bool
+    unsupported_reason: Optional[str]
+    interval_hours: float
+    interval_source: BackupSource
+    keep: int
+    keep_source: BackupSource
+    default_interval_hours: float
+    default_keep: int
+    min_interval_hours: float
+    max_interval_hours: float
+    max_keep: int
+    directory: str
+    directory_source: Literal["environment", "default"]
+    running: bool  # планировщик работает в этом процессе
+    latest: Optional[BackupLatestOut]
+    last_attempt: Optional[BackupAttemptOut]  # только с запуска процесса: после перезапуска приложения пуста
 
 
 # --- Настройки интерфейса (services/preferences.py, api/preferences.py) -----------------------------

@@ -89,6 +89,82 @@ describe('InformationSystemFormModal.vue — загрузка и сохране�
     expect(body.sources[0].ips).toEqual([{ id: 'ip-1', ip_address: '1.1.1.1' }])
   })
 
+  describe('версия записи после сбоя сохранения связанных данных (F-03)', () => {
+    const OPENED = '2026-11-01T10:00:00.000Z'
+    const SAVED = '2026-11-01T10:05:00.000Z'
+    const REFRESHED = '2026-11-01T10:07:00.000Z'
+    const system: InformationSystem & { updated_at: string } = {
+      id: 'is-ver',
+      number: null,
+      name: 'ИС Версия',
+      type: 'is',
+      description: null,
+      purpose: null,
+      localization: null,
+      support_organization_id: null,
+      support_method_id: null,
+      process_description: null,
+      siem_enabled: false,
+      crypto_protection_enabled: false,
+      crypto_protection_description_id: null,
+      updated_at: OPENED,
+    }
+
+    function stubApi(failDetailsTimes: number) {
+      const calls: Array<{ method: string; url: string; body?: Record<string, unknown> }> = []
+      let failures = failDetailsTimes
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const method = init?.method ?? 'GET'
+          calls.push({ method, url, body: init?.body ? JSON.parse(init.body as string) : undefined })
+          if (url.endsWith('/information-systems/is-ver/details')) {
+            if (method === 'PUT') return failures-- > 0 ? jsonResponse({ detail: 'Источник указан дважды' }, 422) : jsonResponse(EMPTY_DETAILS)
+            return jsonResponse(EMPTY_DETAILS)
+          }
+          if (url.endsWith('/resources/information-systems/is-ver')) {
+            // версия записи после сохранения связанных данных: сервер сдвинул её вложенным PUT
+            return method === 'PUT' ? jsonResponse({ ...system, updated_at: SAVED }) : jsonResponse({ ...system, updated_at: REFRESHED })
+          }
+          return jsonResponse(EMPTY_PAGE)
+        }),
+      )
+      return calls
+    }
+    const systemPuts = (calls: ReturnType<typeof stubApi>) => calls.filter((c) => c.method === 'PUT' && c.url.endsWith('/resources/information-systems/is-ver'))
+    const systemReads = (calls: ReturnType<typeof stubApi>) =>
+      calls.filter((c) => c.method === 'GET' && c.url.endsWith('/resources/information-systems/is-ver'))
+
+    it('сбой сохранения связанных данных после записи ИС: токен перечитан, повторное «Сохранить» не конфликтует с самой формой', async () => {
+      const calls = stubApi(1)
+      const wrapper = mount(InformationSystemFormModal, { props: { system } })
+      await flushPromises()
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+      expect(wrapper.emitted('saved')).toBeFalsy()
+      expect(systemReads(calls)).toHaveLength(1)
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(systemPuts(calls).map((c) => c.body?.expected_updated_at)).toEqual([OPENED, REFRESHED])
+      expect(wrapper.emitted('saved')).toHaveLength(1)
+    })
+
+    it('успешное сохранение не перечитывает версию лишний раз', async () => {
+      const calls = stubApi(0)
+      const wrapper = mount(InformationSystemFormModal, { props: { system } })
+      await flushPromises()
+
+      await wrapper.find('form').trigger('submit')
+      await flushPromises()
+
+      expect(wrapper.emitted('saved')).toHaveLength(1)
+      expect(systemReads(calls)).toHaveLength(0)
+    })
+  })
+
   it('создаёт новую ИС и сохраняет подразделение, протокол и источник', async () => {
     const catalogs = useCatalogsStore()
     catalogs.items['departments'] = [{ id: 'dep-1', name: 'Отдел ИБ' }]

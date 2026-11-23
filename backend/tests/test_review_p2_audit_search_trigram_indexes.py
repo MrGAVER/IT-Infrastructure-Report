@@ -90,6 +90,24 @@ def test_without_the_extension_the_migration_succeeds_and_tells_how_to_finish_ma
     )
 
 
+@pytest.mark.parametrize(
+    ("driver_message", "expected_reason"),
+    [
+        ("", "причина не сообщена"),  # раньше `"".splitlines()[0]` бросало IndexError внутри except и затеняло исходную ошибку
+        ("\n", "причина не сообщена"),
+        ('extension "pg_trgm" is not available\nHINT: install postgresql-contrib', 'extension "pg_trgm" is not available'),
+    ],
+)
+def test_warning_survives_an_empty_driver_message_and_keeps_only_its_first_line(monkeypatch, caplog, driver_message, expected_reason):
+    bind = _FakeBind("postgresql", extension_error=sa.exc.NotSupportedError("CREATE EXTENSION", {}, Exception(driver_message)))
+
+    with caplog.at_level(logging.WARNING, logger="alembic.runtime.migration"):
+        _run(monkeypatch, "upgrade", bind)  # не должна бросать исключение ни при каком сообщении драйвера
+
+    warning = next(record.getMessage() for record in caplog.records if record.levelno == logging.WARNING)
+    assert f"({expected_reason})" in warning and "HINT" not in warning
+
+
 def test_with_the_extension_it_creates_both_expression_indexes(monkeypatch):
     bind = _FakeBind("postgresql")
     _run(monkeypatch, "upgrade", bind)
@@ -226,6 +244,5 @@ def test_search_uses_the_trigram_indexes_and_is_much_faster_than_a_full_scan(pg_
     print(f"\nпоиск по журналу аудита (200 000 записей): с индексами {indexed_seconds * 1000:.1f} мс, без — {scan_seconds * 1000:.1f} мс")
     # Главные гарантии — планы EXPLAIN выше (индексы использованы / Seq Scan без них, результат тот же): они детерминированы.
     # Замер времени лишь страхует от индекса, который есть, но не помогает; на общем раннере он шумит (в CI одного и того же кода:
-    # 4,5 раза при
-    # пороге 5), поэтому порог — 2.
+    # 4,5 раза при пороге 5), поэтому порог — 2.
     assert indexed_seconds * 2 < scan_seconds, f"ожидалось ускорение минимум в 2 раза: {indexed_seconds:.4f} с против {scan_seconds:.4f} с"

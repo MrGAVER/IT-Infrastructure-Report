@@ -98,6 +98,16 @@ class OwnerType:
 # и документации; константа лежит здесь, а не в schemas.py, чтобы ни config, ни сервисы не зависели от слоя транспорта.
 AUDIT_RETENTION_MAX_DAYS = 3650
 
+# Плановые копии SQLite (services/backup_scheduler.py): умолчания и границы значений, которые администратор задаёт в
+# «Настройки → Резервные копии». Интервал 0 — копии выключены; через интерфейс — не чаще раза в час (чаще — только переменной окружения,
+# для проверок): копия читает всю базу (API online-backup), а частые копии быстро вытесняют из ротации старые. Верхние границы защищают
+# от опечатки в лишний ноль.
+BACKUP_DEFAULT_INTERVAL_HOURS = 24.0
+BACKUP_DEFAULT_KEEP = 7
+BACKUP_MIN_INTERVAL_HOURS = 1.0
+BACKUP_MAX_INTERVAL_HOURS = 24.0 * 366
+BACKUP_MAX_KEEP = 365
+
 # Верхняя граница параметра offset во всех постраничных GET: int32 с запасом хватает любому реестру. Без границы offset ≥ 2**63 доходил
 # до драйвера SQLite (OverflowError: Python int too large to convert to SQLite INTEGER) и отвечал 500; на PostgreSQL такое значение
 # тоже не помещается в bigint. Значение за границей — обычный 422 от валидации запроса.

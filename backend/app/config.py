@@ -7,7 +7,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable
 
-from .constants import AUDIT_RETENTION_MAX_DAYS
+from .constants import AUDIT_RETENTION_MAX_DAYS, BACKUP_DEFAULT_INTERVAL_HOURS, BACKUP_DEFAULT_KEEP
 
 # Переменные окружения как отображение: настройки читаются из os.environ, а тесты и вызывающий код могут передать свой словарь, не
 # меняя процесс.
@@ -65,7 +65,30 @@ def _flag_env(name: str, *, env: Environ | None = None) -> bool:
 BASE_DIR = Path(__file__).resolve().parents[2]
 
 
-def _database_url(data_dir: Path | None = None, *, env: Environ | None = None) -> str:
+# Параметр плановых копий → переменная окружения, которой он задаётся (пустая переменная считается не заданной).
+BACKUP_PARAMETER_VARIABLES = {
+    "interval_hours": "INFRA_REGISTRY_BACKUP_INTERVAL_HOURS",
+    "keep": "INFRA_REGISTRY_BACKUP_KEEP",
+    "directory": "INFRA_REGISTRY_BACKUP_DIR",
+}
+
+
+def _backup_dir(data_dir: Path, *, env: Environ | None = None) -> Path:
+    """Каталог плановых копий: ``INFRA_REGISTRY_BACKUP_DIR`` (абсолютный путь; пусто — по умолчанию) или ``<каталог данных>/backups``.
+
+    По умолчанию — внутри каталога данных: в Docker он лежит в томе и переживает пересоздание контейнера. Копия на том же диске, что и база,
+    от поломки диска не спасает — для этого каталог задают на другом диске или сетевом ресурсе. Относительный путь не принимается: от
+    какого каталога его считать, у EXE, службы и контейнера разное, и копии оказались бы там, где их не ищут."""
+    raw = _environ(env).get("INFRA_REGISTRY_BACKUP_DIR", "").strip()
+    if not raw:
+        return data_dir / "backups"
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        raise ValueError(f"INFRA_REGISTRY_BACKUP_DIR: нужен абсолютный путь, получено {raw!r}")
+    return path
+
+
+def _database_url(data_dir: Path, *, env: Environ | None = None) -> str:
     """Адрес базы данных.
 
     1. DATABASE_URL — готовая строка (внешний сервер, нестандартные параметры). Пароль в ней нужно экранировать самому:
@@ -73,7 +96,8 @@ def _database_url(data_dir: Path | None = None, *, env: Environ | None = None) -
     2. Иначе, если задан INFRA_REGISTRY_DB_HOST, адрес PostgreSQL собирается из частей: INFRA_REGISTRY_DB_PORT (5432),
        POSTGRES_USER (infra), POSTGRES_PASSWORD, POSTGRES_DB (infra_registry). Так работает docker-compose.yml: пароль
        берётся из .env как есть, любые символы допустимы, экранирование делает SQLAlchemy.
-    3. Иначе — файл SQLite в каталоге данных (``data_dir``; по умолчанию APP_DATA_DIR)."""
+    3. Иначе — файл SQLite в каталоге данных ``data_dir``: параметр обязательный, а не «по умолчанию APP_DATA_DIR» — тот объявлен ниже по
+       файлу, и функция зависела бы от порядка определений в модуле."""
     variables = _environ(env)
     explicit = variables.get("DATABASE_URL", "").strip()
     if explicit:
@@ -87,10 +111,10 @@ def _database_url(data_dir: Path | None = None, *, env: Environ | None = None) -
             username=variables.get("POSTGRES_USER", "infra") or "infra",
             password=variables.get("POSTGRES_PASSWORD") or None,
             host=host,
-            port=int(variables.get("INFRA_REGISTRY_DB_PORT") or 5432),
+            port=_number_env("INFRA_REGISTRY_DB_PORT", 5432, int, minimum=1, maximum=65535, env=variables),
             database=variables.get("POSTGRES_DB", "infra_registry") or "infra_registry",
         ).render_as_string(hide_password=False)
-    return f"sqlite:///{(APP_DATA_DIR if data_dir is None else data_dir) / 'infra_registry.db'}"
+    return f"sqlite:///{data_dir / 'infra_registry.db'}"
 
 
 # Content-Security-Policy для интерфейса и API по умолчанию (переопределяется INFRA_REGISTRY_CSP).
@@ -114,6 +138,9 @@ class Settings:
     report_dir: Path
     report_retention_days: int
     audit_retention_days: int
+    backup_interval_hours: float
+    backup_keep: int
+    backup_dir: Path
     database_url: str
     report_max_files: int
     db_pool_options: Mapping[str, Any]
@@ -133,6 +160,9 @@ class Settings:
     auth_lockout_known_client_bypass: bool
     auth_known_client_days: int
     enable_docs: bool
+    # Какие параметры плановых копий заданы окружением (или toml EXE): имена из BACKUP_PARAMETER_VARIABLES. Эти значения администратор в
+    # «Настройки → Резервные копии» не меняет — окружение приоритетнее (services/backup_settings.py).
+    backup_from_env: frozenset[str] = frozenset()
 
     @classmethod
     def from_env(cls, env: Environ | None = None) -> Settings:
@@ -157,6 +187,12 @@ class Settings:
             audit_retention_days=_number_env(
                 "INFRA_REGISTRY_AUDIT_RETENTION_DAYS", 0, int, minimum=0, maximum=AUDIT_RETENTION_MAX_DAYS, env=variables
             ),
+            # Плановые копии SQLite (services/backup_scheduler.py): интервал 0 — выключено, допустимы дробные значения (для тестов).
+            backup_interval_hours=_number_env(
+                "INFRA_REGISTRY_BACKUP_INTERVAL_HOURS", BACKUP_DEFAULT_INTERVAL_HOURS, float, minimum=0, env=variables
+            ),
+            backup_keep=_number_env("INFRA_REGISTRY_BACKUP_KEEP", BACKUP_DEFAULT_KEEP, int, minimum=1, env=variables),
+            backup_dir=_backup_dir(data_dir, env=variables),
             database_url=_database_url(data_dir, env=variables),
             report_max_files=200 if report_max_files is None else report_max_files,
             db_pool_options=MappingProxyType(pool_options),
@@ -177,6 +213,7 @@ class Settings:
             not in {"0", "false", "no", "off"},
             auth_known_client_days=_number_env("INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS", 30, int, minimum=0, env=variables),
             enable_docs=_flag_env("INFRA_REGISTRY_ENABLE_DOCS", env=variables),
+            backup_from_env=frozenset(name for name, variable in BACKUP_PARAMETER_VARIABLES.items() if variables.get(variable, "").strip()),
         )
 
 

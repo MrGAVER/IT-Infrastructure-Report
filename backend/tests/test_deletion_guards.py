@@ -68,6 +68,9 @@ ALLOWED_DELETIONS = {
     # удаляемым пользователем (внешнего ключа с каскадом у owner нет, см. models.AppPreference)
     ("app/services/preferences.py", "update_preferences", "row"),
     ("app/services/preferences.py", "delete_user_preferences", "AppPreference"),
+    # настройки плановых копий (AppPreference, ключи backup.*): та же листовая таблица; строка удаляется, когда администратор сбрасывает
+    # параметр к умолчанию (null) в «Настройки → Резервные копии» (services/backup_settings.py, тесты — test_review_p3_backup_settings.py)
+    ("app/services/backup_settings.py", "update_policy", "row"),
     # журнал аудита (A-05): очистка записей старше срока хранения, который задал администратор (по умолчанию срок 0 — не удалять).
     # Листовая таблица: на AuditLog никто не ссылается; удаление пакетное, по возрасту записи, и само пишет в журнал свежую
     # запись об очистке (services/audit_retention.py, тесты — test_audit_retention.py). Удаляются только записи, уже сохранённые в

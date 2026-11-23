@@ -8,6 +8,7 @@ import { useAuthStore } from '../../stores/auth'
 import { usePreferencesStore } from '../../stores/preferences'
 import { stubPreferencesApi } from '../../stores/__tests__/preferencesApi'
 import { stubAuditSettingsApi } from '../../stores/__tests__/auditSettingsApi'
+import { stubBackupSettingsApi } from '../../stores/__tests__/backupSettingsApi'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -215,5 +216,45 @@ describe('SettingsView.vue — настройки аудита', () => {
 
     expect(api.requests).toContain('GET /api/v1/audit-log/settings')
     expect((wrapper.find('[data-field="retention-days"]').element as HTMLInputElement).value).toBe('90')
+  })
+})
+
+describe('SettingsView.vue — резервные копии', () => {
+  const section = (wrapper: ReturnType<typeof mount>) => wrapper.find('[data-testid="backup-settings-section"]')
+  const asUser = (role: 'admin' | 'viewer') => {
+    const auth = useAuthStore()
+    auth.enabled = true
+    auth.initialized = true
+    auth.user = { id: 'u1', username: 'user', role, is_active: true } as never
+  }
+
+  it('администратор видит панель и она загружает настройки с сервера', async () => {
+    asUser('admin')
+    const api = stubBackupSettingsApi({ keep: 14, keep_source: 'settings' })
+    const wrapper = mount(SettingsView)
+    await flushPromises()
+
+    expect(section(wrapper).find('h2').text()).toBe('Резервные копии')
+    expect(api.requests).toContain('GET /api/v1/backup/settings')
+    expect((wrapper.find('[data-testid="backup-keep"]').element as HTMLInputElement).value).toBe('14')
+  })
+
+  it('при выключенной аутентификации панель есть (единственный пользователь — владелец)', async () => {
+    stubBackupSettingsApi()
+    const wrapper = mount(SettingsView)
+    await flushPromises()
+
+    expect(section(wrapper).exists()).toBe(true)
+  })
+
+  it('у наблюдателя (viewer) панели нет и настройки копий он не запрашивает', async () => {
+    asUser('viewer')
+    const api = stubBackupSettingsApi()
+    const wrapper = mount(SettingsView)
+    await flushPromises()
+
+    expect(section(wrapper).exists()).toBe(false)
+    expect(api.requests.some((request) => request.includes('/backup/settings'))).toBe(false)
+    expect(wrapper.find('[data-testid="forms-settings"]').exists()).toBe(true)
   })
 })

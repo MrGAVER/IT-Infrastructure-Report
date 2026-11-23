@@ -1,6 +1,6 @@
 """Explicit is_hypervisor / allows_vm_hosting flags instead of string-name business rules.
 
-Код-ревью (High/Medium, п.4): validate_hypervisor()/validate_vm_host() определяли бизнес-
+Раньше validate_hypervisor()/validate_vm_host() определяли бизнес-
 правило сравнением строк с именем справочной записи (category.name.casefold()=='гипервизор';
 'сервер'/'система хранения'/'storage' в имени типа устройства). Переименование записи в
 справочнике (обычная операция через generic CRUD) молча ломало валидацию без единого
