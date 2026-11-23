@@ -1,4 +1,4 @@
-"""created_at/updated_at становятся обязательными (NOT NULL) там, где этого требует модель (R1-02 код-ревью)
+"""created_at/updated_at становятся обязательными (NOT NULL) там, где этого требует модель
 
 Revision ID: a7d3f1c8e925
 Revises: e4b1c7d9a362

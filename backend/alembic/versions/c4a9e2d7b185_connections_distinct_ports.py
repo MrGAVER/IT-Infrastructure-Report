@@ -1,4 +1,4 @@
-"""Подключение не соединяет порт с самим собой: CHECK ck_connections_distinct_ports (A-01 код-ревью main @ b375f58)
+"""Подключение не соединяет порт с самим собой: CHECK ck_connections_distinct_ports
 
 Revision ID: c4a9e2d7b185
 Revises: a7d3f1c8e925

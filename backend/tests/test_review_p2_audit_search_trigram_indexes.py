@@ -90,6 +90,24 @@ def test_without_the_extension_the_migration_succeeds_and_tells_how_to_finish_ma
     )
 
 
+@pytest.mark.parametrize(
+    ("driver_message", "expected_reason"),
+    [
+        ("", "причина не сообщена"),  # раньше `"".splitlines()[0]` бросало IndexError внутри except и затеняло исходную ошибку
+        ("\n", "причина не сообщена"),
+        ('extension "pg_trgm" is not available\nHINT: install postgresql-contrib', 'extension "pg_trgm" is not available'),
+    ],
+)
+def test_warning_survives_an_empty_driver_message_and_keeps_only_its_first_line(monkeypatch, caplog, driver_message, expected_reason):
+    bind = _FakeBind("postgresql", extension_error=sa.exc.NotSupportedError("CREATE EXTENSION", {}, Exception(driver_message)))
+
+    with caplog.at_level(logging.WARNING, logger="alembic.runtime.migration"):
+        _run(monkeypatch, "upgrade", bind)  # не должна бросать исключение ни при каком сообщении драйвера
+
+    warning = next(record.getMessage() for record in caplog.records if record.levelno == logging.WARNING)
+    assert f"({expected_reason})" in warning and "HINT" not in warning
+
+
 def test_with_the_extension_it_creates_both_expression_indexes(monkeypatch):
     bind = _FakeBind("postgresql")
     _run(monkeypatch, "upgrade", bind)
