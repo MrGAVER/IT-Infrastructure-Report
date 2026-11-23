@@ -7,6 +7,7 @@
 
 Время в счётчике по адресу — управляемые часы: задержки проверяются точно и не зависят от скорости машины.
 """
+
 from __future__ import annotations
 
 import threading
@@ -40,8 +41,11 @@ def ip_clock(monkeypatch) -> FakeClock:
     clock = FakeClock()
     prod = login_module.ip_throttle
     monkeypatch.setattr(
-        login_module, "ip_throttle",
-        LoginThrottle(free_attempts=prod.free_attempts, base_delay=prod.base_delay, max_delay=prod.max_delay, window=prod.window, clock=clock),
+        login_module,
+        "ip_throttle",
+        LoginThrottle(
+            free_attempts=prod.free_attempts, base_delay=prod.base_delay, max_delay=prod.max_delay, window=prod.window, clock=clock
+        ),
     )
     return clock
 
@@ -273,7 +277,11 @@ class TestPasswordLengthLimit:
         _bootstrap_admin(client)
         token = _admin_login(client).json()["token"]
         headers = {"Authorization": f"Bearer {token}"}
-        too_long_new = client.put("/api/v1/auth/me/password", json={"current_password": ADMIN_PASSWORD, "new_password": self.TOO_LONG}, headers=headers)
+        too_long_new = client.put(
+            "/api/v1/auth/me/password", json={"current_password": ADMIN_PASSWORD, "new_password": self.TOO_LONG}, headers=headers
+        )
         assert too_long_new.status_code == 422
-        too_long_current = client.put("/api/v1/auth/me/password", json={"current_password": self.TOO_LONG, "new_password": "Admin5678"}, headers=headers)
+        too_long_current = client.put(
+            "/api/v1/auth/me/password", json={"current_password": self.TOO_LONG, "new_password": "Admin5678"}, headers=headers
+        )
         assert too_long_current.status_code == 422

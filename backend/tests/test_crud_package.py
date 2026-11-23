@@ -3,6 +3,7 @@
 Разбиение не должно ломать вызывающий код: публичный API прежний, а модули зависят друг от друга в одну
 сторону. Запуск: pytest backend/tests/test_crud_package.py -v
 """
+
 from __future__ import annotations
 
 import ast
@@ -21,12 +22,32 @@ SUBMODULES = sorted(p.stem for p in PACKAGE_DIR.glob("*.py") if p.stem != "__ini
 
 # Всё, что остальное приложение и тесты импортировали из services.crud до разбиения.
 PUBLIC_API = [
-    "audit", "columns_for", "allowed_columns", "model_for", "ensure_writable", "validate_payload_schema",
-    "list_resource", "create_resource", "update_resource", "delete_resource", "assert_deletable", "validate_resource",
-    "assign_domain_vlans_to_device", "get_information_system_details", "sync_information_system_details",
-    "get_interface_groups", "list_interface_groups", "sync_interfaces", "sync_device_vlans",
-    "sync_device_deployed_software", "sync_vm_open_ports", "sync_vm_ip_addresses", "sync_vm_deployed_software",
-    "sync_owner_open_ports", "sync_owner_ip_addresses", "sync_owner_deployed_software",
+    "audit",
+    "columns_for",
+    "allowed_columns",
+    "model_for",
+    "ensure_writable",
+    "validate_payload_schema",
+    "list_resource",
+    "create_resource",
+    "update_resource",
+    "delete_resource",
+    "assert_deletable",
+    "validate_resource",
+    "assign_domain_vlans_to_device",
+    "get_information_system_details",
+    "sync_information_system_details",
+    "get_interface_groups",
+    "list_interface_groups",
+    "sync_interfaces",
+    "sync_device_vlans",
+    "sync_device_deployed_software",
+    "sync_vm_open_ports",
+    "sync_vm_ip_addresses",
+    "sync_vm_deployed_software",
+    "sync_owner_open_ports",
+    "sync_owner_ip_addresses",
+    "sync_owner_deployed_software",
 ]
 
 
@@ -45,7 +66,9 @@ def test_every_submodule_imports_on_its_own(module):
     # Свежий интерпретатор: цикл между модулями проявился бы только при определённом порядке импорта.
     result = subprocess.run(
         [sys.executable, "-c", f"import app.services.crud.{module}"],
-        capture_output=True, text=True, cwd=PACKAGE_DIR.parents[2],
+        capture_output=True,
+        text=True,
+        cwd=PACKAGE_DIR.parents[2],
     )
     assert result.returncode == 0, result.stderr
 
@@ -95,8 +118,9 @@ def test_all_lists_every_public_definition_and_every_name_resolves():
 
 
 def test_facade_exports_no_private_names():
-    """R1-08 код-ревью: фасад отдаёт только публичный API. Раньше он реэкспортировал около сотни имён с «_» ради тестов и стирал границу между
-    публичным и внутренним API пакета. Тесту нужен помощник — пусть импортирует его из подмодуля (`app.services.crud.validators`)."""
+    """R1-08 код-ревью: фасад отдаёт только публичный API. Раньше он реэкспортировал около сотни имён с «_» ради тестов и стирал
+    границу между публичным и внутренним API пакета. Тесту нужен помощник — пусть импортирует его из подмодуля
+    (`app.services.crud.validators`)."""
     private_in_all = [name for name in crud.__all__ if name.startswith("_")]
     assert private_in_all == [], f"приватные имена в __all__: {private_in_all}"
     leaked = [name for name in vars(crud) if name.startswith("_") and not (name.startswith("__") and name.endswith("__"))]
@@ -112,10 +136,11 @@ def test_every_name_in_all_resolves_to_its_defining_module():
 
 
 def test_modules_are_small_enough_to_review():
-    # Цель п. 10 — перестать держать 1300 строк в одном файле; порог оставляет запас на рост.
+    # Цель п. 10 — перестать держать 1300 строк в одном файле; порог оставляет запас на рост. Порог считает строки, а не символы:
+    # при снижении line-length с 400 до 140 те же модули стали длиннее (самый большой — 429 строк вместо 400), поэтому порог поднят до 450.
     for module in SUBMODULES:
         lines = len((PACKAGE_DIR / f"{module}.py").read_text(encoding="utf-8").splitlines())
-        assert lines <= 400, f"{module}.py вырос до {lines} строк — разрежьте его"
+        assert lines <= 450, f"{module}.py вырос до {lines} строк — разрежьте его"
 
 
 def test_old_flat_module_is_gone():
@@ -126,12 +151,18 @@ def test_old_flat_module_is_gone():
 # --- A-08 код-ревью r3: __all__ фасада синхронен с его импортами и не расходится с ними ---------------------------------------------------
 # Каждое имя в фасаде перечислено дважды (импорт и __all__): это лишняя точка поддержки, поэтому расхождение ловят тесты, а не ревью.
 
+
 def _facade_ast() -> ast.Module:
     return ast.parse((PACKAGE_DIR / "__init__.py").read_text(encoding="utf-8"))
 
 
 def _imported_names() -> list[str]:
-    return [alias.asname or alias.name for node in _facade_ast().body if isinstance(node, ast.ImportFrom) and node.level == 1 for alias in node.names]
+    return [
+        alias.asname or alias.name
+        for node in _facade_ast().body
+        if isinstance(node, ast.ImportFrom) and node.level == 1
+        for alias in node.names
+    ]
 
 
 def _all_sort_key(name: str) -> tuple[int, str]:
@@ -142,7 +173,11 @@ def _all_sort_key(name: str) -> tuple[int, str]:
 def test_all_equals_the_public_namespace_of_the_package():
     """Не только «публичное ⊆ __all__» (это проверено выше), но и обратное: имя в пространстве пакета без записи в __all__ — расхождение."""
     # `annotations` — след `from __future__ import annotations` (объект-«функция компилятора»), а не имя API; подмодули — тоже не имена API.
-    namespace = {name for name, value in vars(crud).items() if not name.startswith("_") and name != "annotations" and not isinstance(value, types.ModuleType)}
+    namespace = {
+        name
+        for name, value in vars(crud).items()
+        if not name.startswith("_") and name != "annotations" and not isinstance(value, types.ModuleType)
+    }
     assert namespace == set(crud.__all__), f"расходятся: {sorted(namespace ^ set(crud.__all__))}"
 
 
@@ -151,8 +186,12 @@ def test_all_matches_the_names_the_facade_imports():
 
 
 def test_all_is_sorted_and_has_no_duplicates():
-    assert len(crud.__all__) == len(set(crud.__all__)), f"дубли в __all__: {sorted(n for n in set(crud.__all__) if crud.__all__.count(n) > 1)}"
-    assert crud.__all__ == sorted(crud.__all__, key=_all_sort_key), "__all__ не отсортирован (константы, классы, функции; внутри групп по алфавиту)"
+    assert len(crud.__all__) == len(set(crud.__all__)), (
+        f"дубли в __all__: {sorted(n for n in set(crud.__all__) if crud.__all__.count(n) > 1)}"
+    )
+    assert crud.__all__ == sorted(crud.__all__, key=_all_sort_key), (
+        "__all__ не отсортирован (константы, классы, функции; внутри групп по алфавиту)"
+    )
 
 
 def test_no_name_is_imported_from_two_submodules():

@@ -8,6 +8,7 @@ commit(). Процесс, упавший между первым и послед
 rollback(): то же самое делает БД при обрыве соединения, а не завершённая транзакция не оставляет следа. Сервисные функции
 вызываются напрямую на db_session — так видно число commit() и состояние БД после отката.
 """
+
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -55,7 +56,11 @@ def _sessions_of(db_session, user_id: str) -> int:
 
 
 def _audit_rows(db_session, entity_id: str, action: str, text: str = "") -> int:
-    stmt = select(func.count()).select_from(AuditLog).where(AuditLog.entity_type == "users", AuditLog.entity_id == entity_id, AuditLog.action == action)
+    stmt = (
+        select(func.count())
+        .select_from(AuditLog)
+        .where(AuditLog.entity_type == "users", AuditLog.entity_id == entity_id, AuditLog.action == action)
+    )
     if text:
         stmt = stmt.where(AuditLog.details.contains(text))
     return db_session.scalar(stmt)

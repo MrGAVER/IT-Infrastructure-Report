@@ -27,6 +27,7 @@ _connection_row_values_list), поэтому шаблон-заготовка к�
 использует эти сущности БЕЗ дополнительной сортировки в data_source — иначе он мог бы разойтись
 с оригинальным порядком строк.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -36,7 +37,11 @@ from typing import Any, Callable
 from sqlalchemy.orm import Session
 
 from ..reporting import (
-    _connection_row_values_list, _device_row_values, _is_row_values, _load_report_data, _vm_row_values,
+    _connection_row_values_list,
+    _device_row_values,
+    _is_row_values,
+    _load_report_data,
+    _vm_row_values,
 )
 
 
@@ -172,10 +177,13 @@ def _load_vm_rows(session: Session, structural_unit_ids: list | None = None) -> 
 
 
 VIRTUAL_ENTITIES: dict[str, VirtualEntity] = {
-    e.key: e for e in [
+    e.key: e
+    for e in [
         VirtualEntity("registry-is-rows", "Регистр — Перечень ИС (как в регл. отчёте)", _IS_FIELDS, _load_is_rows),
         VirtualEntity("registry-device-rows", "Регистр — Инвентаризация устройств (как в регл. отчёте)", _DEVICE_FIELDS, _load_device_rows),
-        VirtualEntity("registry-connection-rows", "Регистр — Организация подключений (как в регл. отчёте)", _CONNECTION_FIELDS, _load_connection_rows),
+        VirtualEntity(
+            "registry-connection-rows", "Регистр — Организация подключений (как в регл. отчёте)", _CONNECTION_FIELDS, _load_connection_rows
+        ),
         VirtualEntity("registry-vm-rows", "Регистр — Управление ВМ (как в регл. отчёте)", _VM_FIELDS, _load_vm_rows),
     ]
 }

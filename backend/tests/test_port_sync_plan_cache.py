@@ -1,4 +1,5 @@
 """Кэш планов согласования (services/port_sync_plan_cache.py): срок жизни, вытеснение, ключ, сброс."""
+
 from __future__ import annotations
 
 import pytest

@@ -29,6 +29,7 @@ OPTIONS) не проверяются: они ничего не меняют, а 
   заголовок: кросс-сайтовый запрос с ним потребовал бы preflight, а CORS его не разрешает), поэтому доверие к нему
   не открывает путь для CSRF; без настройки заголовок игнорируется.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -157,14 +158,21 @@ class SameOriginGuardMiddleware:
                 allow_any_origin=self.allow_any_origin,
                 trust_forwarded_host=self.trust_forwarded_host,
             ):
-                _log_blocked_origin((headers.get("origin") or f"Sec-Fetch-Site: {headers.get('sec-fetch-site', '')}")[:_MAX_LOGGED_ORIGIN_LENGTH])
+                _log_blocked_origin(
+                    (headers.get("origin") or f"Sec-Fetch-Site: {headers.get('sec-fetch-site', '')}")[:_MAX_LOGGED_ORIGIN_LENGTH]
+                )
                 response = JSONResponse(
                     status_code=403,
-                    content={"detail": {
-                        "code": ErrorCode.CROSS_ORIGIN_BLOCKED,
-                        "message": "Запрос с другого сайта отклонён: адрес страницы не совпадает с адресом приложения. "
-                                   "Если реестр работает за обратным прокси, см. раздел «Безопасность» в README.",
-                    }},
+                    content={
+                        "detail": {
+                            "code": ErrorCode.CROSS_ORIGIN_BLOCKED,
+                            "message": (
+                                "Запрос с другого сайта отклонён: адрес страницы не совпадает с адресом приложения. Если реестр "
+                                "работает за "
+                                "обратным прокси, см. раздел «Безопасность» в README."
+                            ),
+                        }
+                    },
                 )
                 await response(scope, receive, send)
                 return

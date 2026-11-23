@@ -2,6 +2,7 @@
 
 Запуск: pytest backend/tests/test_exe_settings.py -v
 """
+
 from __future__ import annotations
 
 import importlib
@@ -189,14 +190,14 @@ class TestSettingsFile:
 
     def test_existing_file_is_never_overwritten(self, tmp_path):
         path = tmp_path / SETTINGS_FILENAME
-        path.write_text('[server]\nport = 9123\n', encoding="utf-8")
+        path.write_text("[server]\nport = 9123\n", encoding="utf-8")
         assert ensure_settings_file(path) is False
         assert load_settings(path).port == 9123
-        assert path.read_text(encoding="utf-8") == '[server]\nport = 9123\n'
+        assert path.read_text(encoding="utf-8") == "[server]\nport = 9123\n"
 
     def test_load_accepts_utf8_bom(self, tmp_path):
         path = tmp_path / SETTINGS_FILENAME
-        path.write_bytes(b"\xef\xbb\xbf" + b'[server]\nport = 9001\n')
+        path.write_bytes(b"\xef\xbb\xbf" + b"[server]\nport = 9001\n")
         assert load_settings(path).port == 9001
 
     def test_load_rejects_non_utf8_with_a_clear_message(self, tmp_path):

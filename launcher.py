@@ -4,26 +4,18 @@ import argparse
 import logging
 import multiprocessing
 import os
-import re
-import sqlite3
 import sys
 import threading
 import time
 import webbrowser
 import urllib.request
-from contextlib import closing
+from collections.abc import Mapping
 from pathlib import Path
 from typing import NoReturn
 
 logger = logging.getLogger(__name__)
 
 DB_FILENAME = "infra_registry.db"
-BACKUPS_TO_KEEP = 5
-SKIP_BACKUP_ENV = "INFRA_REGISTRY_SKIP_BACKUP"
-
-
-class MigrationBackupError(RuntimeError):
-    """Не удалось создать резервную копию БД перед миграцией: миграцию без копии не начинаем."""
 
 
 def bundle_dir() -> Path:
@@ -45,79 +37,11 @@ def data_dir() -> Path:
     return base
 
 
-def _backup_pattern(db_path: Path) -> re.Pattern[str]:
-    """Маска файлов, которые создаёт и чистит backup_before_migration: `<имя БД>.pre-<8 символов ревизии>.<ГГГГММДД-ЧЧММСС>.bak`.
-    Ротация удаляет только такие файлы: чужие `.bak` рядом с базой (в том числе сделанные пользователем) не трогаются."""
-    return re.compile(rf"^{re.escape(db_path.stem)}\.pre-[0-9a-z]{{1,8}}\.\d{{8}}-\d{{6}}\.bak$")
-
-
-def _timestamp() -> str:
-    return time.strftime("%Y%m%d-%H%M%S")
-
-
-def _database_state(connection: sqlite3.Connection) -> tuple[bool, set[str]]:
-    """(есть ли в БД пользовательские таблицы, текущие ревизии alembic). Пустая БД и БД без alembic_version — пустой набор ревизий."""
-    tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'")}
-    revisions: set[str] = set()
-    if "alembic_version" in tables:
-        revisions = {row[0] for row in connection.execute("SELECT version_num FROM alembic_version") if row[0]}
-    return bool(tables - {"alembic_version"}), revisions
-
-
-def _rotate_backups(db_path: Path, keep: int = BACKUPS_TO_KEEP) -> None:
-    """Оставляет `keep` самых новых копий этой БД (по метке времени в имени), остальные удаляет; только файлы по маске."""
-    pattern = _backup_pattern(db_path)
-    backups = sorted((p for p in db_path.parent.iterdir() if pattern.match(p.name) and p.is_file()), key=lambda p: p.name.split(".")[-2], reverse=True)
-    for stale in backups[keep:]:
-        try:
-            stale.unlink()
-        except OSError as exc:
-            logger.warning("Не удалось удалить старую резервную копию %s: %s", stale, exc)
-
-
-def backup_before_migration(db_path: Path, cfg) -> Path | None:
-    """Резервная копия SQLite-БД перед миграцией; возвращает путь копии или None, если копия не нужна.
-
-    Нужна, только если файл существует, в нём есть таблицы данных и его ревизия alembic не равна head (БД, уже
-    актуальная или только что созданная, не копируется — иначе каждый запуск плодил бы копии). Миграции необратимы
-    (часть удаляет данные, DDL в SQLite нетранзакционен): пользователь, обновивший EXE и получивший ошибку миграции,
-    иначе не смог бы вернуться к прежней версии.
-
-    Копия делается API `sqlite3.Connection.backup`, а не копированием файла: она согласована, даже если БД кем-то открыта.
-    Сначала пишется во временный файл и переименовывается в `.bak` — оборванная копия не выглядит готовой. Хранится не
-    более BACKUPS_TO_KEEP последних копий (включая новую). При сбое — MigrationBackupError (миграция не запускается).
-
-    Пример:
-        backup = backup_before_migration(data_dir() / DB_FILENAME, cfg)   # -> .../infra_registry.pre-3a7c1e5d.20261024-093000.bak
-    """
-    from alembic.script import ScriptDirectory
-
-    if not db_path.is_file() or db_path.stat().st_size == 0:
-        return None
-    heads = set(ScriptDirectory.from_config(cfg).get_heads())
-    target = db_path.with_name(f"{db_path.stem}.pre-{min(heads)[:8]}.{_timestamp()}.bak")
-    temporary = target.with_name(target.name + ".tmp")
-    try:
-        with closing(sqlite3.connect(db_path)) as source:
-            has_data, current = _database_state(source)
-            if not has_data or current == heads:
-                return None
-            with closing(sqlite3.connect(temporary)) as destination:
-                source.backup(destination)
-        os.replace(temporary, target)
-    except (OSError, sqlite3.Error) as exc:
-        try:
-            temporary.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise MigrationBackupError(f"не удалось создать резервную копию базы {db_path} в {target.parent}: {exc}") from exc
-    _rotate_backups(db_path)
-    return target
-
-
 def migrate():
     from alembic import command
     from alembic.config import Config
+
+    from app.services.db_backup import backup_before_migration, backup_skipped_by_environment
 
     root = bundle_dir()
     alembic_root = root / "alembic" if (root / "alembic").exists() else root / "backend" / "alembic"
@@ -126,7 +50,7 @@ def migrate():
     cfg = Config(str(ini_path))
     cfg.set_main_option("script_location", str(alembic_root))
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
-    if os.getenv(SKIP_BACKUP_ENV, "").strip().lower() not in {"1", "true", "yes"}:
+    if not backup_skipped_by_environment():
         backup = backup_before_migration(db_path, cfg)
         if backup is not None:
             print(f"Резервная копия базы перед обновлением: {backup}")
@@ -135,6 +59,8 @@ def migrate():
 
 def migrate_or_fail() -> None:
     """migrate() для main(): сбой резервной копии — понятная ошибка запуска, а не трассировка; миграция при этом не начата."""
+    from app.services.db_backup import SKIP_BACKUP_ENV, MigrationBackupError
+
     try:
         migrate()
     except MigrationBackupError as exc:
@@ -171,6 +97,17 @@ def load_exe_settings():
         print(f"Не удалось создать файл настроек {path}: {exc}. Используются настройки по умолчанию (доступ только с этого компьютера).")
         return ExeSettings(), path
     return load_settings(path), path
+
+
+def apply_environment(overrides: Mapping[str, str]) -> None:
+    """Выставляет переменные окружения, которые ``app.config`` читает при импорте.
+
+    Модуль настроек разбирает окружение один раз, при первом импорте: переменная, выставленная после него, молча не подействует
+    (например, доступ по сети остался бы закрытым или, хуже, база оказалась бы не там). Поэтому порядок «сначала окружение, потом
+    ``import app.main``» здесь не только описан, но и проверяется: нарушение — ``RuntimeError`` при запуске, а не тихая ошибка настройки."""
+    if "app.config" in sys.modules:
+        raise RuntimeError("app.config уже импортирован: переменные окружения нужно выставлять до первого импорта приложения")
+    os.environ.update(overrides)
 
 
 def configure_stdio() -> None:
@@ -217,15 +154,22 @@ def main():
         fail(f"{exc}\nИсправьте файл {app_dir() / SETTINGS_FILENAME} или удалите его (он будет создан заново).")
     port = args.port if args.port is not None else settings.port
 
-    os.environ["INFRA_REGISTRY_BUNDLE_DIR"] = str(root)
-    # Единственный UI — собранный Vue-фронтенд (см. backend/app/config.py:FRONTEND_DIR),
-    # упакован в EXE как данные, см. datas в infra_registry.spec.
-    os.environ["INFRA_REGISTRY_FRONTEND_DIR"] = str(root / 'frontend-vue' / 'dist')
-    os.environ["INFRA_REGISTRY_DATA_DIR"] = str(data_dir())
-    os.environ["DATABASE_URL"] = f"sqlite:///{data_dir() / DB_FILENAME}"
-    # Список разрешённых клиентов и имён Host читает app.config при импорте — выставляем ДО import app.main.
-    os.environ.update(settings.environment())
+    # Окружение выставляется ДО первого импорта app.config (apply_environment проверяет порядок). Единственный UI — собранный
+    # Vue-фронтенд (см. backend/app/config.py:FRONTEND_DIR), упакован в EXE как данные, см. datas в infra_registry.spec.
+    apply_environment(
+        {
+            "INFRA_REGISTRY_BUNDLE_DIR": str(root),
+            "INFRA_REGISTRY_FRONTEND_DIR": str(root / "frontend-vue" / "dist"),
+            "INFRA_REGISTRY_DATA_DIR": str(data_dir()),
+            "DATABASE_URL": f"sqlite:///{data_dir() / DB_FILENAME}",
+            # Список разрешённых клиентов и имён Host из файла настроек рядом с EXE
+            **settings.environment(),
+        }
+    )
 
+    from app.config import ensure_data_dirs
+
+    ensure_data_dirs()  # app.config при импорте каталогов не создаёт
     migrate_or_fail()
 
     import uvicorn

@@ -10,6 +10,7 @@ mock_sqlalchemy.py, чтобы не требовать установленны�
 
 Запуск:  pip install -r backend/requirements-dev.txt && pytest backend/tests -v
 """
+
 from __future__ import annotations
 
 import os
@@ -57,9 +58,15 @@ SCHEMA_FROM_MIGRATIONS = os.environ.get("INFRA_REGISTRY_TEST_SCHEMA", "").strip(
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "sqlite_only: тест зависит от SQLite и пропускается при INFRA_REGISTRY_TEST_DATABASE_URL")
-    config.addinivalue_line("markers", "slow: замер времени/нагрузочная проверка; по умолчанию выполняется, исключить можно ключом -m 'not slow'")
+    config.addinivalue_line(
+        "markers", "slow: замер времени/нагрузочная проверка; по умолчанию выполняется, исключить можно ключом -m 'not slow'"
+    )
     config.addinivalue_line("markers", "postgres_only: тест требует PostgreSQL и выполняется только при INFRA_REGISTRY_TEST_DATABASE_URL")
-    config.addinivalue_line("markers", "real_password_hashing: тест проверяет боевое число итераций PBKDF2 — ускорение хеширования в тестах (см. _fast_password_hashing) отключается")
+    config.addinivalue_line(
+        "markers",
+        "real_password_hashing: тест проверяет боевое число итераций PBKDF2 — ускорение хеширования в тестах "
+        "(см. _fast_password_hashing) отключается",
+    )
 
 
 def pytest_collection_modifyitems(config, items):
@@ -224,7 +231,12 @@ def _fast_password_hashing(request, monkeypatch):
 def _isolated_audit_archive_dir(tmp_path, monkeypatch):
     """Очистка журнала аудита перед удалением пишет архив в `<REPORT_DIR>/audit/` (services/audit_archive.py). Каталог читается при вызове
     из `app.config.REPORT_DIR`, поэтому каждому тесту — свой: файлы не копятся в общем каталоге данных и не попадают в проверки соседних
-    тестов, которые считают содержимое `reports/audit/`. Модули, привязавшие REPORT_DIR при импорте (api/reports.py), не затрагиваются."""
+    тестов, которые считают содержимое `reports/audit/`. Модули, привязавшие REPORT_DIR при импорте
+    (api/reports.py, api/report_builder.py), не затрагиваются — но только если они импортированы ДО подмены: иначе при запуске
+    части тестов (`pytest tests/test_api.py -k TestReports`) первый же импорт происходил бы под подменой, и модуль писал бы отчёты
+    в каталог первого теста, а не туда, откуда их читает test_api.py."""
+    import app.api.report_builder  # noqa: F401  (привязывает боевой REPORT_DIR до подмены)
+    import app.api.reports  # noqa: F401
     import app.config as app_config
 
     monkeypatch.setattr(app_config, "REPORT_DIR", tmp_path / "reports")
@@ -344,7 +356,7 @@ def client_factory(db_session, monkeypatch):
     get_db (это не FastAPI-зависимость) — поэтому его тоже подменяем на фабрику, привязанную
     к тому же engine, что и db_session, иначе стартовый seed уйдёт в другую БД.
 
-    app.services.auth.gate.auth_gate_middleware — из того же теста: это ASGI-мидлварь, а не
+    app.services.auth.gate.AuthGateMiddleware — из того же теста: это ASGI-мидлварь, а не
     FastAPI Depends, поэтому dependency_overrides её не касается; она открывает сессии через
     app.db.SessionLocal() (см. комментарий в services/auth/gate.py про `from X import Y`), которую
     подменяем здесь же на ту же тестовую фабрику.
@@ -361,6 +373,11 @@ def client_factory(db_session, monkeypatch):
     test_session_factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False, expire_on_commit=False)
     monkeypatch.setattr(app_main, "SessionLocal", test_session_factory)
     monkeypatch.setattr(app_db, "SessionLocal", test_session_factory)
+    # lifespan создаёт каталоги данных (config.ensure_data_dirs), а `_isolated_audit_archive_dir` подменяет REPORT_DIR на
+    # `<tmp_path>/reports`: без заглушки этот каталог появлялся бы в tmp_path, содержимое которого проверяют тесты отчётов. Тесты,
+    # которым важен сам
+    # вызов, ставят свой шпион.
+    monkeypatch.setattr(app_main, "ensure_data_dirs", lambda *directories: None)
 
     def _override_get_db():
         yield db_session

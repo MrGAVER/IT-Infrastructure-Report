@@ -1,10 +1,22 @@
 """Согласование VLAN устройств с VLAN-доменами при создании и изменении ресурсов."""
+
 from __future__ import annotations
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 from ..integrity import find_stale_group_subinterfaces, find_stale_subinterfaces
-from ...models import DeviceInterface, PhysicalDevice, DeviceTypeVLAN, PhysicalDeviceVLAN, InterfaceVLAN, VLAN, VLANDomain, VLANDomainDevice, InterfaceGroup, InterfaceGroupVLAN
+from ...models import (
+    DeviceInterface,
+    PhysicalDevice,
+    DeviceTypeVLAN,
+    PhysicalDeviceVLAN,
+    InterfaceVLAN,
+    VLAN,
+    VLANDomain,
+    VLANDomainDevice,
+    InterfaceGroup,
+    InterfaceGroupVLAN,
+)
 
 
 def _domain_device_ids(domain_id: str, session: Session) -> set[str]:
@@ -17,7 +29,7 @@ def _domain_device_ids(domain_id: str, session: Session) -> set[str]:
     return device_ids
 
 
-def _unassign_moved_vlan_from_former_domain_devices(vlan: 'VLAN', old_domain_id: str | None, session: Session) -> int:
+def _unassign_moved_vlan_from_former_domain_devices(vlan: "VLAN", old_domain_id: str | None, session: Session) -> int:
     """VLAN, перенесённый из одного домена в другой, снимается с устройств прежнего домена, которых нет
     в новом (ни участник, ни источник): VLAN чужого для них домена нельзя оставить в «VLAN устройства» —
     _validate_physical_device_vlan отклонял бы следующее же сохранение такого устройства (422 «Устройство
@@ -36,12 +48,26 @@ def _unassign_moved_vlan_from_former_domain_devices(vlan: 'VLAN', old_domain_id:
     left_behind = _domain_device_ids(old_domain_id, session) - _domain_device_ids(vlan.domain_id, session)
     if not left_behind:
         return 0
-    assigned = set(session.scalars(select(PhysicalDeviceVLAN.physical_device_id).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_(left_behind))).all())
+    assigned = set(
+        session.scalars(
+            select(PhysicalDeviceVLAN.physical_device_id).where(
+                PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_(left_behind)
+            )
+        ).all()
+    )
     if not assigned:
         return 0
     type_allowed = set(session.scalars(select(DeviceTypeVLAN.device_type_id).where(DeviceTypeVLAN.vlan_id == vlan.id)).all())
-    strip_ports_of = {device_id for device_id, type_id in session.execute(select(PhysicalDevice.id, PhysicalDevice.device_type_id).where(PhysicalDevice.id.in_(assigned))).all() if type_id not in type_allowed}
-    session.execute(delete(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_(assigned)))
+    strip_ports_of = {
+        device_id
+        for device_id, type_id in session.execute(
+            select(PhysicalDevice.id, PhysicalDevice.device_type_id).where(PhysicalDevice.id.in_(assigned))
+        ).all()
+        if type_id not in type_allowed
+    }
+    session.execute(
+        delete(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.vlan_id == vlan.id, PhysicalDeviceVLAN.physical_device_id.in_(assigned))
+    )
     if strip_ports_of:
         port_ids = select(DeviceInterface.id).where(DeviceInterface.physical_device_id.in_(strip_ports_of))
         session.execute(delete(InterfaceVLAN).where(InterfaceVLAN.vlan_id == vlan.id, InterfaceVLAN.interface_id.in_(port_ids)))
@@ -72,7 +98,7 @@ def _stale_group_subinterfaces_on_vlan(vlan_id: str, session: Session) -> list[s
     return [f"{r['device_name']} / {r['group_name']}" for r in find_stale_group_subinterfaces(session, vlan_id=vlan_id)]
 
 
-def _auto_assign_new_domain_vlan_to_domain_devices(vlan: 'VLAN', session: Session) -> None:
+def _auto_assign_new_domain_vlan_to_domain_devices(vlan: "VLAN", session: Session) -> None:
     """Правка "VLAN домена": VLAN, заведённый в «справочник VLAN» (VLANFormModal.vue) сразу с
     привязкой к домену — или привязанный к домену позже обновлением domain_id — должен появиться в
     блоке «VLAN устройства» ВСЕХ физических устройств этого домена (участников VLANDomainDevice и
@@ -96,12 +122,14 @@ def _auto_assign_new_domain_vlan_to_domain_devices(vlan: 'VLAN', session: Sessio
     device_ids = _domain_device_ids(domain.id, session)
     if not device_ids:
         return
-    already_assigned = set(session.scalars(
-        select(PhysicalDeviceVLAN.physical_device_id).where(
-            PhysicalDeviceVLAN.vlan_id == vlan.id,
-            PhysicalDeviceVLAN.physical_device_id.in_(device_ids),
-        )
-    ).all())
+    already_assigned = set(
+        session.scalars(
+            select(PhysicalDeviceVLAN.physical_device_id).where(
+                PhysicalDeviceVLAN.vlan_id == vlan.id,
+                PhysicalDeviceVLAN.physical_device_id.in_(device_ids),
+            )
+        ).all()
+    )
     for device_id in sorted(device_ids - already_assigned):
         session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=vlan.id, description=vlan.description))
 
@@ -124,7 +152,9 @@ def assign_domain_vlans_to_device(domain_id: str | None, physical_device_id: str
     domain_vlans = session.scalars(select(VLAN).where(VLAN.domain_id == domain_id)).all()
     if not domain_vlans:
         return
-    existing_ids = set(session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == physical_device_id)).all())
+    existing_ids = set(
+        session.scalars(select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == physical_device_id)).all()
+    )
     for v in domain_vlans:
         if v.id not in existing_ids:
             session.add(PhysicalDeviceVLAN(physical_device_id=physical_device_id, vlan_id=v.id, description=v.description))

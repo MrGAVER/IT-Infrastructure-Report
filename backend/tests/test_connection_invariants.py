@@ -1,12 +1,15 @@
 """
 A-01 (код-ревью main @ b375f58), этап 1: инварианты подключений на уровне БД.
 
-Правила «порт не соединяется сам с собой» и «порт участвует не более чем в одном активном подключении» проверял только код по схеме «прочитал → проверил → записал».
-Теперь:
+Правила «порт не соединяется сам с собой» и «порт участвует не более чем в одном активном подключении» проверял только код по схеме
+«прочитал → проверил → записал». Теперь:
 
-* CHECK `ck_connections_distinct_ports` — последний рубеж против подключения «порт сам с собой», даже если запись идёт мимо `validate_connection`;
-* `validate_connection` и применение плана подключений формы устройства на PostgreSQL берут `SELECT ... FOR UPDATE` строк портов (по возрастанию id): параллельный запрос
-  с тем же портом ждёт фиксации первого и честно получает 409, в какой бы роли (источник/назначение) порт ни выступал. На SQLite (один писатель) блокировка не нужна.
+* CHECK `ck_connections_distinct_ports` — последний рубеж против подключения «порт сам с собой», даже если запись идёт мимо
+  `validate_connection`;
+* `validate_connection` и применение плана подключений формы устройства на PostgreSQL берут `SELECT ... FOR UPDATE` строк портов (по
+  возрастанию id): параллельный запрос с тем же портом ждёт фиксации первого и честно получает 409, в какой бы роли (источник/назначение)
+  порт ни выступал. На SQLite (один
+  писатель) блокировка не нужна.
 
 Группы: проверки на любой СУБД и сценарии с несколькими сессиями на PostgreSQL (маркер postgres_only; локально —
 INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://...).
@@ -100,7 +103,9 @@ class TestLockInterfaces:
         session = _FakeSession("postgresql")
         lock_interfaces(session, [f"id-{n:02d}" for n in reversed(range(7))])
         locked = [next(iter(statement.compile(dialect=postgresql.dialect()).params.values())) for statement in session.statements]
-        assert locked == [["id-00", "id-01", "id-02"], ["id-03", "id-04", "id-05"], ["id-06"]], "порции идут по возрастанию id — глобальный порядок тот же"
+        assert locked == [["id-00", "id-01", "id-02"], ["id-03", "id-04", "id-05"], ["id-06"]], (
+            "порции идут по возрастанию id — глобальный порядок тот же"
+        )
 
     def test_is_a_no_op_on_sqlite_and_without_ports(self):
         sqlite_session = _FakeSession("sqlite")
@@ -150,12 +155,17 @@ class TestWhereTheLockIsTaken:
         assert locked == []
 
     def test_device_form_locks_all_its_ports_before_reading_their_connections(self, world, db_session, monkeypatch):
-        """Форма устройства применяет несколько подключений за один запрос: все порты берутся ОДНИМ упорядоченным захватом до расчёта плана —
-        иначе два запроса с пересекающимися портами, берущие их парами в разном порядке, взаимно заблокировали бы друг друга."""
+        """Форма устройства применяет несколько подключений за один запрос: все порты берутся ОДНИМ упорядоченным захватом до
+        расчёта плана — иначе два запроса с пересекающимися портами, берущие их парами в разном порядке, взаимно заблокировали бы
+        друг друга."""
         events: list = []
         monkeypatch.setattr(interface_connections, "lock_interfaces", lambda session, ids: events.append(("lock", sorted(ids))))
         real_connections_of = interface_connections.connections_of
-        monkeypatch.setattr(interface_connections, "connections_of", lambda ids, session, **kw: events.append(("read", list(ids))) or real_connections_of(ids, session, **kw))
+        monkeypatch.setattr(
+            interface_connections,
+            "connections_of",
+            lambda ids, session, **kw: events.append(("read", list(ids))) or real_connections_of(ids, session, **kw),
+        )
         a, b, c, d = world.ifaces
         spec_ab = {"peer_interface_id": b.id, "connection_type_id": world.type_id}
         spec_cd = {"peer_row": 3, "connection_type_id": world.type_id}
@@ -206,11 +216,16 @@ class TestConcurrentCreationOnPostgres:
     def _wait_until_blocked(self, observer, thread: threading.Thread, outcome: dict) -> None:
         deadline = time.monotonic() + self.WAIT_SECONDS
         while time.monotonic() < deadline:
-            waiting = observer.execute(text("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'")).scalar()
+            waiting = observer.execute(
+                text("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'")
+            ).scalar()
             if waiting:
                 return
             if not thread.is_alive():
-                raise AssertionError(f"проверка завершилась, не дождавшись порта, который занимает чужой незафиксированный запрос, — оба запроса записали бы подключение: {outcome}")
+                raise AssertionError(
+                    "проверка завершилась, не дождавшись порта, который занимает чужой незафиксированный запрос, — оба запроса "
+                    f"записали бы подключение: {outcome}"
+                )
             time.sleep(0.05)
         raise AssertionError("проверка не упёрлась в блокировку за отведённое время и не завершилась")
 
@@ -224,7 +239,8 @@ class TestConcurrentCreationOnPostgres:
         ],
     )
     def test_second_request_waits_for_the_first_and_then_answers_409(self, world, db_session, sessions, second_pair):
-        # Первый запрос: порты 0 (источник) и 1 (назначение); подключение вставлено, но не зафиксировано. Второй использует порт 0 или 1 в любой роли.
+        # Первый запрос: порты 0 (источник) и 1 (назначение); подключение вставлено, но не зафиксировано. Второй использует порт 0
+        # или 1 в любой роли.
         first, second, observer = sessions(), sessions(), sessions()
         first_data = _data(world.ports[0], world.ports[1], world.type_id)
         validate_connection(first_data, first)
@@ -276,4 +292,6 @@ class TestConcurrentCreationOnPostgres:
         for thread in threads:
             thread.join(timeout=self.WAIT_SECONDS)
         assert not any(thread.is_alive() for thread in threads), results
-        assert set(results.values()) == {"passed"}, "обе проверки видят порты свободными: ничего не вставлялось, — и ни одна не должна упасть взаимной блокировкой"
+        assert set(results.values()) == {"passed"}, (
+            "обе проверки видят порты свободными: ничего не вставлялось, — и ни одна не должна упасть взаимной блокировкой"
+        )

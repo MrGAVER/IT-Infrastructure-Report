@@ -6,6 +6,7 @@
 
 Запуск: pip install -r backend/requirements-dev.txt && pytest backend/tests/test_diagram_export.py -v
 """
+
 from __future__ import annotations
 
 import base64
@@ -47,7 +48,13 @@ def _sample_graph(port_ticks: int = 24) -> dict:
                 "label": "sw-01",
                 "x": 0,
                 "y": 0,
-                "icon": {"mode": "generated", "shape": "switch", "color": "#4f7cff", "glyph": '<rect x="2" y="6" width="20" height="9"/>', "port_ticks": port_ticks},
+                "icon": {
+                    "mode": "generated",
+                    "shape": "switch",
+                    "color": "#4f7cff",
+                    "glyph": '<rect x="2" y="6" width="20" height="9"/>',
+                    "port_ticks": port_ticks,
+                },
             },
             {
                 "id": "dev-server",
@@ -81,6 +88,7 @@ def _empty_graph() -> dict:
 # --------------------------------------------------------------------------------------
 # .svg
 # --------------------------------------------------------------------------------------
+
 
 def test_export_svg_is_valid_xml_with_matching_node_count():
     graph = _sample_graph()
@@ -191,6 +199,7 @@ def test_export_svg_uses_explicit_font_for_every_text_element():
 # .drawio
 # --------------------------------------------------------------------------------------
 
+
 def _drawio_vertex_cells(xml_text: str):
     root = ET.fromstring(xml_text)
     return [cell for cell in root.iter("mxCell") if cell.get("vertex") == "1"]
@@ -252,9 +261,7 @@ def test_export_drawio_uses_explicit_font_for_nodes_and_edges():
     graph = _sample_graph()
     xml_text = export_drawio(graph)
     root = ET.fromstring(xml_text)
-    labelled_cells = [
-        cell for cell in root.iter("mxCell") if cell.get("value") and (cell.get("vertex") == "1" or cell.get("edge") == "1")
-    ]
+    labelled_cells = [cell for cell in root.iter("mxCell") if cell.get("value") and (cell.get("vertex") == "1" or cell.get("edge") == "1")]
     assert len(labelled_cells) == len(graph["nodes"]) + len(graph["edges"])
     assert all(f"fontFamily={DIAGRAM_FONT_FAMILY};" in cell.get("style", "") for cell in labelled_cells)
 
@@ -289,6 +296,7 @@ def test_export_drawio_handles_empty_graph():
 # --------------------------------------------------------------------------------------
 # .vsdx
 # --------------------------------------------------------------------------------------
+
 
 def test_export_vsdx_embeds_category_icon_as_foreign_data(tmp_path):
     """Находка №5 отчёта (Фаза 3, п.5, часть 2): иконка категории встраивается как отдельная
@@ -336,10 +344,22 @@ def test_export_vsdx_dedupes_identical_glyph_to_one_image(tmp_path):
     same_glyph = '<rect x="2" y="2" width="20" height="20"/>'
     graph = {
         "nodes": [
-            {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0,
-             "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff", "glyph": same_glyph}},
-            {"id": "b", "type": "device", "label": "b", "x": 300, "y": 0,
-             "icon": {"mode": "generated", "shape": "server", "color": "#e67e22", "glyph": same_glyph}},
+            {
+                "id": "a",
+                "type": "device",
+                "label": "a",
+                "x": 0,
+                "y": 0,
+                "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff", "glyph": same_glyph},
+            },
+            {
+                "id": "b",
+                "type": "device",
+                "label": "b",
+                "x": 300,
+                "y": 0,
+                "icon": {"mode": "generated", "shape": "server", "color": "#e67e22", "glyph": same_glyph},
+            },
         ],
         "edges": [],
     }
@@ -357,8 +377,14 @@ def test_export_vsdx_without_glyphs_has_no_media(tmp_path):
     (Custom-иконки картинку создают — см. test_export_vsdx_custom_icon_* ниже.)"""
     graph = {
         "nodes": [
-            {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0,
-             "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
+            {
+                "id": "a",
+                "type": "device",
+                "label": "a",
+                "x": 0,
+                "y": 0,
+                "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"},
+            },
             {"id": "g", "type": "group", "label": "group", "x": 300, "y": 0},
         ],
         "edges": [],
@@ -397,8 +423,22 @@ def test_export_vsdx_page_fits_content_bounding_box(tmp_path):
     размера шаблона A4 — иначе большой граф обрезался бы, а маленький терялся на пустом листе."""
     graph = {
         "nodes": [
-            {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
-            {"id": "b", "type": "device", "label": "b", "x": 800, "y": 400, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
+            {
+                "id": "a",
+                "type": "device",
+                "label": "a",
+                "x": 0,
+                "y": 0,
+                "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"},
+            },
+            {
+                "id": "b",
+                "type": "device",
+                "label": "b",
+                "x": 800,
+                "y": 400,
+                "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"},
+            },
         ],
         "edges": [],
     }
@@ -430,8 +470,6 @@ def test_export_vsdx_empty_graph_keeps_template_page_size(tmp_path):
         assert page.height == pytest.approx(11.69291338582677)
     finally:
         vf.close_vsdx()
-
-
 
     graph = _sample_graph()
     data = export_vsdx(graph)
@@ -501,6 +539,7 @@ def test_export_vsdx_edge_connector_present(tmp_path):
 # присутствует» / «группа отличима от устройства» / «неактивное ребро визуально помечено»").
 # --------------------------------------------------------------------------------------
 
+
 def _parity_graph() -> dict:
     """_sample_graph() + одно неактивное ребро на уже имеющуюся в ней группу — минимальное
     расширение, не меняющее число узлов/рёбер, на которое опираются остальные тесты выше."""
@@ -533,7 +572,7 @@ def test_export_drawio_group_and_inactive_edge_marked_visually():
     root = ET.fromstring(xml_text)
 
     vertex_styles = [cell.get("style", "") for cell in root.iter("mxCell") if cell.get("vertex") == "1"]
-    assert any(f'fillColor={graph["nodes"][0]["icon"]["color"]}' in s for s in vertex_styles)
+    assert any(f"fillColor={graph['nodes'][0]['icon']['color']}" in s for s in vertex_styles)
     assert any("dashed=1" in s for s in vertex_styles)  # группа
     assert any("rounded=1" in s for s in vertex_styles)
 
@@ -573,9 +612,7 @@ def test_export_vsdx_group_and_device_and_inactive_edge_distinguishable(tmp_path
         # Устройство (в отличие от группы) пунктирную рамку получать не должно.
         assert switch_shape.cell_value("LinePattern") is None
 
-        inactive_connectors = [
-            s for s in shapes if s.cell_value("LinePattern") == "2" and s is not group_shape
-        ]
+        inactive_connectors = [s for s in shapes if s.cell_value("LinePattern") == "2" and s is not group_shape]
         assert len(inactive_connectors) == 1  # ровно один коннектор помечен как неактивный
     finally:
         vf.close_vsdx()
@@ -618,16 +655,15 @@ def test_export_vsdx_opens_in_third_party_reader(tmp_path):
 # --------------------------------------------------------------------------------------
 
 CUSTOM_SVG = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
-    '<circle cx="12" cy="12" r="9" fill="none" stroke="#33c9a7" stroke-width="2"/></svg>'
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" '
+    'fill="none" stroke="#33c9a7" stroke-width="2"/></svg>'
 )
 
 
 def _custom_graph(*markups: str, x_step: int = 220) -> dict:
     return {
         "nodes": [
-            {"id": f"c{i}", "type": "device", "label": f"c{i}", "x": i * x_step, "y": 0,
-             "icon": {"mode": "custom", "svg_markup": markup}}
+            {"id": f"c{i}", "type": "device", "label": f"c{i}", "x": i * x_step, "y": 0, "icon": {"mode": "custom", "svg_markup": markup}}
             for i, markup in enumerate(markups)
         ],
         "edges": [],
@@ -651,7 +687,7 @@ def _vsdx_media(data: bytes, tmp_path) -> list[str]:
         # уже самодостаточный документ не трогаем
         (CUSTOM_SVG, [CUSTOM_SVG], []),
         # width+height достаточно, чтобы вложенное изображение имело размер — viewBox не добавляем
-        ('<svg width="10" height="10"><rect/></svg>', ['xmlns='], ["viewBox"]),
+        ('<svg width="10" height="10"><rect/></svg>', ["xmlns="], ["viewBox"]),
         # "stroke-width" — не "width": иначе размер бы посчитался заданным
         ('<svg xmlns="http://www.w3.org/2000/svg" stroke-width="2" height="5"><rect/></svg>', ["viewBox="], []),
         # xlink: без объявления пространства имён — объявляем
@@ -785,8 +821,26 @@ def test_export_vsdx_skips_edges_whose_nodes_are_not_in_the_graph(tmp_path):
     """Ребро на узел, которого нет в графе, пропускается без ошибки; остальные рёбра рисуются как обычно."""
     graph = _sample_graph()
     valid_edges = len(graph["edges"])
-    graph["edges"].append({"id": "conn-dangling-target", "source_node_id": "dev-switch", "target_node_id": "нет-такого", "source_interface": None, "target_interface": None, "vlans": [{"vlan_id": 77, "name": "призрак"}]})
-    graph["edges"].append({"id": "conn-dangling-source", "source_node_id": "нет-такого", "target_node_id": "dev-server", "source_interface": None, "target_interface": None, "vlans": [{"vlan_id": 78, "name": "призрак"}]})
+    graph["edges"].append(
+        {
+            "id": "conn-dangling-target",
+            "source_node_id": "dev-switch",
+            "target_node_id": "нет-такого",
+            "source_interface": None,
+            "target_interface": None,
+            "vlans": [{"vlan_id": 77, "name": "призрак"}],
+        }
+    )
+    graph["edges"].append(
+        {
+            "id": "conn-dangling-source",
+            "source_node_id": "нет-такого",
+            "target_node_id": "dev-server",
+            "source_interface": None,
+            "target_interface": None,
+            "vlans": [{"vlan_id": 78, "name": "призрак"}],
+        }
+    )
     out_path = tmp_path / "dangling.vsdx"
     out_path.write_bytes(export_vsdx(graph))
 
@@ -833,16 +887,14 @@ def test_custom_icon_tile_does_not_read_local_files(tmp_path):
     вложенное SVG-изображение — нет: плитка с файлом и с несуществующим путём идентична."""
     import resvg_py
 
-    red_pixel_png = base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
-    )
+    red_pixel_png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==")
     secret = tmp_path / "secret.png"
     secret.write_bytes(red_pixel_png)
 
     def markup(path: str) -> str:
         return (
-            '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10">'
-            f'<image xlink:href="{path}" width="10" height="10"/></svg>'
+            '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"><image '
+            f'xlink:href="{path}" width="10" height="10"/></svg>'
         )
 
     leaking = markup(str(secret))
@@ -863,8 +915,22 @@ def test_export_vsdx_node_shapes_have_graph_size_and_centered_pin(tmp_path):
     не пересчитывает LocPinX/LocPinY при смене размера — pin обязан быть в центре новой фигуры."""
     graph = {
         "nodes": [
-            {"id": "a", "type": "device", "label": "a", "x": 0, "y": 0, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
-            {"id": "b", "type": "device", "label": "b", "x": 800, "y": 400, "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"}},
+            {
+                "id": "a",
+                "type": "device",
+                "label": "a",
+                "x": 0,
+                "y": 0,
+                "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"},
+            },
+            {
+                "id": "b",
+                "type": "device",
+                "label": "b",
+                "x": 800,
+                "y": 400,
+                "icon": {"mode": "generated", "shape": "server", "color": "#4f7cff"},
+            },
         ],
         "edges": [],
     }

@@ -21,6 +21,7 @@ SQL-аналог для сверки подключений — services/connect
 Запись — services/port_writes.py (write_port_vlans) и services/crud/interfaces.py: у порта с признаком
 связи удаляются, у порта без признака — пишутся выбранные.
 """
+
 from __future__ import annotations
 
 from typing import Any, Iterable, Sequence
@@ -37,7 +38,7 @@ _CHUNK = 400
 
 def _chunks(values: Sequence[str]):
     for start in range(0, len(values), _CHUNK):
-        yield values[start:start + _CHUNK]
+        yield values[start : start + _CHUNK]
 
 
 def carries_all_vlans(obj: Any) -> bool:
@@ -53,13 +54,21 @@ def allowed_vlan_ids_by_device(device_ids: Iterable[str], session: Session) -> d
     type_of: dict[str, str] = {}
     own: dict[str, set[str]] = {}
     for chunk in _chunks(ids):
-        for device_id, type_id in session.execute(select(PhysicalDevice.id, PhysicalDevice.device_type_id).where(PhysicalDevice.id.in_(chunk))).all():
+        for device_id, type_id in session.execute(
+            select(PhysicalDevice.id, PhysicalDevice.device_type_id).where(PhysicalDevice.id.in_(chunk))
+        ).all():
             type_of[device_id] = type_id
-        for device_id, vlan_id in session.execute(select(PhysicalDeviceVLAN.physical_device_id, PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id.in_(chunk))).all():
+        for device_id, vlan_id in session.execute(
+            select(PhysicalDeviceVLAN.physical_device_id, PhysicalDeviceVLAN.vlan_id).where(
+                PhysicalDeviceVLAN.physical_device_id.in_(chunk)
+            )
+        ).all():
             own.setdefault(device_id, set()).add(vlan_id)
     by_type: dict[str, set[str]] = {}
     for chunk in _chunks(list({t for t in type_of.values() if t})):
-        for type_id, vlan_id in session.execute(select(DeviceTypeVLAN.device_type_id, DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.device_type_id.in_(chunk))).all():
+        for type_id, vlan_id in session.execute(
+            select(DeviceTypeVLAN.device_type_id, DeviceTypeVLAN.vlan_id).where(DeviceTypeVLAN.device_type_id.in_(chunk))
+        ).all():
             by_type.setdefault(type_id, set()).add(vlan_id)
     return {device_id: by_type.get(type_id, set()) | own.get(device_id, set()) for device_id, type_id in type_of.items()}
 
@@ -79,7 +88,9 @@ def effective_vlan_ids(session: Session, port_ids: Iterable[str] | None = None) 
     result: dict[str, set[str]] = {}
     flagged: dict[str, str] = {}  # id порта с «Все VLAN» -> id его устройства
     for chunk in chunks:
-        ports = select(DeviceInterface.id, DeviceInterface.physical_device_id).where(DeviceInterface.all_vlans.is_(True), DeviceInterface.vlan_mode == VLAN_MODE_TRUNK)
+        ports = select(DeviceInterface.id, DeviceInterface.physical_device_id).where(
+            DeviceInterface.all_vlans.is_(True), DeviceInterface.vlan_mode == VLAN_MODE_TRUNK
+        )
         links = select(InterfaceVLAN.interface_id, InterfaceVLAN.vlan_id)
         if chunk is not None:
             ports = ports.where(DeviceInterface.id.in_(chunk))
@@ -106,7 +117,9 @@ def effective_group_vlan_ids(groups: Sequence[InterfaceGroup], session: Session)
     result: dict[str, set[str]] = {}
     plain = [g.id for g in groups if not carries_all_vlans(g)]
     for chunk in _chunks(plain):
-        for group_id, vlan_id in session.execute(select(InterfaceGroupVLAN.group_id, InterfaceGroupVLAN.vlan_id).where(InterfaceGroupVLAN.group_id.in_(chunk))).all():
+        for group_id, vlan_id in session.execute(
+            select(InterfaceGroupVLAN.group_id, InterfaceGroupVLAN.vlan_id).where(InterfaceGroupVLAN.group_id.in_(chunk))
+        ).all():
             result.setdefault(group_id, set()).add(vlan_id)
     flagged = [g for g in groups if carries_all_vlans(g)]
     if flagged:

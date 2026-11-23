@@ -4,6 +4,7 @@
 сервиса — без моделей и SQL), а служебный роутер system.py не разросся обратно. Запуск:
 pytest backend/tests/test_api_routers_structure.py -v
 """
+
 from __future__ import annotations
 
 import ast
@@ -18,34 +19,64 @@ API_DIR = Path(system.__file__).parent
 
 # (метод, путь) каждого эндпоинта бывшего system.py и роутер, который теперь за него отвечает.
 EXPECTED_ROUTES = {
-    "system": (system, {
-        ("GET", "/api/v1/health"), ("GET", "/api/v1/integrity"), ("GET", "/api/v1/integrity/open-port-duplicates"),
-        ("GET", "/api/v1/integrity/stale-subinterfaces"),
-        ("GET", "/api/v1/dashboard"), ("POST", "/api/v1/seed"),
-    }),
-    "listings": (listings, {
-        ("GET", "/api/v1/information-systems"), ("GET", "/api/v1/devices"), ("GET", "/api/v1/vms"),
-    }),
-    "vms": (vms, {
-        ("PUT", "/api/v1/vms/{vm_id}/open-ports"), ("PUT", "/api/v1/vms/{vm_id}/ip-addresses"),
-        ("PUT", "/api/v1/vms/{vm_id}/deployed-software"),
-    }),
-    "vlan": (vlan, {
-        ("GET", "/api/v1/vlan-dashboard"), ("POST", "/api/v1/vlan-domains/{domain_id}/members"),
-        ("POST", "/api/v1/vlan-domains/{domain_id}/sync"), ("POST", "/api/v1/devices/{device_id}/vlan-copy"),
-        ("POST", "/api/v1/device-vlans/bulk-assign"),
-    }),
-    "reports": (reports, {
-        ("POST", "/api/v1/reports/inventory"), ("POST", "/api/v1/reports/audit-log"),
-        ("POST", "/api/v1/reports/structural-appendix"),
-        ("GET", "/api/v1/reports/download/{filename}"), ("GET", "/api/v1/reports/audit-log/download/{filename}"),
-    }),
-    "device_stacks": (device_stacks, {
-        ("GET", "/api/v1/device-stacks/{stack_id}/detail"), ("POST", "/api/v1/device-stacks/{stack_id}/members"),
-        ("GET", "/api/v1/device-stacks/{stack_id}/members/preview"),
-        ("GET", "/api/v1/device-stacks/{stack_id}/vlans"), ("PUT", "/api/v1/device-stacks/{stack_id}/vlans/{vlan_id}"),
-        ("DELETE", "/api/v1/device-stacks/{stack_id}/vlans/{vlan_id}"),
-    }),
+    "system": (
+        system,
+        {
+            ("GET", "/api/v1/health"),
+            ("GET", "/api/v1/integrity"),
+            ("GET", "/api/v1/integrity/open-port-duplicates"),
+            ("GET", "/api/v1/integrity/stale-subinterfaces"),
+            ("GET", "/api/v1/dashboard"),
+            ("POST", "/api/v1/seed"),
+        },
+    ),
+    "listings": (
+        listings,
+        {
+            ("GET", "/api/v1/information-systems"),
+            ("GET", "/api/v1/devices"),
+            ("GET", "/api/v1/vms"),
+        },
+    ),
+    "vms": (
+        vms,
+        {
+            ("PUT", "/api/v1/vms/{vm_id}/open-ports"),
+            ("PUT", "/api/v1/vms/{vm_id}/ip-addresses"),
+            ("PUT", "/api/v1/vms/{vm_id}/deployed-software"),
+        },
+    ),
+    "vlan": (
+        vlan,
+        {
+            ("GET", "/api/v1/vlan-dashboard"),
+            ("POST", "/api/v1/vlan-domains/{domain_id}/members"),
+            ("POST", "/api/v1/vlan-domains/{domain_id}/sync"),
+            ("POST", "/api/v1/devices/{device_id}/vlan-copy"),
+            ("POST", "/api/v1/device-vlans/bulk-assign"),
+        },
+    ),
+    "reports": (
+        reports,
+        {
+            ("POST", "/api/v1/reports/inventory"),
+            ("POST", "/api/v1/reports/audit-log"),
+            ("POST", "/api/v1/reports/structural-appendix"),
+            ("GET", "/api/v1/reports/download/{filename}"),
+            ("GET", "/api/v1/reports/audit-log/download/{filename}"),
+        },
+    ),
+    "device_stacks": (
+        device_stacks,
+        {
+            ("GET", "/api/v1/device-stacks/{stack_id}/detail"),
+            ("POST", "/api/v1/device-stacks/{stack_id}/members"),
+            ("GET", "/api/v1/device-stacks/{stack_id}/members/preview"),
+            ("GET", "/api/v1/device-stacks/{stack_id}/vlans"),
+            ("PUT", "/api/v1/device-stacks/{stack_id}/vlans/{vlan_id}"),
+            ("DELETE", "/api/v1/device-stacks/{stack_id}/vlans/{vlan_id}"),
+        },
+    ),
     "frontend_assets": (frontend_assets, {("GET", "/icons.svg"), ("GET", "/favicon.ico")}),
 }
 
@@ -83,9 +114,9 @@ def test_no_endpoint_is_declared_twice():
 @pytest.mark.parametrize("module_name", ["vlan", "device_stacks"])
 def test_thin_controllers_do_not_touch_models_or_sql(module_name):
     tree = ast.parse((API_DIR / f"{module_name}.py").read_text(encoding="utf-8"))
-    imported = {
-        (node.module or "") for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
-    } | {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+    imported = {(node.module or "") for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)} | {
+        alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
+    }
     assert not any(name == "sqlalchemy" or name.startswith("sqlalchemy.") and name != "sqlalchemy.orm" for name in imported)
     assert "..models" not in imported
     for node in tree.body:

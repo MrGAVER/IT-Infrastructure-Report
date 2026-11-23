@@ -7,6 +7,7 @@ upgrade(): колонки добавляются, признак простав�
 
 Запуск: pytest backend/tests/test_migrations_all_vlans.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -56,14 +57,20 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 def _vlan(conn: sqlite3.Connection, number: int) -> str:
     vlan_id = _uid()
-    conn.execute("INSERT INTO vlans (id, vlan_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (vlan_id, number, f"vlan{number}", _now(), _now()))
+    conn.execute(
+        "INSERT INTO vlans (id, vlan_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        (vlan_id, number, f"vlan{number}", _now(), _now()),
+    )
     return vlan_id
 
 
 def _device(conn: sqlite3.Connection, *, type_vlans: tuple[str, ...] = (), own_vlans: tuple[str, ...] = ()) -> str:
     category_id = conn.execute("SELECT id FROM device_categories LIMIT 1").fetchone()[0]
     type_id, device_id = _uid(), _uid()
-    conn.execute("INSERT INTO device_types (id, name, category_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (type_id, f"Тип {type_id[:8]}", category_id, _now(), _now()))
+    conn.execute(
+        "INSERT INTO device_types (id, name, category_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        (type_id, f"Тип {type_id[:8]}", category_id, _now(), _now()),
+    )
     for vlan_id in type_vlans:
         conn.execute("INSERT INTO device_type_vlans (id, device_type_id, vlan_id) VALUES (?, ?, ?)", (_uid(), type_id, vlan_id))
     conn.execute(
@@ -78,22 +85,30 @@ def _device(conn: sqlite3.Connection, *, type_vlans: tuple[str, ...] = (), own_v
 def _port(conn: sqlite3.Connection, device_id: str, name: str, mode: str, vlans: tuple[str, ...]) -> str:
     port_id = _uid()
     conn.execute(
-        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?, ?)",
+        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, "
+        "created_at, updated_at) VALUES (?, ?, ?, 0, 0, ?, ?, ?)",
         (port_id, device_id, name, mode, _now(), _now()),
     )
     for vlan_id in vlans:
-        conn.execute("INSERT INTO interface_vlans (id, interface_id, vlan_id, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (_uid(), port_id, vlan_id, mode, _now(), _now()))
+        conn.execute(
+            "INSERT INTO interface_vlans (id, interface_id, vlan_id, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (_uid(), port_id, vlan_id, mode, _now(), _now()),
+        )
     return port_id
 
 
 def _group(conn: sqlite3.Connection, device_id: str, name: str, mode: str, vlans: tuple[str, ...]) -> str:
     group_id = _uid()
     conn.execute(
-        "INSERT INTO interface_groups (id, physical_device_id, name, vlan_mode, manage_open_ports, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
+        "INSERT INTO interface_groups (id, physical_device_id, name, vlan_mode, manage_open_ports, "
+        "created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
         (group_id, device_id, name, mode, _now(), _now()),
     )
     for vlan_id in vlans:
-        conn.execute("INSERT INTO interface_group_vlans (id, group_id, vlan_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (_uid(), group_id, vlan_id, _now(), _now()))
+        conn.execute(
+            "INSERT INTO interface_group_vlans (id, group_id, vlan_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (_uid(), group_id, vlan_id, _now(), _now()),
+        )
     return group_id
 
 
@@ -138,7 +153,10 @@ def test_upgrade_adds_columns_flags_all_vlans_ports_and_drops_their_links(legacy
     conn = _connect(db_path)
     try:
         assert "all_vlans" in _columns(conn, "device_interfaces") and "all_vlans" in _columns(conn, "interface_groups")
-        flags = {name: bool(conn.execute("SELECT all_vlans FROM device_interfaces WHERE id=?", (ids[name],)).fetchone()[0]) for name in ("all", "all_plus_foreign", "subset", "access", "empty_trunk", "bare_trunk")}
+        flags = {
+            name: bool(conn.execute("SELECT all_vlans FROM device_interfaces WHERE id=?", (ids[name],)).fetchone()[0])
+            for name in ("all", "all_plus_foreign", "subset", "access", "empty_trunk", "bare_trunk")
+        }
         assert flags == {"all": True, "all_plus_foreign": True, "subset": False, "access": False, "empty_trunk": False, "bare_trunk": False}
         # набор порта с признаком вычисляется из VLAN устройства — связей у него больше нет
         assert _port_links(conn, ids["all"]) == set() and _port_links(conn, ids["all_plus_foreign"]) == set()
@@ -155,7 +173,10 @@ def test_upgrade_flags_groups_by_the_same_rule(legacy):
 
     conn = _connect(db_path)
     try:
-        flags = {name: bool(conn.execute("SELECT all_vlans FROM interface_groups WHERE id=?", (ids[name],)).fetchone()[0]) for name in ("group_all", "group_subset", "group_access")}
+        flags = {
+            name: bool(conn.execute("SELECT all_vlans FROM interface_groups WHERE id=?", (ids[name],)).fetchone()[0])
+            for name in ("group_all", "group_subset", "group_access")
+        }
         assert flags == {"group_all": True, "group_subset": False, "group_access": False}
         assert _group_links(conn, ids["group_all"]) == set()
         assert _group_links(conn, ids["group_subset"]) == {vlan["v20"]} and _group_links(conn, ids["group_access"]) == {vlan["v10"]}

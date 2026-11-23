@@ -6,6 +6,7 @@
 
 Запуск: pip install -r backend/requirements-dev.txt && pytest backend/tests/test_migrations_device_categories.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -55,8 +56,7 @@ def _insert_legacy_device_type(conn: sqlite3.Connection, *, name: str, category_
     device_type_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO device_types (id, name, category_id, allows_vm_hosting, created_at, updated_at) "
-        "VALUES (?, ?, ?, 0, ?, ?)",
+        "INSERT INTO device_types (id, name, category_id, allows_vm_hosting, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
         (device_type_id, name, category_id, now, now),
     )
     conn.commit()
@@ -80,8 +80,8 @@ def test_repoints_existing_switch_and_router_device_types_to_new_categories(alem
         (router_id, "Маршрутизаторы", "router"),
     ]:
         row = conn.execute(
-            "SELECT dc.name AS category_name, dc.diagram_shape FROM device_types dt "
-            "JOIN device_categories dc ON dt.category_id = dc.id WHERE dt.id = ?",
+            "SELECT dc.name AS category_name, dc.diagram_shape FROM device_types dt JOIN device_categories dc ON "
+            "dt.category_id = dc.id WHERE dt.id = ?",
             (device_type_id,),
         ).fetchone()
         assert row["category_name"] == expected_category

@@ -4,6 +4,7 @@
 Вызывается сам сервис (а не только HTTP): схемы тел запросов уже отсекают часть некорректных значений, а сервис —
 последний рубеж для любого вызывающего. Запуск: pytest backend/tests/test_sync_interfaces_behaviour.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -25,7 +26,9 @@ def _device(client, serial: str = "SYNC-I-1") -> dict:
 def _vlans_on_device(client, device: dict, *numbers: int) -> list[dict]:
     """Создаёт VLAN и назначает их устройству ОДНИМ запросом: PUT /vlans заменяет весь список VLAN устройства."""
     vlans = [client.post(f"{API}/resources/vlans", json={"vlan_id": number, "name": f"v{number}"}).json() for number in numbers]
-    assert client.put(f"{API}/devices/{device['id']}/vlans", json={"vlans": [{"vlan_id": v["id"]} for v in vlans]}).status_code == 200, "VLAN не назначены устройству"
+    assert client.put(f"{API}/devices/{device['id']}/vlans", json={"vlans": [{"vlan_id": v["id"]} for v in vlans]}).status_code == 200, (
+        "VLAN не назначены устройству"
+    )
     return vlans
 
 
@@ -43,7 +46,11 @@ def _rejected(db_session, device_id: str, payload: dict) -> HTTPException:
 
 def _ports(db_session, device_id: str) -> list[DeviceInterface]:
     db_session.expire_all()
-    return list(db_session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.sort_order)).all())
+    return list(
+        db_session.scalars(
+            select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id).order_by(DeviceInterface.sort_order)
+        ).all()
+    )
 
 
 class TestInputValidation:
@@ -51,19 +58,25 @@ class TestInputValidation:
         error = _rejected(db_session, "нет-такого", {"interfaces": []})
         assert error.status_code == 404 and "не найдено" in error.detail
 
-    @pytest.mark.parametrize(("payload", "fragment"), [
-        ({"interfaces": "eth0"}, "Поле interfaces должно быть массивом"),
-        ({"interfaces": [], "groups": "g"}, "Поле groups должно быть массивом"),
-        ({"interfaces": ["eth0"]}, "Каждый интерфейс должен быть объектом"),
-        ({"interfaces": [{"name": "a", "id": "чужой"}]}, "Интерфейс не принадлежит выбранному физическому устройству"),
-        ({"interfaces": [{"name": "a", "vlan_mode": "hybrid"}]}, "vlan_mode интерфейса должно быть 'access' или 'trunk'"),
-        ({"interfaces": [{"name": "a", "all_vlans": "yes"}]}, "all_vlans интерфейса должно быть true или false"),
-        ({"interfaces": [{"name": "a", "vlan_mode": "access", "all_vlans": True}]}, "«Все VLAN» возможно только в режиме trunk"),
-        ({"interfaces": [{"name": "a", "vlan_ids": "10"}]}, "vlan_ids интерфейса должно быть массивом"),
-        ({"interfaces": [{"name": "a", "vlan_ids": ["не-разрешён"]}]}, "не разрешены для типа данного устройства"),
-        ({"interfaces": [{"name": "a", "ips": "10.0.0.1"}]}, "ips интерфейса должно быть массивом"),
-        ({"interfaces": [{"name": "a", "ips": [{"ip_address": "10.0.0.1", "id": "чужой-ip"}]}]}, "IP не принадлежит выбранному интерфейсу"),
-    ])
+    @pytest.mark.parametrize(
+        ("payload", "fragment"),
+        [
+            ({"interfaces": "eth0"}, "Поле interfaces должно быть массивом"),
+            ({"interfaces": [], "groups": "g"}, "Поле groups должно быть массивом"),
+            ({"interfaces": ["eth0"]}, "Каждый интерфейс должен быть объектом"),
+            ({"interfaces": [{"name": "a", "id": "чужой"}]}, "Интерфейс не принадлежит выбранному физическому устройству"),
+            ({"interfaces": [{"name": "a", "vlan_mode": "hybrid"}]}, "vlan_mode интерфейса должно быть 'access' или 'trunk'"),
+            ({"interfaces": [{"name": "a", "all_vlans": "yes"}]}, "all_vlans интерфейса должно быть true или false"),
+            ({"interfaces": [{"name": "a", "vlan_mode": "access", "all_vlans": True}]}, "«Все VLAN» возможно только в режиме trunk"),
+            ({"interfaces": [{"name": "a", "vlan_ids": "10"}]}, "vlan_ids интерфейса должно быть массивом"),
+            ({"interfaces": [{"name": "a", "vlan_ids": ["не-разрешён"]}]}, "не разрешены для типа данного устройства"),
+            ({"interfaces": [{"name": "a", "ips": "10.0.0.1"}]}, "ips интерфейса должно быть массивом"),
+            (
+                {"interfaces": [{"name": "a", "ips": [{"ip_address": "10.0.0.1", "id": "чужой-ip"}]}]},
+                "IP не принадлежит выбранному интерфейсу",
+            ),
+        ],
+    )
     def test_invalid_item_is_rejected_with_a_specific_message(self, client, db_session, payload, fragment):
         device = _device(client)
         error = _rejected(db_session, device["id"], payload)
@@ -72,7 +85,9 @@ class TestInputValidation:
     def test_access_port_cannot_have_two_vlans(self, client, db_session):
         device = _device(client)
         first, second = _vlans_on_device(client, device, 10, 20)
-        error = _rejected(db_session, device["id"], {"interfaces": [{"name": "a", "vlan_mode": "access", "vlan_ids": [first["id"], second["id"]]}]})
+        error = _rejected(
+            db_session, device["id"], {"interfaces": [{"name": "a", "vlan_mode": "access", "vlan_ids": [first["id"], second["id"]]}]}
+        )
         assert error.status_code == 422 and "не более одного VLAN" in error.detail
 
     def test_invalid_ipv4_is_rejected(self, client, db_session):
@@ -116,10 +131,24 @@ class TestSavedState:
 
     def test_ips_are_diffed_by_id_and_inherit_management_flag(self, client, db_session):
         device = _device(client)
-        port = _put(client, device["id"], [{"name": "m", "is_management": True, "ips": [{"ip_address": "10.0.0.1", "prefix_length": 24}, {"ip_address": "10.0.0.2"}]}])["items"][0]
+        port = _put(
+            client,
+            device["id"],
+            [{"name": "m", "is_management": True, "ips": [{"ip_address": "10.0.0.1", "prefix_length": 24}, {"ip_address": "10.0.0.2"}]}],
+        )["items"][0]
         kept_id = next(ip["id"] for ip in port["ips"] if ip["ip_address"] == "10.0.0.1")
-        result = _put(client, device["id"], [{"id": port["id"], "name": "m", "is_management": False,
-                                              "ips": [{"id": kept_id, "ip_address": "10.0.0.1", "prefix_length": 25, "purpose": "mgmt"}, {"ip_address": "10.0.0.3"}]}])
+        result = _put(
+            client,
+            device["id"],
+            [
+                {
+                    "id": port["id"],
+                    "name": "m",
+                    "is_management": False,
+                    "ips": [{"id": kept_id, "ip_address": "10.0.0.1", "prefix_length": 25, "purpose": "mgmt"}, {"ip_address": "10.0.0.3"}],
+                }
+            ],
+        )
         ips = {ip["ip_address"]: ip for ip in result["items"][0]["ips"]}
         assert set(ips) == {"10.0.0.1", "10.0.0.3"}  # 10.0.0.2 удалён, 10.0.0.3 добавлен
         assert ips["10.0.0.1"]["id"] == kept_id and ips["10.0.0.1"]["prefix_length"] == 25 and ips["10.0.0.1"]["purpose"] == "mgmt"

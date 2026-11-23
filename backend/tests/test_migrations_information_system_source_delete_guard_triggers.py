@@ -9,6 +9,7 @@ test_migrations_*.py. Проверки идут на РЕАЛЬНОМ повед
 
 Запуск: pytest backend/tests/test_migrations_information_system_source_delete_guard_triggers.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -82,14 +83,19 @@ def _status_insert(conn, table: str) -> tuple[str, str]:
 def _insert_vm(conn) -> str:
     vm_id = _uid()
     status_column, status_value = _status_insert(conn, "virtual_machines")
-    conn.execute(f"INSERT INTO virtual_machines (id, name{status_column}, created_at, updated_at) VALUES (?, ?{status_value}, ?, ?)", (vm_id, f"VM-{vm_id[:8]}", _now(), _now()))
+    conn.execute(
+        f"INSERT INTO virtual_machines (id, name{status_column}, created_at, updated_at) VALUES (?, ?{status_value}, ?, ?)",
+        (vm_id, f"VM-{vm_id[:8]}", _now(), _now()),
+    )
     conn.commit()
     return vm_id
 
 
 def _insert_container(conn) -> str:
     cont_id = _uid()
-    conn.execute("INSERT INTO containers (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)", (cont_id, f"CT-{cont_id[:8]}", _now(), _now()))
+    conn.execute(
+        "INSERT INTO containers (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)", (cont_id, f"CT-{cont_id[:8]}", _now(), _now())
+    )
     conn.commit()
     return cont_id
 
@@ -98,8 +104,8 @@ def _insert_is(conn) -> str:
     is_id = _uid()
     status_column, status_value = _status_insert(conn, "information_systems")
     conn.execute(
-        f"INSERT INTO information_systems (id, name, type{status_column}, siem_enabled, crypto_protection_enabled, created_at, updated_at) "
-        f"VALUES (?, ?, 'ИС'{status_value}, 0, 0, ?, ?)",
+        f"INSERT INTO information_systems (id, name, type{status_column}, siem_enabled, crypto_protection_enabled, "
+        f"created_at, updated_at) VALUES (?, ?, 'ИС'{status_value}, 0, 0, ?, ?)",
         (is_id, f"ИС {is_id[:8]}", _now(), _now()),
     )
     conn.commit()
@@ -109,8 +115,8 @@ def _insert_is(conn) -> str:
 def _insert_source(conn, is_id: str, source_type: str, owner_id: str | None = None) -> str:
     source_id = _uid()
     conn.execute(
-        "INSERT INTO information_system_sources (id, information_system_id, source_type, owner_id, external_interaction, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, 0, ?, ?)",
+        "INSERT INTO information_system_sources (id, information_system_id, source_type, owner_id, "
+        "external_interaction, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
         (source_id, is_id, source_type, owner_id, _now(), _now()),
     )
     conn.commit()
@@ -137,11 +143,14 @@ def test_triggers_exist_at_head(migrated):
     assert EXPECTED_TRIGGERS <= _triggers(conn)
 
 
-@pytest.mark.parametrize("table,source_type,factory", [
-    ("physical_devices", "device", _insert_device),
-    ("virtual_machines", "vm", _insert_vm),
-    ("containers", "container", _insert_container),
-])
+@pytest.mark.parametrize(
+    "table,source_type,factory",
+    [
+        ("physical_devices", "device", _insert_device),
+        ("virtual_machines", "vm", _insert_vm),
+        ("containers", "container", _insert_container),
+    ],
+)
 def test_raw_delete_of_referenced_owner_is_blocked(migrated, table, source_type, factory):
     _, _, conn = migrated
     owner_id = factory(conn)
@@ -153,11 +162,14 @@ def test_raw_delete_of_referenced_owner_is_blocked(migrated, table, source_type,
     assert _exists(conn, table, owner_id)
 
 
-@pytest.mark.parametrize("table,source_type,factory", [
-    ("physical_devices", "device", _insert_device),
-    ("virtual_machines", "vm", _insert_vm),
-    ("containers", "container", _insert_container),
-])
+@pytest.mark.parametrize(
+    "table,source_type,factory",
+    [
+        ("physical_devices", "device", _insert_device),
+        ("virtual_machines", "vm", _insert_vm),
+        ("containers", "container", _insert_container),
+    ],
+)
 def test_raw_delete_allowed_after_source_removed(migrated, table, source_type, factory):
     _, _, conn = migrated
     owner_id = factory(conn)

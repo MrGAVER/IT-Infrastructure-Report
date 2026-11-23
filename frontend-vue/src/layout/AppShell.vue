@@ -5,6 +5,7 @@ import Sidebar from './Sidebar.vue'
 import Topbar from './Topbar.vue'
 import ToastHost from '../components/ToastHost.vue'
 import PortSyncPlanHost from '../components/PortSyncPlanHost.vue'
+import StaleRecordHost from '../components/StaleRecordHost.vue'
 import { resolvePageHeading } from './pageTitles'
 import { useMediaQuery } from '../composables/useMediaQuery'
 import { hasOpenModal } from '../composables/modalLayer'
@@ -21,7 +22,7 @@ const isPhone = useMediaQuery('(max-width: 760px)')
 const backgroundInert = computed(() => sidebarOpen.value && isPhone.value)
 // FE-03 (ревью ветки fix/code-review-main-f06-stage2-f05): пока открыто модальное окно, фон недоступен тоже: ловушка фокуса держит только
 // Tab, а виртуальный курсор скринридера и указатель выходят за пределы окна. Окно лежит в <body> (Teleport), поэтому inert получают
-// меню и основная область. Уведомления (ToastHost) и PortSyncPlanHost — соседи, а не потомки, и остаются доступными: «Сохранено» в
+// меню и основная область. Уведомления (ToastHost), PortSyncPlanHost и StaleRecordHost — соседи, а не потомки, и остаются доступными: «Сохранено» в
 // момент закрытия формы должно озвучиваться. Атрибут ставит только AppShell: два источника (меню и окно) складываются через ИЛИ, и
 // окно, закрывшееся под открытым меню, не снимет inert меню.
 const mainInert = computed(() => backgroundInert.value || hasOpenModal.value)
@@ -69,6 +70,7 @@ onBeforeUnmount(() => topbarObserver?.disconnect())
     </div>
     <ToastHost />
     <PortSyncPlanHost />
+    <StaleRecordHost />
   </div>
 </template>
 

@@ -7,6 +7,7 @@
 Запуск: pytest backend/tests/test_diagram_get_readonly.py -v
 PostgreSQL-часть (реальная гонка потоков): INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://... pytest <этот файл>
 """
+
 from __future__ import annotations
 
 import threading
@@ -219,8 +220,13 @@ class TestApplyGrouping:
         def competitor_wins_first(session, states):
             session.execute(
                 DiagramGroupState.__table__.insert().values(
-                    id="competitor", saved_diagram_id=diagram.id, group_key="building:x", is_collapsed=False, device_count=99,
-                    created_at=datetime(2026, 1, 1), updated_at=datetime(2026, 1, 1),
+                    id="competitor",
+                    saved_diagram_id=diagram.id,
+                    group_key="building:x",
+                    is_collapsed=False,
+                    device_count=99,
+                    created_at=datetime(2026, 1, 1),
+                    updated_at=datetime(2026, 1, 1),
                 )
             )
             real_insert(session, states)

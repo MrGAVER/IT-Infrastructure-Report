@@ -7,6 +7,7 @@
 Запуск:  python3 -m unittest discover -s backend/tests -v   (или pytest)
 Интеграционная часть использует тот же мок SQLAlchemy, что и test_reporting.py (tests/mock_sqlalchemy.py).
 """
+
 from __future__ import annotations
 
 import sys
@@ -24,9 +25,24 @@ from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 
 from app.services.excel_layout import (
-    FRAME_SIDE, LINE_HEIGHT_PT, MAX_COLUMN_WIDTH, MAX_HEADER_LINES, MIN_COLUMN_WIDTH, THIN_SIDE,
-    apply_borders, apply_sheet_layout, fit_column_widths, fit_header_height, fit_merged_block_heights,
-    fit_sheet_size, freeze_header, header_capacity, merge_vertical, single_row_spans, style_header, text_capacity,
+    FRAME_SIDE,
+    LINE_HEIGHT_PT,
+    MAX_COLUMN_WIDTH,
+    MAX_HEADER_LINES,
+    MIN_COLUMN_WIDTH,
+    THIN_SIDE,
+    apply_borders,
+    apply_sheet_layout,
+    fit_column_widths,
+    fit_header_height,
+    fit_merged_block_heights,
+    fit_sheet_size,
+    freeze_header,
+    header_capacity,
+    merge_vertical,
+    single_row_spans,
+    style_header,
+    text_capacity,
     wrap_lines,
 )
 from mock_sqlalchemy import FakeSession, empty_table, load_reporting_module
@@ -159,20 +175,20 @@ class WrapLinesTestCase(unittest.TestCase):
 
     def test_greedy_wrap_by_words(self):
         self.assertEqual(wrap_lines("aaaa bbbb cccc", 10), 2)
-        self.assertEqual(wrap_lines("aaaa bbbbb cccc", 10), 2)    # «aaaa bbbbb» ровно 10 — помещается
-        self.assertEqual(wrap_lines("aaaa bbbbbb cccc", 10), 3)   # 11 символов — слово уходит на новую строку
+        self.assertEqual(wrap_lines("aaaa bbbbb cccc", 10), 2)  # «aaaa bbbbb» ровно 10 — помещается
+        self.assertEqual(wrap_lines("aaaa bbbbbb cccc", 10), 3)  # 11 символов — слово уходит на новую строку
 
     def test_explicit_newlines_are_kept(self):
         self.assertEqual(wrap_lines("a\nb\nc", 10), 3)
-        self.assertEqual(wrap_lines("a\n\nb", 10), 3)            # пустая строка — тоже строка
+        self.assertEqual(wrap_lines("a\n\nb", 10), 3)  # пустая строка — тоже строка
 
     def test_word_longer_than_line_is_split_by_characters(self):
         self.assertEqual(wrap_lines("x" * 25, 10), 3)
         self.assertEqual(wrap_lines("ab " + "x" * 25, 10), 4)
 
     def test_capacity(self):
-        self.assertLess(header_capacity(30), text_capacity(30))   # жирный шрифт и кнопка фильтра
-        self.assertEqual(header_capacity(1), 1.0)                 # не меньше одного символа
+        self.assertLess(header_capacity(30), text_capacity(30))  # жирный шрифт и кнопка фильтра
+        self.assertEqual(header_capacity(1), 1.0)  # не меньше одного символа
 
 
 class FitColumnWidthsTestCase(unittest.TestCase):
@@ -184,7 +200,7 @@ class FitColumnWidthsTestCase(unittest.TestCase):
     def test_width_follows_data(self):
         ws = _sheet([["Имя"], ["x" * 30]])
         fit_column_widths(ws)
-        self.assertEqual(_width(ws, 1), 32)    # самая длинная строка данных + 2
+        self.assertEqual(_width(ws, 1), 32)  # самая длинная строка данных + 2
 
     def test_long_data_is_capped_so_text_wraps_instead(self):
         ws = _sheet([["Описание"], ["слово " * 60]])
@@ -294,9 +310,9 @@ class MergedBlockHeightTestCase(unittest.TestCase):
 
     def test_own_content_of_the_rows_counts_as_room(self):
         """Строки блока и так высокие из-за других ячеек — растягивать их под объединённый текст не нужно."""
-        ws = self._sheet("слово " * 8)                   # объединённому тексту хватит ~4 строк
+        ws = self._sheet("слово " * 8)  # объединённому тексту хватит ~4 строк
         for row in (2, 3):
-            ws.cell(row=row, column=3).value = "слово " * 12   # в колонке шириной 10 — много строк
+            ws.cell(row=row, column=3).value = "слово " * 12  # в колонке шириной 10 — много строк
         merge_vertical(ws, [(2, 3)], [2])
         fit_merged_block_heights(ws, [(2, 3)], [2])
         self.assertIsNone(ws.row_dimensions[2].height)
@@ -312,7 +328,9 @@ class MergedBlockHeightTestCase(unittest.TestCase):
     def test_apply_sheet_layout_stretches_blocks_after_merging(self):
         ws = self._sheet(self.TEXT)
         apply_sheet_layout(ws, spans=[(2, 3)], merge_columns=(2,))
-        self.assertEqual(ws.row_dimensions[2].height + ws.row_dimensions[3].height, wrap_lines(self.TEXT, text_capacity(14)) * LINE_HEIGHT_PT)
+        self.assertEqual(
+            ws.row_dimensions[2].height + ws.row_dimensions[3].height, wrap_lines(self.TEXT, text_capacity(14)) * LINE_HEIGHT_PT
+        )
 
 
 class ReportLayoutTestCase(unittest.TestCase):
@@ -348,25 +366,27 @@ class ReportLayoutTestCase(unittest.TestCase):
     def _seed_two_devices_two_ports(self, serials=("S-1", "S-2"), names=("sw-1", "sw-2")):
         """Два устройства по два порта (разные IP — порты не склеиваются в одну строку): 4 строки листа 3."""
         C = self.C
-        self.table.update({
-            "DeviceType": [C["DeviceType"](id="dt1", name="Коммутатор")],
-            "PhysicalDevice": [
-                C["PhysicalDevice"](id="d1", device_type_id="dt1", serial_number=serials[0], system_name=names[0]),
-                C["PhysicalDevice"](id="d2", device_type_id="dt1", serial_number=serials[1], system_name=names[1]),
-            ],
-            "DeviceInterface": [
-                C["DeviceInterface"](id="if1", physical_device_id="d1", name="Gi0/1"),
-                C["DeviceInterface"](id="if2", physical_device_id="d1", name="Gi0/2"),
-                C["DeviceInterface"](id="if3", physical_device_id="d2", name="Gi0/1"),
-                C["DeviceInterface"](id="if4", physical_device_id="d2", name="Gi0/2"),
-            ],
-            "IPAddress": [
-                C["IPAddress"](id="ip1", owner_type="device_interface", owner_id="if1", ip_address="10.0.0.1", prefix_length=24),
-                C["IPAddress"](id="ip2", owner_type="device_interface", owner_id="if2", ip_address="10.0.0.2", prefix_length=24),
-                C["IPAddress"](id="ip3", owner_type="device_interface", owner_id="if3", ip_address="10.0.1.1", prefix_length=24),
-                C["IPAddress"](id="ip4", owner_type="device_interface", owner_id="if4", ip_address="10.0.1.2", prefix_length=24),
-            ],
-        })
+        self.table.update(
+            {
+                "DeviceType": [C["DeviceType"](id="dt1", name="Коммутатор")],
+                "PhysicalDevice": [
+                    C["PhysicalDevice"](id="d1", device_type_id="dt1", serial_number=serials[0], system_name=names[0]),
+                    C["PhysicalDevice"](id="d2", device_type_id="dt1", serial_number=serials[1], system_name=names[1]),
+                ],
+                "DeviceInterface": [
+                    C["DeviceInterface"](id="if1", physical_device_id="d1", name="Gi0/1"),
+                    C["DeviceInterface"](id="if2", physical_device_id="d1", name="Gi0/2"),
+                    C["DeviceInterface"](id="if3", physical_device_id="d2", name="Gi0/1"),
+                    C["DeviceInterface"](id="if4", physical_device_id="d2", name="Gi0/2"),
+                ],
+                "IPAddress": [
+                    C["IPAddress"](id="ip1", owner_type="device_interface", owner_id="if1", ip_address="10.0.0.1", prefix_length=24),
+                    C["IPAddress"](id="ip2", owner_type="device_interface", owner_id="if2", ip_address="10.0.0.2", prefix_length=24),
+                    C["IPAddress"](id="ip3", owner_type="device_interface", owner_id="if3", ip_address="10.0.1.1", prefix_length=24),
+                    C["IPAddress"](id="ip4", owner_type="device_interface", owner_id="if4", ip_address="10.0.1.2", prefix_length=24),
+                ],
+            }
+        )
 
     @staticmethod
     def _ranges(ws, column):
@@ -402,11 +422,18 @@ class ReportLayoutTestCase(unittest.TestCase):
 
     def test_vm_and_is_sheets_are_framed_per_record(self):
         C = self.C
-        self.table.update({
-            "InformationSystem": [C["InformationSystem"](id="is1", name="ИС-1", crypto_protection_enabled=False),
-                                  C["InformationSystem"](id="is2", name="ИС-2", crypto_protection_enabled=False)],
-            "VirtualMachine": [C["VirtualMachine"](id="v1", name="VM-1", purpose=""), C["VirtualMachine"](id="v2", name="VM-2", purpose="")],
-        })
+        self.table.update(
+            {
+                "InformationSystem": [
+                    C["InformationSystem"](id="is1", name="ИС-1", crypto_protection_enabled=False),
+                    C["InformationSystem"](id="is2", name="ИС-2", crypto_protection_enabled=False),
+                ],
+                "VirtualMachine": [
+                    C["VirtualMachine"](id="v1", name="VM-1", purpose=""),
+                    C["VirtualMachine"](id="v2", name="VM-2", purpose=""),
+                ],
+            }
+        )
         wb = self.build("is_vm")
         for title in (SHEET1, SHEET4):
             ws = wb[title]
@@ -462,11 +489,13 @@ class ReportLayoutTestCase(unittest.TestCase):
 
     def test_device_with_single_row_is_not_merged(self):
         C = self.C
-        self.table.update({
-            "DeviceType": [C["DeviceType"](id="dt1", name="Сервер")],
-            "PhysicalDevice": [C["PhysicalDevice"](id="d1", device_type_id="dt1", serial_number="S-1", system_name="srv")],
-            "DeviceInterface": [C["DeviceInterface"](id="if1", physical_device_id="d1", name="eth0")],
-        })
+        self.table.update(
+            {
+                "DeviceType": [C["DeviceType"](id="dt1", name="Сервер")],
+                "PhysicalDevice": [C["PhysicalDevice"](id="d1", device_type_id="dt1", serial_number="S-1", system_name="srv")],
+                "DeviceInterface": [C["DeviceInterface"](id="if1", physical_device_id="d1", name="eth0")],
+            }
+        )
         ws = self.build("single")[SHEET3]
         self.assertEqual(ws.max_row, 2)
         self.assertEqual(len(ws.merged_cells.ranges), 0)

@@ -44,6 +44,7 @@ VLAN устройства — те же, что проверяет PUT /devices/
 воркер) — пересчёт; если план при этом изменился (другой `plan_hash`) — 409, как и у применения. Применение
 кэш не использует: оно всегда считает план заново.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -115,7 +116,7 @@ class _Port:
 
 def _chunks(values: Sequence[str], size: int = _CHUNK):
     for start in range(0, len(values), size):
-        yield values[start:start + size]
+        yield values[start : start + size]
 
 
 def _lock_statement(interface_ids: Sequence[str]):
@@ -123,7 +124,13 @@ def _lock_statement(interface_ids: Sequence[str]):
     с пересекающимися портами не блокируют друг друга взаимно. populate_existing обновляет уже загруженные в сессию
     объекты портов состоянием, которое видно после получения блокировки. На SQLite FOR UPDATE не рисуется (безопасный
     no-op): там запись и так сериализована блокировкой файла."""
-    return select(DeviceInterface).where(DeviceInterface.id.in_(interface_ids)).order_by(DeviceInterface.id).with_for_update().execution_options(populate_existing=True)
+    return (
+        select(DeviceInterface)
+        .where(DeviceInterface.id.in_(interface_ids))
+        .order_by(DeviceInterface.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
 
 
 def _lock_interfaces(session: Session, interface_ids: Sequence[str]) -> None:
@@ -347,12 +354,18 @@ def _reason_group(changes: Changes, target: _Port, target_id: str, outcome: _Vla
 
 
 def _reason_nothing_to_assign(changes: Changes, target: _Port, target_id: str, outcome: _VlanOutcome, claimed: set[str]) -> str | None:
-    only_vlans = (changes.vlans is not None or changes.all_vlans) and outcome.resolved_ids is None and changes.role is None and changes.mode is None
+    only_vlans = (
+        (changes.vlans is not None or changes.all_vlans) and outcome.resolved_ids is None and changes.role is None and changes.mode is None
+    )
     if not only_vlans:
         return None
     if outcome.skipped:
         return "Ни один из VLAN соседнего порта не доступен устройству этого порта — добавьте их в «VLAN устройства»"
-    return "У устройства этого порта нет VLAN, которые можно назначить, — добавьте их в «VLAN устройства»" if changes.all_vlans else "Изменений нет"
+    return (
+        "У устройства этого порта нет VLAN, которые можно назначить, — добавьте их в «VLAN устройства»"
+        if changes.all_vlans
+        else "Изменений нет"
+    )
 
 
 def _reason_access_limit(changes: Changes, target: _Port, target_id: str, outcome: _VlanOutcome, claimed: set[str]) -> str | None:
@@ -413,7 +426,9 @@ def _plan_warnings(changes: Changes, outcome: _VlanOutcome, source: _Port) -> li
     return warnings
 
 
-def _plan_target(option: Option, rule: RuleSpec, connection: Connection, ports: dict[str, _Port], vlans: dict[str, VLAN], claimed: set[str]) -> _TargetPlan:
+def _plan_target(
+    option: Option, rule: RuleSpec, connection: Connection, ports: dict[str, _Port], vlans: dict[str, VLAN], claimed: set[str]
+) -> _TargetPlan:
     """Сопоставляет VLAN целевого порта и проверяет запреты. `claimed` только читает — порты, занятые
     этим планом, помечает вызывающий, когда решит, что подключение применяется."""
     target_id = connection.source_interface_id if option.apply_to == APPLY_TO_SOURCE else connection.destination_interface_id
@@ -427,7 +442,11 @@ def _plan_target(option: Option, rule: RuleSpec, connection: Connection, ports: 
     view = _changes_view(target, role_pair, mode_pair, vlan_pair, outcome.skipped)
     warnings = [] if blocked else _plan_warnings(changes, outcome, source)
     description = _describe(role_pair, mode_pair, vlan_pair, all_vlans=changes.all_vlans)
-    planned = None if blocked else _Planned(connection, target, rule, changes.role, changes.mode, outcome.resolved_ids, description, all_vlans=changes.all_vlans)
+    planned = (
+        None
+        if blocked
+        else _Planned(connection, target, rule, changes.role, changes.mode, outcome.resolved_ids, description, all_vlans=changes.all_vlans)
+    )
     return _TargetPlan(option.apply_to, target, view, warnings, blocked, planned, outcome.diverges)
 
 
@@ -545,7 +564,14 @@ def _parse_page(payload: dict[str, Any]) -> tuple[int, int, str | None]:
 
 def _plan_hash(planned: list[_Planned]) -> str:
     effects = [
-        [p.connection.id, p.port.iface.id, p.role.value if p.role else None, p.mode, sorted(p.vlan_ids) if p.vlan_ids is not None else None, p.rule.id or p.rule.code]
+        [
+            p.connection.id,
+            p.port.iface.id,
+            p.role.value if p.role else None,
+            p.mode,
+            sorted(p.vlan_ids) if p.vlan_ids is not None else None,
+            p.rule.id or p.rule.code,
+        ]
         for p in planned
     ]
     return hashlib.sha256(json.dumps(effects, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
@@ -590,7 +616,12 @@ def _compute(session: Session, connection_ids: Any, rule_id: str | None, *, lock
             else:
                 decision = decide(rules, src.facts, dst.facts)
                 if decision.rule is not None:
-                    item["rule"] = {"id": decision.rule.id, "code": decision.rule.code, "name": decision.rule.name, "action": decision.rule.action}
+                    item["rule"] = {
+                        "id": decision.rule.id,
+                        "code": decision.rule.code,
+                        "name": decision.rule.name,
+                        "action": decision.rule.action,
+                    }
                 if decision.outcome is Outcome.AUTO:
                     result, planned = _apply_decision(decision, connection, ports, vlans, claimed)
                     item.update(result)
@@ -644,7 +675,7 @@ def preview_reconcile(payload: Any, session: Session) -> dict[str, Any]:
         plan_hash = plan.hash
         plan_cache.put(scope, plan_hash, cached)
 
-    page = list(cached.items[offset:offset + limit])
+    page = list(cached.items[offset : offset + limit])
     return {
         "items": page,
         "summary": {**cached.summary, "shown": len(page)},
@@ -689,7 +720,13 @@ def apply_reconcile(payload: Any, session: Session) -> dict[str, Any]:
         write_port_vlans(port, planned.mode or planned.port.facts.mode, keep, session, links=links[port.id], all_vlans=planned.all_vlans)
     for planned in plan.planned:
         port = planned.port.iface
-        audit(session, "interfaces", port.id, AuditAction.UPDATE, f"Согласование порта «{port.name}» по правилу «{planned.rule.name}»: {planned.description}")
+        audit(
+            session,
+            "interfaces",
+            port.id,
+            AuditAction.UPDATE,
+            f"Согласование порта «{port.name}» по правилу «{planned.rule.name}»: {planned.description}",
+        )
     session.commit()
     plan_cache.clear()  # данные изменились — снимки планов в кэше больше не соответствуют действительности
     connection_ids_applied = list(dict.fromkeys(p.connection.id for p in plan.planned))

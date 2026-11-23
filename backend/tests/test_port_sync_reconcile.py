@@ -2,6 +2,7 @@
 
 Запуск: pytest backend/tests/test_port_sync_reconcile.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -21,7 +22,9 @@ class World:
     def __init__(self, client, db_session) -> None:
         self.client, self.db = client, db_session
         category = client.get("/api/v1/resources/device-categories", params={"limit": 1}).json()["items"][0]["id"]
-        self.device_type = client.post("/api/v1/resources/device-types", json={"name": "Тип для согласования", "category_id": category}).json()["id"]
+        self.device_type = client.post(
+            "/api/v1/resources/device-types", json={"name": "Тип для согласования", "category_id": category}
+        ).json()["id"]
         self.cable = client.post("/api/v1/resources/connection-types", json={"name": "Кабель (согласование)"}).json()["id"]
         self.vlans: dict[int, VLAN] = {}
         self.devices: dict[str, str] = {}
@@ -36,7 +39,9 @@ class World:
 
     def device(self, serial: str, port_names: list[str], *, allowed: tuple[int, ...] = ()) -> list[str]:
         """Устройство с портами (роль «передача данных», trunk, без VLAN); allowed — VLAN устройства."""
-        device = self.client.post("/api/v1/resources/devices", json={"device_type_id": self.device_type, "serial_number": serial, "system_name": serial.lower()}).json()
+        device = self.client.post(
+            "/api/v1/resources/devices", json={"device_type_id": self.device_type, "serial_number": serial, "system_name": serial.lower()}
+        ).json()
         self.devices[serial] = device["id"]
         for number in allowed:
             self.db.add(PhysicalDeviceVLAN(physical_device_id=device["id"], vlan_id=self.vlan(number).id))
@@ -47,7 +52,15 @@ class World:
         by_name = {i["name"]: i["id"] for i in response.json()["items"]}
         return [by_name[n] for n in port_names]
 
-    def configure(self, interface_id: str, *, mode: str | None = None, vlans: tuple[int, ...] | None = None, role: tuple[bool, bool] | None = None, all_vlans: bool = False) -> None:
+    def configure(
+        self,
+        interface_id: str,
+        *,
+        mode: str | None = None,
+        vlans: tuple[int, ...] | None = None,
+        role: tuple[bool, bool] | None = None,
+        all_vlans: bool = False,
+    ) -> None:
         """all_vlans=True — порту ставится «Все VLAN»: хранится только признак (связей нет), набор — VLAN его устройства."""
         iface = self.db.get(DeviceInterface, interface_id)
         if mode is not None:
@@ -80,7 +93,9 @@ class World:
             "mode": iface.vlan_mode,
             "role": (iface.is_management, iface.is_data_transfer),
             # Набор порта: выбранные VLAN или, при «Все VLAN», все VLAN его устройства (services/port_vlans.py).
-            "vlans": sorted(self.db.get(VLAN, vlan_id).vlan_id for vlan_id in effective_vlan_ids(self.db, [interface_id]).get(interface_id, ())),
+            "vlans": sorted(
+                self.db.get(VLAN, vlan_id).vlan_id for vlan_id in effective_vlan_ids(self.db, [interface_id]).get(interface_id, ())
+            ),
             "all_vlans": iface.all_vlans,
             "stored_links": len(links),
             "link_modes": {link.mode for link in links},
@@ -127,6 +142,7 @@ def _empty_trunk_pair(world: World, *, neighbor_vlans=(10, 20), allowed=(10, 20,
 
 # --- главное: пустой trunk получает VLAN соседа --------------------------------------------------
 
+
 def test_preview_proposes_the_neighbors_vlans_for_an_empty_trunk(world):
     a, b, connection = _empty_trunk_pair(world)
 
@@ -159,8 +175,12 @@ def test_apply_gives_the_empty_trunk_the_neighbors_vlans_and_clears_the_discrepa
     assert result["applied"] == {"ports": 1, "connections": 1} and result["connection_ids"] == [connection]
     # Набор выбран явно (не «Все VLAN»): признак не выставлен, VLAN хранятся связями.
     assert world.port(a) == {
-        "mode": "trunk", "role": (False, True), "vlans": [10, 20],
-        "all_vlans": False, "stored_links": 2, "link_modes": {"trunk"},
+        "mode": "trunk",
+        "role": (False, True),
+        "vlans": [10, 20],
+        "all_vlans": False,
+        "stored_links": 2,
+        "link_modes": {"trunk"},
     }
     assert world.port(b)["vlans"] == [10, 20]  # сосед не тронут
     assert world.status(connection) == "ok"
@@ -201,6 +221,7 @@ def test_second_apply_is_a_no_op(world):
 
 # --- VLAN, которых нет у устройства порта -------------------------------------------------------
 
+
 def test_vlans_missing_on_the_target_device_are_skipped_with_a_warning(world):
     a, b, _c = _empty_trunk_pair(world, neighbor_vlans=(10, 20, 30), allowed=(10, 20, 30))
     other = world.db.get(DeviceInterface, a).physical_device_id
@@ -218,7 +239,10 @@ def test_vlans_missing_on_the_target_device_are_skipped_with_a_warning(world):
 
 def test_no_vlan_of_the_neighbor_is_available_to_the_target_device_blocks_the_item(world):
     a, b, _c = _empty_trunk_pair(world, neighbor_vlans=(10, 20), allowed=())
-    world.db.add_all(PhysicalDeviceVLAN(physical_device_id=world.db.get(DeviceInterface, b).physical_device_id, vlan_id=world.vlan(n).id) for n in (10, 20))
+    world.db.add_all(
+        PhysicalDeviceVLAN(physical_device_id=world.db.get(DeviceInterface, b).physical_device_id, vlan_id=world.vlan(n).id)
+        for n in (10, 20)
+    )
     world.db.commit()
 
     plan = world.preview()
@@ -250,6 +274,7 @@ def test_vlans_are_matched_by_number_to_the_record_available_to_the_target(world
 
 
 # --- запреты -----------------------------------------------------------------------------------
+
 
 def test_port_in_a_group_that_sets_mode_and_vlans_is_never_changed_individually(world):
     a, b, connection = _empty_trunk_pair(world)
@@ -285,7 +310,17 @@ def test_copying_several_vlans_into_an_access_port_is_blocked(world):
     world.configure(a, mode="access", vlans=())
     world.configure(b, mode="access", vlans=(10,))
     world.configure(b, mode="trunk", vlans=(10, 20))
-    rule = world.client.post(RULES, json={"name": "Копировать VLAN в любой порт", "action": "auto", "priority": 1, "target": {"vlans": "none"}, "source": {"vlans": "set"}, "apply": {"vlans": "copy"}}).json()
+    rule = world.client.post(
+        RULES,
+        json={
+            "name": "Копировать VLAN в любой порт",
+            "action": "auto",
+            "priority": 1,
+            "target": {"vlans": "none"},
+            "source": {"vlans": "set"},
+            "apply": {"vlans": "copy"},
+        },
+    ).json()
     world.connect(a, b)
 
     plan = world.preview(rule_id=rule["id"])
@@ -301,8 +336,10 @@ def test_a_port_with_two_connections_is_changed_by_the_first_only(world):
     world.configure(n1, vlans=(10,))
     world.configure(n2, vlans=(20,))
     first = world.connect(empty, n1)
-    # API не даёт включить порт в два активных подключения, но в старых данных такое бывает — создаём напрямую. Порт — источник в первом подключении и
-    # назначение во втором: одноролевой дубль (источник дважды) с A-01 этап 2 запрещён уникальным индексом, разноролевой индекс по одной колонке не ловит.
+    # API не даёт включить порт в два активных подключения, но в старых данных такое бывает — создаём напрямую. Порт — источник в
+    # первом подключении и назначение во втором: одноролевой дубль (источник дважды) с A-01 этап 2 запрещён уникальным индексом,
+    # разноролевой индекс по
+    # одной колонке не ловит.
     duplicate = Connection(source_interface_id=n2, destination_interface_id=empty, connection_type_id=world.cable, is_active=True)
     world.db.add(duplicate)
     world.db.commit()
@@ -318,6 +355,7 @@ def test_a_port_with_two_connections_is_changed_by_the_first_only(world):
 
 
 # --- что не согласуется ------------------------------------------------------------------------
+
 
 def test_role_mismatch_is_reported_as_manual_with_both_directions_and_is_not_applied(world):
     (a,) = world.device("ROLE-A", ["Gi0/1"])
@@ -365,6 +403,7 @@ def test_connections_without_a_discrepancy_are_not_listed_in_bulk_mode(world):
 
 # --- явный список и правило --------------------------------------------------------------------
 
+
 def test_apply_with_connection_ids_touches_only_those_connections(world):
     a1, b1, c1 = _empty_trunk_pair(world)
     (a2,) = world.device("EMPTY-A2", ["Gi0/1"], allowed=(10, 20))
@@ -387,7 +426,17 @@ def test_unknown_connection_id_is_404_and_changes_nothing(world):
     assert response.status_code == 404 and world.port(a)["vlans"] == []
 
 
-@pytest.mark.parametrize("body", [{"connection_ids": []}, {"connection_ids": "x"}, {"connection_ids": [1]}, {"connection_ids": ["x"] * 501}, {"rule_id": ""}, {"rule_id": 5}])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"connection_ids": []},
+        {"connection_ids": "x"},
+        {"connection_ids": [1]},
+        {"connection_ids": ["x"] * 501},
+        {"rule_id": ""},
+        {"rule_id": 5},
+    ],
+)
 def test_preview_rejects_malformed_scope(world, body):
     assert world.client.post(PREVIEW, json=body).status_code == 422
 
@@ -429,6 +478,7 @@ def test_unknown_rule_id_is_404(world):
 
 # --- правила пользователя вступают в силу -------------------------------------------------------
 
+
 def test_a_user_rule_can_copy_the_role_and_mirrors_it_to_the_ports_ip_addresses(world):
     (a,) = world.device("UR-A", ["Gi0/1"])
     (b,) = world.device("UR-B", ["Gi0/1"])
@@ -437,7 +487,16 @@ def test_a_user_rule_can_copy_the_role_and_mirrors_it_to_the_ports_ip_addresses(
     world.db.add(IPAddress(owner_type="device_interface", owner_id=a, ip_address="10.0.0.5", prefix_length=24, is_management=False))
     world.db.commit()
     connection = world.connect(a, b)
-    world.client.post(RULES, json={"name": "Порт без роли берёт роль соседа", "action": "auto", "priority": 1, "target": {"role": "none"}, "apply": {"role": True}})
+    world.client.post(
+        RULES,
+        json={
+            "name": "Порт без роли берёт роль соседа",
+            "action": "auto",
+            "priority": 1,
+            "target": {"role": "none"},
+            "apply": {"role": True},
+        },
+    )
 
     plan = world.preview()
     world.apply(plan)
@@ -456,13 +515,27 @@ def test_mode_rule_adapts_vlans_when_the_target_becomes_access(world):
     world.configure(b, mode="access", vlans=(10,))
     connection = world.connect(a, b)
     assert world.status(connection) == "mismatch"
-    world.client.post(RULES, json={"name": "Trunk берёт access соседа", "action": "auto", "priority": 1, "target": {"mode": "trunk"}, "source": {"mode": "access"}, "apply": {"mode": True, "vlans": "adapt"}})
+    world.client.post(
+        RULES,
+        json={
+            "name": "Trunk берёт access соседа",
+            "action": "auto",
+            "priority": 1,
+            "target": {"mode": "trunk"},
+            "source": {"mode": "access"},
+            "apply": {"mode": True, "vlans": "adapt"},
+        },
+    )
 
     world.apply()
 
     assert world.port(a) == {
-        "mode": "access", "role": (False, True), "vlans": [10],
-        "all_vlans": False, "stored_links": 1, "link_modes": {"access"},
+        "mode": "access",
+        "role": (False, True),
+        "vlans": [10],
+        "all_vlans": False,
+        "stored_links": 1,
+        "link_modes": {"access"},
     }
     assert world.status(connection) == "ok"
     assert world.audit("режим trunk → access", "VLAN 10, 20, 30 → 10")
@@ -479,6 +552,7 @@ def test_ignore_rule_excludes_pairs_from_automatic_changes(world):
 
 
 # --- безопасность применения --------------------------------------------------------------------
+
 
 def test_apply_requires_confirmation(world):
     _empty_trunk_pair(world)
@@ -516,7 +590,17 @@ def test_the_plan_hash_is_stable_between_identical_previews(world):
 def test_a_change_to_the_rules_changes_the_plan_hash(world):
     _empty_trunk_pair(world)
     first = world.preview()["plan_hash"]
-    world.client.post(RULES, json={"name": "Раньше всех", "action": "auto", "priority": 1, "target": {"vlans": "none"}, "source": {"vlans": "set"}, "apply": {"vlans": "copy"}})
+    world.client.post(
+        RULES,
+        json={
+            "name": "Раньше всех",
+            "action": "auto",
+            "priority": 1,
+            "target": {"vlans": "none"},
+            "source": {"vlans": "set"},
+            "apply": {"vlans": "copy"},
+        },
+    )
 
     assert world.preview()["plan_hash"] != first  # то же изменение данных, но другое правило — другой план
 
@@ -567,6 +651,7 @@ def test_preview_query_count_does_not_grow_with_the_number_of_connections(world,
 
 
 # --- trunk с разными наборами VLAN: объединение на обоих портах ----------------------------------
+
 
 def _trunk_pair(world: World, *, a_vlans=(10, 20), b_vlans=(20, 30), a_allowed=(10, 20, 30), b_allowed=(10, 20, 30)):
     (a,) = world.device("TRUNK-A", ["Gi0/1"], allowed=a_allowed)
@@ -634,7 +719,9 @@ def test_a_vlan_the_device_does_not_have_is_skipped_for_that_port_only(world):
 
 
 def test_both_ports_blocked_blocks_the_connection(world):
-    a, b, _c = _trunk_pair(world, a_vlans=(10,), b_vlans=(20,), a_allowed=(10, 50), b_allowed=(20, 60))  # свободные 50/60 — ни один порт не «Все VLAN»
+    a, b, _c = _trunk_pair(
+        world, a_vlans=(10,), b_vlans=(20,), a_allowed=(10, 50), b_allowed=(20, 60)
+    )  # свободные 50/60 — ни один порт не «Все VLAN»
 
     plan = world.preview()
 
@@ -672,8 +759,9 @@ def test_two_connections_cannot_merge_into_the_same_port_in_one_plan(world):
     world.configure(b, mode="trunk", vlans=(20,))
     world.configure(c, mode="trunk", vlans=(30,))
     first = world.connect(a, b)
-    # API не даёт включить порт в два активных подключения, но в старых данных такое бывает — создаём напрямую. Порт a — источник в первом подключении
-    # и назначение во втором: одноролевой дубль с A-01 этап 2 запрещён уникальным индексом, разноролевой индекс по одной колонке не ловит.
+    # API не даёт включить порт в два активных подключения, но в старых данных такое бывает — создаём напрямую. Порт a — источник
+    # в первом подключении и назначение во втором: одноролевой дубль с A-01 этап 2 запрещён уникальным индексом, разноролевой
+    # индекс по одной колонке не ловит.
     duplicate = Connection(source_interface_id=c, destination_interface_id=a, connection_type_id=world.cable, is_active=True)
     world.db.add(duplicate)
     world.db.commit()
@@ -703,10 +791,13 @@ def test_default_merge_rule_is_created_for_an_existing_installation(world):
     assert ensure_default_rules(world.db) == 1
 
     created = world.rule(TRUNK_VLANS_UNION_RULE)
-    assert created["action"] == "auto" and created["apply"] == {"role": False, "mode": False, "vlans": "union"} and created["priority"] == 15
+    assert (
+        created["action"] == "auto" and created["apply"] == {"role": False, "mode": False, "vlans": "union"} and created["priority"] == 15
+    )
 
 
 # --- массовое применение: число запросов не растёт с числом портов -------------------------------
+
 
 def _statements_while(db, action) -> list[str]:
     """SQL-запросы, выполненные во время `action` (через событие движка)."""
@@ -740,7 +831,9 @@ def test_applying_many_ports_does_not_query_or_flush_per_port(world):
     statements = _statements_while(world.db, lambda: world.apply(plan))
 
     # Связи порт–VLAN читаются порциями (≤ 400 id в запросе), а не запросом на порт: 80 портов — одна порция.
-    link_reads = [s for s in statements if s.lstrip().upper().startswith("SELECT") and "interface_vlans" in s and "FROM interface_vlans" in s]
+    link_reads = [
+        s for s in statements if s.lstrip().upper().startswith("SELECT") and "interface_vlans" in s and "FROM interface_vlans" in s
+    ]
     # Запись связей уходит пачками (executemany), поэтому INSERT-ов заметно меньше, чем новых связей.
     link_inserts = [s for s in statements if s.lstrip().upper().startswith("INSERT INTO INTERFACE_VLANS")]
     assert len(link_reads) <= 6, link_reads
@@ -750,6 +843,7 @@ def test_applying_many_ports_does_not_query_or_flush_per_port(world):
 
 
 # --- неполный результат: расхождение после применения останется ----------------------------------
+
 
 def test_a_complete_merge_is_not_partial(world):
     _trunk_pair(world)
@@ -804,6 +898,7 @@ def _trunk_pair_numbered(world: World, index: int):
 
 
 # --- «Все VLAN» на порту → «Все VLAN» у соседа ----------------------------------------------------
+
 
 def _all_vlans_pair(world: World, *, a_allowed=(10, 20, 30), b_allowed=(10, 20, 30), a_vlans=(10,)):
     """a — trunk с частью VLAN; b — trunk с «Все VLAN» (признак; набор — все VLAN его устройства)."""
@@ -910,6 +1005,7 @@ def test_all_vlans_does_not_touch_a_neighbor_in_access_mode(world):
 
 
 # --- постраничный предпросмотр и кэш плана --------------------------------------------------------
+
 
 def _auto_pairs(world: World, count: int) -> list[str]:
     """count подключений с решением auto (пустой trunk получает VLAN соседа)."""
@@ -1039,7 +1135,16 @@ def test_rule_changes_drop_cached_plans(world):
 
 @pytest.mark.parametrize(
     "body",
-    [{"offset": -1}, {"offset": "0"}, {"offset": True}, {"limit": 0}, {"limit": 100000}, {"limit": 1.5}, {"plan_hash": ""}, {"plan_hash": 5}],
+    [
+        {"offset": -1},
+        {"offset": "0"},
+        {"offset": True},
+        {"limit": 0},
+        {"limit": 100000},
+        {"limit": 1.5},
+        {"plan_hash": ""},
+        {"plan_hash": 5},
+    ],
 )
 def test_preview_rejects_malformed_page_parameters(world, body):
     response = world.client.post(PREVIEW, json=body)
@@ -1056,6 +1161,7 @@ def test_offset_past_the_end_gives_an_empty_page(world):
 
 
 # --- «Все VLAN» на обоих портах, но номера различаются --------------------------------------------
+
 
 def test_all_vlans_on_both_ports_with_different_numbers_is_excluded_from_the_plan_not_blocked(world):
     """У устройств разные наборы VLAN: ни «объединить», ни «взять набор» не поможет — пара остаётся как есть и

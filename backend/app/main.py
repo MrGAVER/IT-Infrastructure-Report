@@ -9,7 +9,6 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DataError, OperationalError, ProgrammingError
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .config import (
     ACCEPT_IP_HOSTS,
@@ -25,6 +24,7 @@ from .config import (
     MIN_DB_PASSWORD_LENGTH,
     MIN_SETUP_TOKEN_LENGTH,
     SETUP_TOKEN,
+    ensure_data_dirs,
     weak_db_password,
     weak_setup_token,
 )
@@ -45,7 +45,7 @@ from .api.system import router as system_router
 from .api.vlan import router as vlan_router
 from .api.vms import router as vms_router
 from .db import SessionLocal
-from .services.auth import auth_gate_middleware, get_or_create_auth_settings
+from .services.auth import AuthGateMiddleware, get_or_create_auth_settings
 from .services.auth.security_headers import SecurityHeadersMiddleware
 from .services.body_limit import BodySizeLimitMiddleware
 from .services.catalogs import seed_defaults
@@ -69,25 +69,32 @@ logger = logging.getLogger(__name__)
 # должно молча стартовать с «открытым» доступом из-за опечатки в адресе.
 ALLOWED_CLIENT_NETWORKS: list[IPNetwork] = parse_client_networks(ALLOWED_CLIENTS)
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    ensure_data_dirs()  # config при импорте ничего не создаёт: каталог данных и отчётов появляются здесь
     seed_catalogs_on_startup()
     cleanup_audit_log_on_startup()
     yield
 
+
 # Документация API выключена по умолчанию (config.ENABLE_DOCS): None вместо адреса снимает сами маршруты.
 app = FastAPI(
-    title='РИС — Реестр ИТ-инфраструктуры', version=APP_VERSION, lifespan=lifespan,
-    docs_url='/docs' if ENABLE_DOCS else None,
-    redoc_url='/redoc' if ENABLE_DOCS else None,
-    openapi_url='/openapi.json' if ENABLE_DOCS else None,
+    title="РИС — Реестр ИТ-инфраструктуры",
+    version=APP_VERSION,
+    lifespan=lifespan,
+    docs_url="/docs" if ENABLE_DOCS else None,
+    redoc_url="/redoc" if ENABLE_DOCS else None,
+    openapi_url="/openapi.json" if ENABLE_DOCS else None,
 )
+
+
 # Порядок add_middleware() важен: Starlette оборачивает мидлвари в порядке, ОБРАТНОМ порядку
-# регистрации (последний добавленный — самый внешний). auth_gate_middleware иногда завершает запрос
-# сам, не вызывая call_next (короткое замыкание на 401/403) — если бы CORSMiddleware оказался ВНУТРИ
+# регистрации (последний добавленный — самый внешний). AuthGateMiddleware иногда завершает запрос
+# сам, не вызывая приложение под собой (короткое замыкание на 401/403) — если бы CORSMiddleware оказался ВНУТРИ
 # него, эти ответы уходили бы клиенту без CORS-заголовков, и браузер в dev-режиме (Vite на отдельном
 # порту, см. CORS_ALLOWED_ORIGINS) показывал бы малопонятную CORS-ошибку вместо настоящих 401/403.
-# Поэтому auth_gate_middleware регистрируется ПЕРВЫМ (внутри), а CORS и проверка Host — ПОСЛЕ него
+# Поэтому AuthGateMiddleware регистрируется ПЕРВЫМ (внутри), а CORS и проверка Host — ПОСЛЕ него
 # (снаружи), см. install_http_security().
 def install_http_security(
     app: FastAPI,
@@ -99,7 +106,7 @@ def install_http_security(
     max_body_bytes: int | None = None,
     accept_ip_hosts: bool = False,
 ) -> None:
-    """CORS, проверка заголовка Host, проверка origin, предел размера тела и список разрешённых клиентов — внешний слой защиты HTTP (код-ревью, п. 2).
+    """CORS, проверка заголовка Host, проверка origin, предел размера тела и список разрешённых клиентов — внешний слой защиты HTTP.
 
     - Пустой cors_origins — CORS не включается вовсе: чужие origin'ы не получают ни заголовков
       Access-Control-*, ни ответа на preflight, то есть браузер не даст стороннему сайту читать API.
@@ -114,19 +121,19 @@ def install_http_security(
     - SameOriginGuardMiddleware (всегда, при любом режиме аутентификации) — 403 CROSS_ORIGIN_BLOCKED на POST/PUT/PATCH/
       DELETE к /api/ с чужого origin (CSRF: CORS защищает чтение, но не мешает браузеру отправить сам запрос). Origin'ы
       из cors_origins считаются доверенными; X-Forwarded-Host учитывается при trust_forwarded_host. Стоит внутри CORS
-      и проверки Host, но снаружи auth_gate_middleware: чужая страница получает отказ раньше, чем 401/обработчик.
-    - BodySizeLimitMiddleware (если задан max_body_bytes) — 413 REQUEST_BODY_TOO_LARGE на тело больше предела (F-06 код-ревью main:
-      раньше тело любого размера целиком читалось в память). Стоит САМЫМ внутренним из слоёв этой функции: внутри CORS, чтобы 413
+      и проверки Host, но снаружи AuthGateMiddleware: чужая страница получает отказ раньше, чем 401/обработчик.
+    - BodySizeLimitMiddleware (если задан max_body_bytes) — 413 REQUEST_BODY_TOO_LARGE на тело больше предела (раньше тело любого размера
+      целиком читалось в память). Стоит САМЫМ внутренним из слоёв этой функции: внутри CORS, чтобы 413
       дошёл до браузера на dev-сервере с понятным текстом, а не CORS-ошибкой, и внутри проверок клиента, Host и origin — чужие
-      запросы отсекаются раньше. Снаружи auth_gate_middleware: тело больше предела не читается и до проверки входа.
+      запросы отсекаются раньше. Снаружи AuthGateMiddleware: тело больше предела не читается и до проверки входа.
     allow_credentials=False: авторизация идёт через заголовок Authorization: Bearer <токен>, а не через
     куки — широкий allow_origins вместе с allow_credentials=True был бы лишним риском без пользы."""
     if max_body_bytes is not None:
         app.add_middleware(BodySizeLimitMiddleware, max_bytes=max_body_bytes)
     app.add_middleware(SameOriginGuardMiddleware, extra_origins=cors_origins, trust_forwarded_host=trust_forwarded_host)
     if cors_origins:
-        app.add_middleware(CORSMiddleware, allow_origins=cors_origins, allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
-    trusted_hosts = allowed_hosts or ['localhost', '127.0.0.1']
+        app.add_middleware(CORSMiddleware, allow_origins=cors_origins, allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
+    trusted_hosts = allowed_hosts or ["localhost", "127.0.0.1"]
     if accept_ip_hosts or (allowed_clients and has_remote_clients(allowed_clients)):
         app.add_middleware(IpLiteralTrustedHostMiddleware, allowed_hosts=trusted_hosts)
     else:
@@ -134,7 +141,8 @@ def install_http_security(
     if allowed_clients:
         app.add_middleware(ClientAccessMiddleware, networks=allowed_clients)
 
-app.add_middleware(BaseHTTPMiddleware, dispatch=auth_gate_middleware)
+
+app.add_middleware(AuthGateMiddleware)
 install_http_security(
     app,
     allowed_hosts=ALLOWED_HOSTS,
@@ -150,7 +158,7 @@ install_http_security(
 app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(auth_router)
 app.include_router(preferences_router)
-# Бывший api/system.py (357 строк) разрезан по темам (код-ревью п. 10); адреса эндпоинтов не менялись.
+# Бывший api/system.py (357 строк) разрезан по темам; адреса эндпоинтов не менялись.
 app.include_router(system_router)
 app.include_router(listings_router)
 app.include_router(vms_router)
@@ -168,7 +176,7 @@ app.include_router(diagrams_router)
 
 # 422 при ошибке разбора запроса — строкой на русском, как остальные 422 приложения (по умолчанию FastAPI отдаёт список объектов).
 app.add_exception_handler(RequestValidationError, request_validation_handler)
-# Схема OpenAPI описывает те же ответы, что отдают обработчики: 422 — строкой, 413 — для операций с телом (код-ревью, BE-02).
+# Схема OpenAPI описывает те же ответы, что отдают обработчики: 422 — строкой, 413 — для операций с телом.
 install_error_formats(app, max_body_bytes=MAX_REQUEST_BODY_BYTES)
 
 
@@ -176,7 +184,7 @@ install_error_formats(app, max_body_bytes=MAX_REQUEST_BODY_BYTES)
 async def referenced_record_handler(request: Request, exc: ReferencedRecordError) -> JSONResponse:
     """Защита уровня ORM (before_delete, см. services/integrity.py) сработала в обход
     delete_resource() — отдаём тот же 409 с тем же кодом и текстом, а не 500."""
-    return JSONResponse(status_code=409, content={'detail': {'code': exc.code, 'message': str(exc)}})
+    return JSONResponse(status_code=409, content={"detail": {"code": exc.code, "message": str(exc)}})
 
 
 @app.exception_handler(DataError)
@@ -185,18 +193,17 @@ async def data_error_handler(request: Request, exc: DataError) -> JSONResponse:
     и не было поймано раньше: 422 вместо 500, текст драйвера клиенту не показывается (в нём бывают имена таблиц и
     значения). Подробности — в журнале сервера. Проверка типов и длин по метаданным модели (generic CRUD) срабатывает
     раньше и называет поле; это обработчик последней линии для остальных путей записи."""
-    logger.warning('DataError при %s %s: %s', request.method, request.url.path, str(exc.orig)[:300] if exc.orig else type(exc).__name__)
-    return JSONResponse(status_code=422, content={'detail': 'Ошибка валидации: значение не подходит по типу или размеру.'})
+    logger.warning("DataError при %s %s: %s", request.method, request.url.path, str(exc.orig)[:300] if exc.orig else type(exc).__name__)
+    return JSONResponse(status_code=422, content={"detail": "Ошибка валидации: значение не подходит по типу или размеру."})
 
 
 # Первая таблица, к которой обращается старт приложения (seed_defaults читает из неё маркер): если её нет, схема БД не создана.
-SCHEMA_PROBE_TABLE = 'catalog_seed_markers'
+SCHEMA_PROBE_TABLE = "catalog_seed_markers"
 
 SCHEMA_NOT_MIGRATED_MESSAGE = (
-    f'База данных не инициализирована: в ней нет таблицы {SCHEMA_PROBE_TABLE} — не применены миграции Alembic. '
-    'Выполните в каталоге backend команду «alembic upgrade head» и запустите приложение снова. '
-    'Docker (команда запуска образа) и EXE (launcher.py) применяют миграции сами, поэтому эта ошибка возможна только '
-    'при прямом запуске «uvicorn app.main:app» на пустой или ещё не обновлённой базе.'
+    f"База данных не инициализирована: в ней нет таблицы {SCHEMA_PROBE_TABLE} — не применены миграции Alembic. Выполните в каталоге "
+    "backend команду «alembic upgrade head» и запустите приложение снова. Docker (команда запуска образа) и EXE (launcher.py) применяют "
+    "миграции сами, поэтому эта ошибка возможна только при прямом запуске «uvicorn app.main:app» на пустой или ещё не обновлённой базе."
 )
 
 
@@ -234,11 +241,12 @@ def seed_catalogs_on_startup():
     finally:
         session.close()
 
+
 def _warn_if_weak_secrets() -> None:
-    """Токен первичной настройки или пароль БД — заглушка из .env.example либо слишком короткое значение (код-ревью, BE-03).
+    """Токен первичной настройки или пароль БД — заглушка из .env.example либо слишком короткое значение.
 
     docker-compose.yml требует лишь непустое значение, поэтому скопированный и не отредактированный .env запускается. Слабый токен
-    сервер не принимает (services/auth/guards.require_setup_access, A-02 код-ревью r3): он приравнен к незаданному, и первичная
+    сервер не принимает (services/auth/guards.require_setup_access): он приравнен к незаданному, и первичная
     настройка остаётся только за прямым localhost. Запуск НЕ блокируется (существующие установки должны продолжать работать) —
     пишется предупреждение; само значение в журнал не попадает, называется лишь переменная."""
     if weak_setup_token(SETUP_TOKEN):
@@ -251,10 +259,11 @@ def _warn_if_weak_secrets() -> None:
         )
     if weak_db_password(make_url(DATABASE_URL).password or ""):  # у SQLite пароля нет — пустая строка слабой не считается
         logger.warning(
-            "Пароль базы данных (POSTGRES_PASSWORD или пароль в DATABASE_URL) совпадает с заглушкой из .env.example или короче %d "
-            "символов. Замените его на свой пароль.",
+            "Пароль базы данных (POSTGRES_PASSWORD или пароль в DATABASE_URL) совпадает с заглушкой из .env.example или "
+            "короче %d символов. Замените его на свой пароль.",
             MIN_DB_PASSWORD_LENGTH,
         )
+
 
 def _warn_if_remote_access_without_auth(auth_enabled: bool) -> None:
     """Доступ по сети открыт (в списке клиентов есть адреса не с этого компьютера), а аутентификация
@@ -264,13 +273,14 @@ def _warn_if_remote_access_without_auth(auth_enabled: bool) -> None:
     if auth_enabled or not has_remote_clients(ALLOWED_CLIENT_NETWORKS):
         return
     logger.warning(
-        "Доступ по сети открыт, но аутентификация выключена: любой компьютер из списка разрешённых клиентов "
-        "может читать и менять реестр без входа. Включите её на этом компьютере: "
-        "«Настройки → Аутентификация» (создайте администратора и включите вход)."
+        "Доступ по сети открыт, но аутентификация выключена: любой компьютер из списка разрешённых клиентов может "
+        "читать и менять реестр без входа. Включите её на этом компьютере: «Настройки → Аутентификация» (создайте "
+        "администратора и включите вход)."
     )
 
+
 def _warn_if_host_check_disabled(auth_enabled: bool) -> None:
-    """Проверка заголовка Host выключена ('*' в INFRA_REGISTRY_ALLOWED_HOSTS), а аутентификация выключена (код-ревью, R1-01).
+    """Проверка заголовка Host выключена ('*' в INFRA_REGISTRY_ALLOWED_HOSTS), а аутентификация выключена.
 
     Охранник same-origin сравнивает Origin с Host: при DNS-rebinding браузер жертвы шлёт Host: evil.example и Origin: http://evil.example,
     оба заголовка совпадают и запрос проходит — страница в браузере пользователя читает и меняет весь реестр. Предупреждение зависит
@@ -280,9 +290,10 @@ def _warn_if_host_check_disabled(auth_enabled: bool) -> None:
         return
     logger.warning(
         "Проверка заголовка Host отключена (INFRA_REGISTRY_ALLOWED_HOSTS=*) при выключенной аутентификации: "
-        "веб-страница в браузере пользователя может обратиться к реестру через DNS-rebinding. "
-        "Перечислите реальные имена сервера в INFRA_REGISTRY_ALLOWED_HOSTS или включите аутентификацию."
+        "веб-страница в браузере пользователя может обратиться к реестру через DNS-rebinding. Перечислите реальные "
+        "имена сервера в INFRA_REGISTRY_ALLOWED_HOSTS или включите аутентификацию."
     )
+
 
 def _warn_if_insecure_server_config(auth_enabled: bool) -> None:
     """Приложение официально поддерживает серверное развёртывание (Docker + PostgreSQL, см.
@@ -301,20 +312,20 @@ def _warn_if_insecure_server_config(auth_enabled: bool) -> None:
         problems.append("CORS разрешён для любого origin (INFRA_REGISTRY_CORS_ORIGINS=*)")
     if problems:
         logger.warning(
-            "Небезопасная конфигурация серверного развёртывания на PostgreSQL: %s. "
-            "Эти дефолты рассчитаны на локальный однопользовательский сценарий — для сервера, "
-            "доступного нескольким сотрудникам, включите аутентификацию (см. раздел "
-            "'Аутентификация' в README) и ограничьте INFRA_REGISTRY_CORS_ORIGINS конкретными "
-            "адресами.",
+            "Небезопасная конфигурация серверного развёртывания на PostgreSQL: %s. Эти дефолты рассчитаны на "
+            "локальный однопользовательский "
+            "сценарий — для сервера, доступного нескольким сотрудникам, включите аутентификацию (см. раздел 'Аутентификация' в README) и "
+            "ограничьте INFRA_REGISTRY_CORS_ORIGINS конкретными адресами.",
             "; ".join(problems),
         )
+
 
 # Vue-фронтенд (frontend-vue/dist) — единственный UI, см. FRONTEND_DIR в config.py. Vite кладёт
 # хэшированные JS/CSS-чанки в assets/ и ссылается на них абсолютными путями '/assets/...'
 # (см. frontend-vue/vite.config.ts и собранный dist/index.html).
-assets_dir = FRONTEND_DIR / 'assets'
+assets_dir = FRONTEND_DIR / "assets"
 if assets_dir.is_dir():
-    app.mount('/assets', StaticFiles(directory=assets_dir), name='vue-assets')
+    app.mount("/assets", StaticFiles(directory=assets_dir), name="vue-assets")
 
 # SPA-фоллбэк для клиентского роутинга Vue (vue-router в режиме createWebHistory(), см.
 # frontend-vue/src/router/index.ts) — прямой переход или обновление страницы на, например,
@@ -328,17 +339,17 @@ if assets_dir.is_dir():
 # из них. /api/* исключён явно: иначе опечатка в пути API или обращение к несуществующему
 # эндпоинту молча превращалось бы в 200 с HTML вместо честного 404, маскируя реальную ошибку
 # интеграции.
-_DOCS_PATHS = frozenset({'docs', 'redoc', 'openapi.json', 'docs/oauth2-redirect'})
+_DOCS_PATHS = frozenset({"docs", "redoc", "openapi.json", "docs/oauth2-redirect"})
 
 
-@app.get('/{full_path:path}', include_in_schema=False)
+@app.get("/{full_path:path}", include_in_schema=False)
 def spa_fallback(full_path: str):
-    if full_path == 'api' or full_path.startswith('api/'):
-        raise HTTPException(404, 'Not Found')
+    if full_path == "api" or full_path.startswith("api/"):
+        raise HTTPException(404, "Not Found")
     if full_path in _DOCS_PATHS:
         # Документация выключена (иначе маршрут ответил бы раньше этого фоллбэка): честный 404, а не 200 с HTML оболочки.
-        raise HTTPException(404, 'Not Found')
-    index = FRONTEND_DIR / 'index.html'
+        raise HTTPException(404, "Not Found")
+    index = FRONTEND_DIR / "index.html"
     if not index.is_file():
-        raise HTTPException(500, f'Файл интерфейса не найден: {index}. Соберите frontend-vue (npm run build).')
-    return FileResponse(index, media_type='text/html; charset=utf-8')
+        raise HTTPException(500, f"Файл интерфейса не найден: {index}. Соберите frontend-vue (npm run build).")
+    return FileResponse(index, media_type="text/html; charset=utf-8")

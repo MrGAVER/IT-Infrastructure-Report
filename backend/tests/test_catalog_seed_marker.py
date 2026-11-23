@@ -7,6 +7,7 @@ seed_defaults(force=True)) по-прежнему возвращает всё.
 
 Запуск: pytest backend/tests/test_catalog_seed_marker.py -v
 """
+
 from __future__ import annotations
 
 import ast
@@ -130,7 +131,10 @@ def test_application_restart_does_not_restore_deleted_default(client, db_session
     app_main.seed_catalogs_on_startup()
 
     db_session.expire_all()
-    assert db_session.scalar(select(ProtocolPortCatalog).where(ProtocolPortCatalog.port == 22, ProtocolPortCatalog.protocol_type == "SSH")) is None
+    assert (
+        db_session.scalar(select(ProtocolPortCatalog).where(ProtocolPortCatalog.port == 22, ProtocolPortCatalog.protocol_type == "SSH"))
+        is None
+    )
 
 
 def test_marker_name_matches_migration_constant():

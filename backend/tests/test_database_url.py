@@ -5,6 +5,7 @@ docker-compose.yml подставлял пароль в DATABASE_URL строк�
 Тесты чистые (без БД): проверяется разбор итогового адреса, как его разберёт движок.
 Запуск: pytest backend/tests/test_database_url.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -29,7 +30,7 @@ def _server(monkeypatch, **values):
 
 class TestPriority:
     def test_sqlite_file_in_the_data_directory_is_the_default(self):
-        assert _database_url() == f'sqlite:///{APP_DATA_DIR / "infra_registry.db"}'
+        assert _database_url() == f"sqlite:///{APP_DATA_DIR / 'infra_registry.db'}"
 
     def test_explicit_url_wins_over_parts(self, monkeypatch):
         _server(monkeypatch, POSTGRES_PASSWORD="ignored")
@@ -51,7 +52,14 @@ class TestParts:
     def test_defaults_match_docker_compose(self, monkeypatch):
         _server(monkeypatch, POSTGRES_PASSWORD="secret")
         url = make_url(_database_url())
-        assert (url.drivername, url.username, url.password, url.host, url.port, url.database) == ("postgresql+psycopg", "infra", "secret", "db", 5432, "infra_registry")
+        assert (url.drivername, url.username, url.password, url.host, url.port, url.database) == (
+            "postgresql+psycopg",
+            "infra",
+            "secret",
+            "db",
+            5432,
+            "infra_registry",
+        )
 
     def test_every_part_can_be_overridden(self, monkeypatch):
         _server(monkeypatch, POSTGRES_USER="reestr", POSTGRES_PASSWORD="x", POSTGRES_DB="inventory", INFRA_REGISTRY_DB_PORT="6543")
@@ -62,9 +70,25 @@ class TestParts:
         _server(monkeypatch)
         assert make_url(_database_url()).password is None
 
-    @pytest.mark.parametrize("password", [
-        "simple", "p@ssword", "a/b", "p:w", "x#y", "100%sure", "a%41b", "q?z", "пароль", "with space", "a@b@c", "%40", "+-=&;", "'\"\\",
-    ])
+    @pytest.mark.parametrize(
+        "password",
+        [
+            "simple",
+            "p@ssword",
+            "a/b",
+            "p:w",
+            "x#y",
+            "100%sure",
+            "a%41b",
+            "q?z",
+            "пароль",
+            "with space",
+            "a@b@c",
+            "%40",
+            "+-=&;",
+            "'\"\\",
+        ],
+    )
     def test_any_password_survives_the_round_trip(self, monkeypatch, password):
         _server(monkeypatch, POSTGRES_PASSWORD=password, POSTGRES_USER="us@er")
         url = make_url(_database_url())

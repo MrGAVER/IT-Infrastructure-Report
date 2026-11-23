@@ -17,6 +17,7 @@ POST /api/v1/reports/structural-appendix).
 
 Запуск: pytest backend/tests/test_structural_appendix.py -v
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -29,12 +30,31 @@ from docx.oxml.ns import qn
 
 from app.constants import OwnerType
 from app.models import (
-    Building, Connection, ConnectionType, DeviceCategory, DeviceInterface, DeviceModel, DeviceStack, DeviceStackMember,
-    DeviceType, IPAddress, Manufacturer, PhysicalDevice, PhysicalDeviceVLAN, Room, StructuralUnit, VLAN,
+    Building,
+    Connection,
+    ConnectionType,
+    DeviceCategory,
+    DeviceInterface,
+    DeviceModel,
+    DeviceStack,
+    DeviceStackMember,
+    DeviceType,
+    IPAddress,
+    Manufacturer,
+    PhysicalDevice,
+    PhysicalDeviceVLAN,
+    Room,
+    StructuralUnit,
+    VLAN,
 )
 from app.services.structural_appendix import collect_structural_appendix
 from app.services.structural_appendix_docx import (
-    DEFAULT_IS_NAME, StructuralAppendixError, _text, build_structural_appendix, normalize_is_name, render_structural_appendix,
+    DEFAULT_IS_NAME,
+    StructuralAppendixError,
+    _text,
+    build_structural_appendix,
+    normalize_is_name,
+    render_structural_appendix,
 )
 
 ROOM = "Серверная комната"
@@ -74,13 +94,20 @@ class Registry:
         manufacturer = s.query(Manufacturer).filter_by(name=maker).first() or Manufacturer(name=maker)
         s.add(manufacturer)
         s.flush()
-        device_model = (s.query(DeviceModel).filter_by(manufacturer_id=manufacturer.id, device_type_id=dtype.id, model=model).first()
-                        or DeviceModel(manufacturer_id=manufacturer.id, device_type_id=dtype.id, model=model))
+        device_model = s.query(DeviceModel).filter_by(
+            manufacturer_id=manufacturer.id, device_type_id=dtype.id, model=model
+        ).first() or DeviceModel(manufacturer_id=manufacturer.id, device_type_id=dtype.id, model=model)
         s.add(device_model)
         s.flush()
         dev = PhysicalDevice(
-            device_type_id=dtype.id, manufacturer_id=manufacturer.id, model_id=device_model.id, serial_number=serial,
-            system_name=system_name, created_at=self._stamp(), building_id=self.building.id, room_id=self.room.id,
+            device_type_id=dtype.id,
+            manufacturer_id=manufacturer.id,
+            model_id=device_model.id,
+            serial_number=serial,
+            system_name=system_name,
+            created_at=self._stamp(),
+            building_id=self.building.id,
+            room_id=self.room.id,
         )
         s.add(dev)
         s.flush()
@@ -96,8 +123,13 @@ class Registry:
         return iface
 
     def link(self, a, b, *, active=True):
-        conn = Connection(source_interface_id=a.id, destination_interface_id=b.id,
-                          connection_type_id=self.conn_type.id, is_active=active, created_at=self._stamp())
+        conn = Connection(
+            source_interface_id=a.id,
+            destination_interface_id=b.id,
+            connection_type_id=self.conn_type.id,
+            is_active=active,
+            created_at=self._stamp(),
+        )
         self.session.add(conn)
         self.session.flush()
         return conn
@@ -107,8 +139,7 @@ class Registry:
             self.vlans[number] = VLAN(vlan_id=number, name=name)
             self.session.add(self.vlans[number])
             self.session.flush()
-        self.session.add(PhysicalDeviceVLAN(physical_device_id=dev.id, vlan_id=self.vlans[number].id,
-                                            ip_address=ip, prefix_length=prefix))
+        self.session.add(PhysicalDeviceVLAN(physical_device_id=dev.id, vlan_id=self.vlans[number].id, ip_address=ip, prefix_length=prefix))
         self.session.flush()
 
 
@@ -127,8 +158,12 @@ def seed_sample(session) -> Registry:
     stack = DeviceStack(name="Стек SW-C3750-2")
     session.add(stack)
     session.flush()
-    session.add_all([DeviceStackMember(stack_id=stack.id, physical_device_id=sw1.id, position=1),
-                     DeviceStackMember(stack_id=stack.id, physical_device_id=sw2.id, position=2)])
+    session.add_all(
+        [
+            DeviceStackMember(stack_id=stack.id, physical_device_id=sw1.id, position=1),
+            DeviceStackMember(stack_id=stack.id, physical_device_id=sw2.id, position=2),
+        ]
+    )
 
     # Порты управления (IP управления берутся с них; к линиям связи не относятся).
     ilo_205 = r.port(srv205, "ilo", mgmt=True, ips=["192.168.1.205"])
@@ -148,12 +183,20 @@ def seed_sample(session) -> Registry:
     r.link(ilo_a, r.port(sw1, "gi 1/0/47"))
     r.link(ilo_b, r.port(sw1, "gi 1/0/48"))
     for dev, nic, sw_port in (
-        (srv205, "vmnic0", "gi 2/0/40"), (srv205, "vmnic1", "gi 2/0/39"), (srv205, "vmnic2", "gi 2/0/41"),
-        (srv206, "vmnic0", "gi 2/0/43"), (srv206, "vmnic1", "gi 2/0/44"), (srv206, "vmnic2", "gi 2/0/42"),
+        (srv205, "vmnic0", "gi 2/0/40"),
+        (srv205, "vmnic1", "gi 2/0/39"),
+        (srv205, "vmnic2", "gi 2/0/41"),
+        (srv206, "vmnic0", "gi 2/0/43"),
+        (srv206, "vmnic1", "gi 2/0/44"),
+        (srv206, "vmnic2", "gi 2/0/42"),
     ):
         r.link(r.port(dev, nic, data=True), r.port(sw2, sw_port))
-    for dev, hba, fc in ((srv205, "vmhba2", "FC.B1"), (srv205, "vmhba3", "FC.A1"),
-                         (srv206, "vmhba2", "FC.B2"), (srv206, "vmhba3", "FC.A2")):
+    for dev, hba, fc in (
+        (srv205, "vmhba2", "FC.B1"),
+        (srv205, "vmhba3", "FC.A1"),
+        (srv206, "vmhba2", "FC.B2"),
+        (srv206, "vmhba3", "FC.A2"),
+    ):
         r.link(r.port(dev, hba, data=True), r.port(shd, fc, data=True))
     r.link(r.port(shd, "B3", data=True), r.port(sw2, "gi 2/0/5"))
     r.link(r.port(shd, "A3", data=True), r.port(sw2, "gi 2/0/6"))
@@ -240,20 +283,27 @@ class TestSampleRegistry:
         assert rows[19][:2] == ("GATE 100, V. 4.1 (G100) (Gi 0/0)", f"{switch} (Gi1/0/41)")
 
     def test_vlan_groups_merge_stack_members_without_duplicates(self, db_session, sample):
-        groups = {g.title: [(v.vlan_id, v.name, v.addressing) for v in g.rows]
-                  for g in collect_structural_appendix(db_session).vlan_groups}
+        groups = {g.title: [(v.vlan_id, v.name, v.addressing) for v in g.rows] for g in collect_structural_appendix(db_session).vlan_groups}
         assert groups["Коммутатор Cisco WS-C3750X-48 (SW-C3750-2) (SN6, SN9)"] == [
-            ("1", "default", "192.168.1.0/24"), ("2", "Otd2", "192.168.2.0/24")]
+            ("1", "default", "192.168.1.0/24"),
+            ("2", "Otd2", "192.168.2.0/24"),
+        ]
         assert groups["Межсетевой экран Cisco ASA 5525 (ASA-5525) (SN4)"] == [
-            ("1", "default", "192.168.1.0/24"), ("3", "Otd3", "192.168.3.0/24")]
+            ("1", "default", "192.168.1.0/24"),
+            ("3", "Otd3", "192.168.3.0/24"),
+        ]
         assert groups["Маршрутизатор Huawei AR651 (RO-A651) (SN5)"] == [("4", "vl4", "192.168.4.40/24")]
         assert groups["Шлюз безопасности GATE 100, V. 4.1 (G100) (SN7)"] == [
-            ("4", "vl4", "192.168.4.40/24"), ("5", "Vl5", "192.168.5.40/24")]
+            ("4", "vl4", "192.168.4.40/24"),
+            ("5", "Vl5", "192.168.5.40/24"),
+        ]
         assert len(groups) == 4  # серверы и СХД без VLAN в таблицу не попадают
 
     def test_equipment_rows_match_sample_order_and_management_ips(self, db_session, sample):
-        rows = [(e.name, e.serial_number, e.system_name, e.management_ips, e.placement)
-                for e in collect_structural_appendix(db_session).equipment]
+        rows = [
+            (e.name, e.serial_number, e.system_name, e.management_ips, e.placement)
+            for e in collect_structural_appendix(db_session).equipment
+        ]
         assert rows == [
             ("HP ProLiant DL360p Gen8", "SN1", "srv-205", ["192.168.1.205"], ROOM),
             ("HP ProLiant DL360p Gen8", "SN2", "srv-206", ["192.168.1.206"], ROOM),
@@ -267,15 +317,18 @@ class TestSampleRegistry:
 
 
 class TestIsNameNormalization:
-    @pytest.mark.parametrize("raw, expected", [
-        ("ТО", "ТО"),
-        ("ЕАИС ТО", "ТО"),
-        ("  еаис   ТО ", "ТО"),  # регистр и лишние пробелы не важны
-        ("ИС ТО", "ТО"),
-        ("ИСУ", "ИСУ"),  # слово целиком: «ИСУ» — не «ИС У»
-        ("ЕАИС", "ЕАИС"),  # одиночное слово остаётся именем, а не превращается в пустое
-        ("ЕАИС ТО-2", "ТО-2"),
-    ])
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("ТО", "ТО"),
+            ("ЕАИС ТО", "ТО"),
+            ("  еаис   ТО ", "ТО"),  # регистр и лишние пробелы не важны
+            ("ИС ТО", "ТО"),
+            ("ИСУ", "ИСУ"),  # слово целиком: «ИСУ» — не «ИС У»
+            ("ЕАИС", "ЕАИС"),  # одиночное слово остаётся именем, а не превращается в пустое
+            ("ЕАИС ТО-2", "ТО-2"),
+        ],
+    )
     def test_leading_is_word_is_not_duplicated(self, raw, expected):
         assert normalize_is_name(raw) == expected
 

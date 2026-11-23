@@ -7,6 +7,7 @@ applied, перезапись связей порта и группы, груп�
 Тесты написаны на прежнем коде и проходят без правок после рефакторинга.
 Запуск: pytest backend/tests/test_vlan_mode_cascade_apply_behaviour.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -28,7 +29,9 @@ def _device(client, serial: str, vlans: tuple[dict, ...]) -> dict:
     device_type = client.post(f"{API}/resources/device-types", json={"name": f"Тип {serial}", "category_id": category_id}).json()
     for vlan in vlans:
         client.post(f"{API}/resources/device-type-vlans", json={"device_type_id": device_type["id"], "vlan_id": vlan["id"]})
-    return client.post(f"{API}/resources/devices", json={"device_type_id": device_type["id"], "serial_number": serial, "system_name": serial}).json()
+    return client.post(
+        f"{API}/resources/devices", json={"device_type_id": device_type["id"], "serial_number": serial, "system_name": serial}
+    ).json()
 
 
 def _sync(client, device_id: str, interfaces: list[dict], groups: list[dict] | None = None) -> None:
@@ -50,14 +53,20 @@ def cable(client) -> str:
 
 
 def _connect(client, cable_id: str, a: dict, b: dict) -> None:
-    response = client.post(f"{API}/resources/connections", json={"source_interface_id": a["id"], "destination_interface_id": b["id"], "connection_type_id": cable_id})
+    response = client.post(
+        f"{API}/resources/connections",
+        json={"source_interface_id": a["id"], "destination_interface_id": b["id"], "connection_type_id": cable_id},
+    )
     assert response.status_code == 201, response.text
 
 
 def _cascade(client, port: dict, mode: str, edited: dict | None = None):
     """Предпросмотр, затем применение с хешем из него — как делает форма."""
     plan = client.post(f"{API}/interfaces/{port['id']}/vlan-mode-cascade/preview", json={"mode": mode, "edited": edited}).json()
-    return client.post(f"{API}/interfaces/{port['id']}/vlan-mode-cascade", json={"mode": mode, "edited": edited, "plan_hash": plan["hash"], "confirm": True})
+    return client.post(
+        f"{API}/interfaces/{port['id']}/vlan-mode-cascade",
+        json={"mode": mode, "edited": edited, "plan_hash": plan["hash"], "confirm": True},
+    )
 
 
 def _edited_device(device_id: str, ports: dict | None = None) -> dict:
@@ -84,8 +93,12 @@ def group_pair(client, cable):
     v10, v20 = _vlan(client, 10), _vlan(client, 20)
     devices = {name: _device(client, f"APL-{name}", (v10, v20)) for name in ("A", "B")}
     for name, device in devices.items():
-        _sync(client, device["id"], [{"name": f"{name.lower()}1", "group_key": "g"}, {"name": f"{name.lower()}2", "group_key": "g"}],
-              [{"key": "g", "name": f"Группа {name}", "vlan_mode": "trunk", "vlan_ids": [v10["id"], v20["id"]]}])
+        _sync(
+            client,
+            device["id"],
+            [{"name": f"{name.lower()}1", "group_key": "g"}, {"name": f"{name.lower()}2", "group_key": "g"}],
+            [{"key": "g", "name": f"Группа {name}", "vlan_mode": "trunk", "vlan_ids": [v10["id"], v20["id"]]}],
+        )
     pa, pb = _ports(client, devices["A"]["id"]), _ports(client, devices["B"]["id"])
     _connect(client, cable, pa["a1"], pb["b1"])
     _connect(client, cable, pa["a2"], pb["b2"])
@@ -127,7 +140,9 @@ class TestRequestChecks:
         response = client.post(f"{API}/interfaces/{pb['b1']['id']}/vlan-mode-cascade", json={"mode": "access", "confirm": True})
         assert response.status_code == 409
         assert response.json()["detail"] == "Данные изменились после предпросмотра — повторите операцию и проверьте новый план"
-        assert {p["vlan_mode"] for p in [*_ports(client, devices["A"]["id"]).values(), *_ports(client, devices["B"]["id"]).values()]} == {"trunk"}
+        assert {p["vlan_mode"] for p in [*_ports(client, devices["A"]["id"]).values(), *_ports(client, devices["B"]["id"]).values()]} == {
+            "trunk"
+        }
         assert _audit_by_device(db_session, A=devices["A"]["id"], B=devices["B"]["id"]) == {}
 
 
@@ -144,8 +159,14 @@ class TestAppliedGroups:
         devices, _, pb, _ = group_pair
         _cascade(client, pb["b1"], "access")
         assert _audit_by_device(db_session, A=devices["A"]["id"], B=devices["B"]["id"]) == {
-            "A": "Каскадная смена режима порта → access (инициатор: порт «b1» устройства «APL-B»); группы: «Группа A» (2 портов); сняты VLAN 20 у «Группа A»",
-            "B": "Каскадная смена режима порта → access (инициатор: порт «b1» устройства «APL-B»); группы: «Группа B» (2 портов); сняты VLAN 20 у «Группа B»",
+            "A": (
+                "Каскадная смена режима порта → access (инициатор: порт «b1» устройства «APL-B»); группы: «Группа A» "
+                "(2 портов); сняты VLAN 20 у «Группа A»"
+            ),
+            "B": (
+                "Каскадная смена режима порта → access (инициатор: порт «b1» устройства «APL-B»); группы: «Группа B» "
+                "(2 портов); сняты VLAN 20 у «Группа B»"
+            ),
         }
 
     def test_kept_vlan_rows_of_group_and_ports_are_updated_in_place_and_dropped_ones_deleted(self, client, db_session, group_pair):
@@ -194,7 +215,12 @@ class TestGroupWithAllVlans:
         v10, v20 = _vlan(client, 10), _vlan(client, 20)
         a, b = _device(client, "APL-VA", (v10, v20)), _device(client, "APL-VB", (v10, v20))
         _sync(client, a["id"], [{"name": "a1", "vlan_mode": "trunk", "vlan_ids": [v10["id"], v20["id"]]}])
-        _sync(client, b["id"], [{"name": "b1", "group_key": "g"}, {"name": "b2", "group_key": "g"}], [{"key": "g", "name": "Все", "vlan_mode": "trunk", "all_vlans": True}])
+        _sync(
+            client,
+            b["id"],
+            [{"name": "b1", "group_key": "g"}, {"name": "b2", "group_key": "g"}],
+            [{"key": "g", "name": "Все", "vlan_mode": "trunk", "all_vlans": True}],
+        )
         pa, pb = _ports(client, a["id"]), _ports(client, b["id"])
         _connect(client, cable, pa["a1"], pb["b1"])
         return a, b, pa, pb, (v10, v20)
@@ -225,7 +251,10 @@ class TestGroupWithAllVlans:
         assert {i["name"]: i["all_vlans"] for i in body["interfaces"]} == {"a1": False, "b1": False, "b2": False}
         assert _audit_by_device(db_session, A=a["id"], B=b["id"]) == {
             "A": "Каскадная смена режима порта → access (инициатор: порт «a1» устройства «APL-VA»); порты: a1; сняты VLAN 20 у «a1»",
-            "B": "Каскадная смена режима порта → access (инициатор: порт «a1» устройства «APL-VA»); группы: «Все» (2 портов); сняты VLAN 20 у «Все»",
+            "B": (
+                "Каскадная смена режима порта → access (инициатор: порт «a1» устройства «APL-VA»); группы: «Все» (2 "
+                "портов); сняты VLAN 20 у «Все»"
+            ),
         }
 
 
@@ -248,7 +277,13 @@ class TestDeferredSinglePort:
         body = _cascade(client, pb, "access", _edited_device(a["id"])).json()
 
         assert {p["name"]: p["deferred"] for p in body["plan"]["ports"]} == {"a1": True, "b1": False}
-        assert body["plan"]["totals"] == {**body["plan"]["totals"], "ports": 2, "deferred_ports": 1, "immediate_ports": 1, "immediate_devices": 1}
+        assert body["plan"]["totals"] == {
+            **body["plan"]["totals"],
+            "ports": 2,
+            "deferred_ports": 1,
+            "immediate_ports": 1,
+            "immediate_devices": 1,
+        }
         assert body["applied"] == {"ports": 1, "groups": 0, "devices": 1}
         assert [i["name"] for i in body["interfaces"]] == ["b1"]
         assert _ports(client, a["id"])["a1"]["vlan_mode"] == "trunk"

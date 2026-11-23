@@ -9,6 +9,7 @@
 (Visio в среде тестов нет).
 Запуск: pytest backend/tests/test_diagram_export_vsdx_details.py -v
 """
+
 from __future__ import annotations
 
 import copy
@@ -46,8 +47,11 @@ def _page_shapes(data: bytes) -> list[dict]:
 def _ticks(shapes: list[dict]) -> list[dict]:
     """Фигуры-засечки: размер PORT_TICK_WIDTH x PORT_TICK_HEIGHT (в дюймах) — другого такого размера на странице нет."""
     return [
-        s for s in shapes
-        if s.get("Width") and abs(float(s["Width"]) - PORT_TICK_WIDTH / SCALE) < 1e-9 and abs(float(s["Height"]) - PORT_TICK_HEIGHT / SCALE) < 1e-9
+        s
+        for s in shapes
+        if s.get("Width")
+        and abs(float(s["Width"]) - PORT_TICK_WIDTH / SCALE) < 1e-9
+        and abs(float(s["Height"]) - PORT_TICK_HEIGHT / SCALE) < 1e-9
     ]
 
 
@@ -108,7 +112,15 @@ def test_export_vsdx_walks_the_page_a_constant_number_of_times(monkeypatch):
     base = _sample_graph(6)["nodes"][0]
     nodes = [{**copy.deepcopy(base), "id": f"n{i}", "x": (i % 8) * 200, "y": (i // 8) * 100} for i in range(40)]
     edges = [
-        {"id": f"e{i}", "source_node_id": f"n{i}", "target_node_id": f"n{i + 1}", "source_interface": {"port_index": 2}, "target_interface": None, "is_active": True, "vlans": []}
+        {
+            "id": f"e{i}",
+            "source_node_id": f"n{i}",
+            "target_node_id": f"n{i + 1}",
+            "source_interface": {"port_index": 2},
+            "target_interface": None,
+            "is_active": True,
+            "vlans": [],
+        }
         for i in range(39)
     ]
     export_vsdx({"nodes": nodes, "edges": edges})
@@ -146,7 +158,8 @@ def test_export_vsdx_ticks_sit_on_the_bottom_edge_evenly_spread():
 
 
 def test_export_vsdx_connector_starts_at_the_tick_it_is_bound_to():
-    """_sample_graph: ребро выходит из порта port_index=0 коммутатора — коннектор должен начинаться над первой засечкой (теперь она видна)."""
+    """_sample_graph: ребро выходит из порта port_index=0 коммутатора — коннектор должен начинаться над первой засечкой (теперь
+    она видна)."""
     shapes = _page_shapes(export_vsdx(_sample_graph(port_ticks=6)))
     first_tick = min(_ticks(shapes), key=lambda s: float(s["PinX"]))
     connector = next(s for s in shapes if "BeginX" in s)
@@ -158,7 +171,9 @@ def test_export_vsdx_tick_shapes_are_lean_and_unlabelled():
     for tick in _ticks(shapes):
         assert tick["_text"] == ""
         assert tick["FillForegnd"].lower() == "#222222"
-        assert not any(section.get("N") == "Property" for section in tick["_el"] if section.tag.endswith("}Section"))  # без шаблонных «property value»
+        assert not any(
+            section.get("N") == "Property" for section in tick["_el"] if section.tag.endswith("}Section")
+        )  # без шаблонных «property value»
 
 
 @pytest.mark.parametrize("ticks", [0, None])

@@ -5,6 +5,7 @@
 на месте, без id создаются, отсутствующие в списке удаляются — id и дата создания сохраняются, а в
 журнал аудита попадает только реальное изменение.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -44,11 +45,15 @@ def _row(catalog: dict, **extra) -> dict:
 
 
 def _stored(client, vm_id: str) -> list[dict]:
-    return client.get(f"{API}/resources/open-ports", params={"owner_type": "virtual_machine", "owner_id": vm_id, "limit": 1000}).json()["items"]
+    return client.get(f"{API}/resources/open-ports", params={"owner_type": "virtual_machine", "owner_id": vm_id, "limit": 1000}).json()[
+        "items"
+    ]
 
 
 def _audit_details(db_session, vm_id: str) -> list[str]:
-    rows = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == "vms", AuditLog.entity_id == vm_id, AuditLog.details.like("Открытые порты:%"))).all()
+    rows = db_session.scalars(
+        select(AuditLog).where(AuditLog.entity_type == "vms", AuditLog.entity_id == vm_id, AuditLog.details.like("Открытые порты:%"))
+    ).all()
     return [r.details for r in rows]
 
 

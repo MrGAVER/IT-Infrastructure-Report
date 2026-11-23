@@ -1,9 +1,9 @@
-"""Pydantic-схемы для инкрементальной валидации generic CRUD (код-ревью п.2, High).
+"""Pydantic-схемы для инкрементальной валидации generic CRUD.
 
 Раньше POST/PUT /api/v1/resources/{resource} принимали `payload: dict` без проверки типов:
 например, список вместо строки в PhysicalDevice.rack_position всплывал только на INSERT как
 малопонятный IntegrityError из SQLAlchemy, а не как понятный 422 на входе. Полный переход всех
-~40 ресурсов на статические Pydantic-модели — большая работа (см. код-ревью), поэтому здесь —
+~40 ресурсов на статические Pydantic-модели — большая работа, поэтому здесь —
 только три самых чувствительных: devices, information-systems, vlans (SCHEMAS в конце файла).
 Для остальных ресурсов generic CRUD продолжает работать как раньше, через сырой dict.
 
@@ -11,6 +11,7 @@
 доменную валидацию в services/validation.py (FK-существование, конфликты позиций в стойке,
 бизнес-правила гипервизора и т.п.) — та по-прежнему выполняется после этого слоя.
 """
+
 from __future__ import annotations
 
 import re
@@ -50,6 +51,7 @@ class PhysicalDeviceCreate(BaseModel):
 class PhysicalDeviceUpdate(BaseModel):
     """Все поля опциональны — generic update применяет только присланные ключи (частичное
     обновление), см. services/crud.update_resource."""
+
     model_config = ConfigDict(extra="ignore")
 
     device_type_id: Optional[str] = Field(default=None, min_length=1)
@@ -146,6 +148,7 @@ class UserCreateRequest(BaseModel):
 class UserUpdateRequest(BaseModel):
     """Все поля опциональны — PUT применяет только присланные ключи (то же частичное обновление,
     что и в generic CRUD, см. PhysicalDeviceUpdate выше)."""
+
     model_config = ConfigDict(extra="ignore")
     username: Optional[str] = Field(default=None, min_length=1, max_length=150)
     password: Optional[str] = Field(default=None, min_length=1, max_length=MAX_PASSWORD_LENGTH)
@@ -156,6 +159,7 @@ class UserUpdateRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     """Самостоятельная смена СВОЕГО пароля (PUT /auth/me/password) — в отличие от
     UserUpdateRequest (смена ЧУЖОГО пароля админом), требует подтверждение текущим паролем."""
+
     model_config = ConfigDict(extra="ignore")
     current_password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
     new_password: str = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
@@ -175,6 +179,7 @@ class AuditSettingsUpdate(BaseModel):
     """PUT /api/v1/audit-log/settings. Поле, которого нет в теле, не меняется; retention_days = null сбрасывает срок к значению
     по умолчанию (INFRA_REGISTRY_AUDIT_RETENTION_DAYS); 0 — не удалять. StrictInt: «30» (строка), 30.5 и true — не срок хранения,
     а ошибка клиента, и тихо превращать их в число не нужно. extra="forbid": опечатка в имени поля — 422, а не молчаливое «сохранено»."""
+
     model_config = ConfigDict(extra="forbid")
     retention_days: Optional[StrictInt] = Field(default=None, ge=0, le=AUDIT_RETENTION_MAX_DAYS)
 
@@ -183,6 +188,7 @@ class AuditSettingsOut(BaseModel):
     """GET /api/v1/audit-log/settings. retention_days — действующий срок (0 — не удалять); is_default — срок в форме не задан, действует
     default_retention_days (из окружения); max_retention_days — верхняя граница; last_cleanup_at — ISO 8601 UTC или null. Форму JSON
     повторяет вручную написанный тип frontend-vue/src/api/types/audit.ts: менять поля только вместе с ним."""
+
     retention_days: int
     is_default: bool
     default_retention_days: int
@@ -194,6 +200,7 @@ class AuditSettingsSaveOut(AuditSettingsOut):
     """PUT /api/v1/audit-log/settings: настройки после сохранения + итог немедленной очистки по новому сроку. Если в теле не было
     retention_days, сохранять нечего и ответ — как у GET: removed_now и cleanup_failed в него не попадают (эндпоинт отдаёт только заданные
     поля)."""
+
     removed_now: Optional[int] = None  # сколько записей удалено сразу при сохранении
     cleanup_failed: Optional[bool] = None  # срок сохранён, но очистка не удалась; повторится при ближайшем ленивом запуске
 
@@ -245,7 +252,7 @@ class GlobalPreferencesUpdate(BaseModel):
         return stripped
 
 
-# --- Тела запросов синхронизации и массовых операций (код-ревью п. 8) -------------------------
+# --- Тела запросов синхронизации и массовых операций -------------------------
 # Эти эндпоинты принимали `payload: dict`: опечатка в имени поля («interfases») молча давала пустой
 # список и УДАЛЯЛА все записи, а OpenAPI-документация была пустой. Теперь верхний уровень тела — схема
 # с extra="forbid": неизвестный ключ и неверный тип поля дают понятный 422 на входе. Элементы списков
@@ -255,43 +262,51 @@ class GlobalPreferencesUpdate(BaseModel):
 # (например, groups у PUT /devices/{id}/interfaces — «группы не трогать»), остаётся отсутствующим, а
 # не превращается в значение по умолчанию.
 
+
 class _StrictBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
 class DeviceInterfacesSync(_StrictBody):
     """PUT /devices/{id}/interfaces — полный список портов; groups — полный список групп (без ключа группы не трогаются)."""
+
     interfaces: list[dict[str, Any]] = []
     groups: Optional[list[dict[str, Any]]] = None
 
 
 class DeviceVlansSync(_StrictBody):
     """PUT /devices/{id}/vlans — полный список VLAN устройства."""
+
     vlans: list[dict[str, Any]] = []
 
 
 class DeployedSoftwareSync(_StrictBody):
     """PUT /devices/{id}/deployed-software и /vms/{id}/deployed-software — полный список ПО."""
+
     deployed_software: list[dict[str, Any]] = []
 
 
 class VMOpenPortsSync(_StrictBody):
     """PUT /vms/{id}/open-ports — полный список открытых портов ВМ."""
+
     open_ports: list[dict[str, Any]] = []
 
 
 class VMIPAddressesSync(_StrictBody):
     """PUT /vms/{id}/ip-addresses — полный список IP-адресов ВМ."""
+
     ip_addresses: list[dict[str, Any]] = []
 
 
 class VlanCopyRequest(_StrictBody):
     """POST /devices/{id}/vlan-copy — откуда копировать VLAN."""
+
     source_device_id: Optional[str] = None
 
 
 class BulkVlanAssignRequest(_StrictBody):
     """POST /device-vlans/bulk-assign — один VLAN нескольким устройствам."""
+
     physical_device_ids: list[str] = []
     vlan_id: Optional[str] = None
     description: Optional[str] = None
@@ -299,16 +314,19 @@ class BulkVlanAssignRequest(_StrictBody):
 
 class VLANDomainMemberRequest(_StrictBody):
     """POST /vlan-domains/{id}/members — добавить устройство в домен."""
+
     physical_device_id: Optional[str] = None
 
 
 class VLANDomainSyncRequest(_StrictBody):
     """POST /vlan-domains/{id}/sync — replace=true убирает у участников VLAN домена, которых нет у источника."""
+
     replace: bool = False
 
 
 class DeviceStackMemberRequest(_StrictBody):
     """POST /device-stacks/{id}/members — добавить устройство в стек."""
+
     physical_device_id: Optional[str] = None
     position: int = Field(default=1, ge=1)
 
@@ -317,6 +335,7 @@ class DeviceStackVlanIpRequest(_StrictBody):
     """PUT /device-stacks/{id}/vlans/{vlan_id} — общая настройка VLAN для всех устройств стека: IP-адрес, префикс и «Управление».
 
     IP-адрес и префикс — только вместе (либо оба пустые: адреса нет); одно без другого сервис отклоняет (422)."""
+
     ip_address: Optional[str] = None
     prefix_length: Optional[int] = Field(default=None, ge=0, le=32)
     is_management: bool = False

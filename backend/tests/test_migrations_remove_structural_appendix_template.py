@@ -5,6 +5,7 @@ downgrade() возвращает заготовку. Работает на на�
 
 Запуск: pytest backend/tests/test_migrations_remove_structural_appendix_template.py -v
 """
+
 from __future__ import annotations
 
 import json
@@ -60,8 +61,8 @@ def test_upgrade_removes_untouched_seed_template_with_its_versions(alembic_confi
         seeded = _template(conn)
         assert seeded is not None, "предусловие: b44cd42f9fa0 добавила шаблон"
         conn.execute(
-            "INSERT INTO report_template_versions (id, report_template_id, version_number, name, description, format, config, created_at, updated_at) "
-            "VALUES (?, ?, 1, ?, NULL, 'docx', ?, ?, ?)",
+            "INSERT INTO report_template_versions (id, report_template_id, version_number, name, description, format, "
+            "config, created_at, updated_at) VALUES (?, ?, 1, ?, NULL, 'docx', ?, ?, ?)",
             (str(uuid.uuid4()), seeded["id"], seeded["name"], seeded["config"], _now(), _now()),
         )
 
@@ -104,7 +105,8 @@ def test_upgrade_does_not_touch_copies_and_other_templates(alembic_config):
     with _connect(db_path) as conn:
         seeded = _template(conn)
         conn.execute(
-            "INSERT INTO report_templates (id, name, description, format, config, created_at, updated_at) VALUES (?, ?, NULL, 'docx', ?, ?, ?)",
+            "INSERT INTO report_templates (id, name, description, format, config, created_at, updated_at) VALUES "
+            "(?, ?, NULL, 'docx', ?, ?, ?)",
             (str(uuid.uuid4()), f"{TEMPLATE_NAME} (копия)", seeded["config"], _now(), _now()),
         )
         before = conn.execute("SELECT COUNT(*) FROM report_templates").fetchone()[0]
@@ -153,7 +155,8 @@ def test_downgrade_does_not_overwrite_existing_template_with_same_name(alembic_c
     command.upgrade(cfg, REVISION)
     with _connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO report_templates (id, name, description, format, config, created_at, updated_at) VALUES (?, ?, 'моё', 'docx', '{\"blocks\": []}', ?, ?)",
+            "INSERT INTO report_templates (id, name, description, format, config, created_at, updated_at) VALUES (?, ?, "
+            "'моё', 'docx', '{\"blocks\": []}', ?, ?)",
             (str(uuid.uuid4()), TEMPLATE_NAME, _now(), _now()),
         )
 

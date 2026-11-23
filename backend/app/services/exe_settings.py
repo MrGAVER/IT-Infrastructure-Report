@@ -4,8 +4,8 @@
 администратор. Формат — TOML (стандартный ``tomllib``, Python 3.11+): списки адресов и комментарии в нём
 читаются без самодельного разбора.
 
-Модуль намеренно не импортирует ``app.config``: тот при импорте создаёт каталоги и читает переменные
-окружения, а лаунчер должен сначала прочитать настройки и только потом выставить окружение.
+Модуль намеренно не импортирует ``app.config``: тот разбирает переменные окружения один раз, при импорте,
+а лаунчер должен сначала прочитать настройки и только потом выставить окружение (``launcher.apply_environment``).
 """
 
 from __future__ import annotations
@@ -132,7 +132,9 @@ def _section(data: dict, name: str) -> dict:
         raise SettingsError(f"Раздел [{name}] должен быть таблицей, а не значением.")
     unknown = sorted(set(section) - _KNOWN_KEYS[name])
     if unknown:
-        raise SettingsError(f"Неизвестный параметр в разделе [{name}]: {', '.join(unknown)}. Допустимые параметры: {', '.join(sorted(_KNOWN_KEYS[name]))}.")
+        raise SettingsError(
+            f"Неизвестный параметр в разделе [{name}]: {', '.join(unknown)}. Допустимые параметры: {', '.join(sorted(_KNOWN_KEYS[name]))}."
+        )
     return section
 
 
@@ -163,12 +165,18 @@ def _parse_clients(entries: list[str]) -> tuple[str, ...]:
 def _parse_hosts(entries: list[str]) -> tuple[str, ...]:
     for entry in entries:
         if any(ch in entry for ch in ":/ \t"):
-            raise SettingsError(f"[access] allowed_hosts: некорректное имя {entry!r} — нужно только имя без порта и адреса страницы (например, reestr-pc или *.corp.local).")
+            raise SettingsError(
+                f"[access] allowed_hosts: некорректное имя {entry!r} — нужно только имя без порта и адреса страницы "
+                "(например, reestr-pc или *.corp.local)."
+            )
         try:
             ipaddress.ip_address(entry)
         except ValueError:
             continue
-        raise SettingsError(f"[access] allowed_hosts: {entry!r} — это IP-адрес. Здесь перечисляются имена; по IP-адресу приложение открывается без дополнительных настроек, а список клиентов задаётся в allowed_clients.")
+        raise SettingsError(
+            f"[access] allowed_hosts: {entry!r} — это IP-адрес. Здесь перечисляются имена; по IP-адресу приложение "
+            "открывается без дополнительных настроек, а список клиентов задаётся в allowed_clients."
+        )
     return tuple(dict.fromkeys(entries))
 
 
@@ -182,7 +190,9 @@ def parse_settings(text: str) -> ExeSettings:
         raise SettingsError(f"Файл настроек повреждён или записан неверно: {exc}") from exc
     unknown_sections = sorted(set(data) - set(_KNOWN_KEYS))
     if unknown_sections:
-        raise SettingsError(f"Неизвестный раздел в файле настроек: {', '.join(unknown_sections)}. Допустимые разделы: {', '.join(_KNOWN_KEYS)}.")
+        raise SettingsError(
+            f"Неизвестный раздел в файле настроек: {', '.join(unknown_sections)}. Допустимые разделы: {', '.join(_KNOWN_KEYS)}."
+        )
     server = _section(data, "server")
     access = _section(data, "access")
 

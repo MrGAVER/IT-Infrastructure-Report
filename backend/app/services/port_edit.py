@@ -35,6 +35,7 @@
 Пример:
     set_port_config(port_id, {"role": "data", "mode": "trunk", "vlan_ids": [vlan_10_id, vlan_20_id]}, session)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -213,10 +214,18 @@ def write_port_change(prepared: PreparedPortChange, session: Session, *, context
         write_port_role(iface, prepared.role, session)
     if prepared.vlan_ids is not None:
         after = _list(_numbers(prepared.vlan_ids, session))
-        parts.append(f"VLAN {_list(_numbers(prepared.current_vlan_ids, session))} → {'все VLAN устройства: ' if prepared.all_vlans else ''}{after}")
+        parts.append(
+            f"VLAN {_list(_numbers(prepared.current_vlan_ids, session))} → {'все VLAN устройства: ' if prepared.all_vlans else ''}{after}"
+        )
         write_port_vlans(iface, prepared.mode, prepared.vlan_ids, session, all_vlans=prepared.all_vlans)
     if parts:
-        audit(session, "interfaces", iface.id, AuditAction.UPDATE, f"Правка порта «{iface.name}» с дашборда подключений{context}: {'; '.join(parts)}")
+        audit(
+            session,
+            "interfaces",
+            iface.id,
+            AuditAction.UPDATE,
+            f"Правка порта «{iface.name}» с дашборда подключений{context}: {'; '.join(parts)}",
+        )
     return bool(parts)
 
 

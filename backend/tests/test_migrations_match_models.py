@@ -14,8 +14,10 @@ SQLite: ограничения UNIQUE в сравнении пропускают
 их наличие проверяет `test_sqlite_model_uniqueness_exists_in_the_database` — по колонкам, а не по именам.
 
 Запуск: `pytest backend/tests/test_migrations_match_models.py` (SQLite);
-        INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/любая_база pytest backend/tests/test_migrations_match_models.py (PostgreSQL).
+        INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/любая_база pytest
+        backend/tests/test_migrations_match_models.py (PostgreSQL).
 """
+
 from __future__ import annotations
 
 import tempfile
@@ -88,11 +90,13 @@ def _assert_matches_whitelist(drift: set[str], expected: set[str]) -> None:
     problems = []
     if new:
         problems.append(
-            "Схема из миграций разошлась с models.py. Нужна миграция (alembic revision) или правка модели — НЕ дописывайте строки в EXPECTED_DRIFT:\n  "
-            + "\n  ".join(new)
+            "Схема из миграций разошлась с models.py. Нужна миграция (alembic revision) или правка модели — НЕ "
+            "дописывайте строки в EXPECTED_DRIFT:\n  " + "\n  ".join(new)
         )
     if fixed:
-        problems.append("Эти расхождения уже исправлены — удалите их из EXPECTED_DRIFT, чтобы страж не молчал о новых:\n  " + "\n  ".join(fixed))
+        problems.append(
+            "Эти расхождения уже исправлены — удалите их из EXPECTED_DRIFT, чтобы страж не молчал о новых:\n  " + "\n  ".join(fixed)
+        )
     assert not problems, "\n\n".join(problems)
 
 
@@ -107,6 +111,7 @@ def _models_copy() -> sa.MetaData:
 # ----------------------------------------------------------------------------------------------------------------------
 # Общие проверки (вызываются и на SQLite, и на PostgreSQL)
 # ----------------------------------------------------------------------------------------------------------------------
+
 
 def _check_guard(url: str, expected: set[str]) -> None:
     engine = sa.create_engine(url)
@@ -159,6 +164,7 @@ def _check_missing_indexes_are_created(url: str) -> None:
 # SQLite
 # ----------------------------------------------------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def sqlite_url():
     with tempfile.TemporaryDirectory() as directory:
@@ -181,7 +187,11 @@ def _uniqueness_declared_by_models(metadata: sa.MetaData) -> dict[str, set[froze
     """Таблица → наборы колонок, которые модели объявляют уникальными (UniqueConstraint, `unique=True`, unique-индексы)."""
     result: dict[str, set[frozenset[str]]] = {}
     for table in metadata.tables.values():
-        keys = {frozenset(column.name for column in constraint.columns) for constraint in table.constraints if isinstance(constraint, sa.UniqueConstraint)}
+        keys = {
+            frozenset(column.name for column in constraint.columns)
+            for constraint in table.constraints
+            if isinstance(constraint, sa.UniqueConstraint)
+        }
         keys |= {frozenset(column.name for column in index.columns) for index in table.indexes if index.unique}
         if keys:
             result[table.name] = keys
@@ -250,6 +260,7 @@ def test_the_index_migration_is_idempotent_on_sqlite():
 # ----------------------------------------------------------------------------------------------------------------------
 # PostgreSQL (INFRA_REGISTRY_TEST_DATABASE_URL)
 # ----------------------------------------------------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="module")
 def postgres_database():

@@ -6,6 +6,7 @@ test_migrations_isprotocol_catalog.py/test_migrations_open_ports_catalog.py.
 
 Запуск: pip install -r backend/requirements-dev.txt && pytest backend/tests/test_migrations_deployed_software.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -83,8 +84,8 @@ def _insert_device_software(conn: sqlite3.Connection, device_id: str, asset_id: 
     row_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO device_software (id, physical_device_id, software_asset_id, version, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO device_software (id, physical_device_id, software_asset_id, version, created_at, "
+        "updated_at) VALUES (?, ?, ?, ?, ?, ?)",
         (row_id, device_id, asset_id, version, now, now),
     )
     conn.commit()
@@ -95,8 +96,7 @@ def _insert_vm_software(conn: sqlite3.Connection, vm_id: str, asset_id: str, *, 
     row_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO vm_software (id, virtual_machine_id, software_asset_id, version, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO vm_software (id, virtual_machine_id, software_asset_id, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
         (row_id, vm_id, asset_id, version, now, now),
     )
     conn.commit()

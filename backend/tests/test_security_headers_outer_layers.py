@@ -1,9 +1,12 @@
 """
-A-04 (код-ревью main @ b375f58): заголовки безопасности на ответах, которые формируют внешние слои — 400 по Host, 403 по origin и клиенту, 413 по размеру тела.
+A-04 (код-ревью main @ b375f58): заголовки безопасности на ответах, которые формируют внешние слои — 400 по Host, 403 по origin и
+клиенту, 413 по размеру тела.
 
-Раньше заголовки (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Content-Security-Policy) ставил только auth_gate_middleware, добавленный в приложение
-первым, то есть самый внутренний: ответы, которые TrustedHost, SameOriginGuard, ClientAccess и BodySizeLimit отдают сами, до него не доходили. Теперь
-SecurityHeadersMiddleware — самый внешний слой (main.py, после install_http_security); setdefault не даёт дублей на ответах, где заголовки уже поставил шлюз.
+Раньше заголовки (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Content-Security-Policy) ставил только шлюз доступа
+(auth_gate_middleware), добавленный в приложение первым, то есть самый внутренний: ответы, которые TrustedHost, SameOriginGuard,
+ClientAccess и BodySizeLimit отдают сами, до него не доходили. Теперь
+SecurityHeadersMiddleware — самый внешний слой (main.py, после install_http_security) и единственный, кто их ставит: шлюз доступа
+(AuthGateMiddleware) заголовки не трогает (код-ревью С-5, Н-8).
 
 Запуск: pytest backend/tests/test_security_headers_outer_layers.py -v
 """
@@ -17,12 +20,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.datastructures import MutableHeaders
-from starlette.responses import JSONResponse
 
 from app.config import CSP_POLICY, MAX_REQUEST_BODY_BYTES
 from app.main import install_http_security
 from app.services.auth import security_headers
-from app.services.auth.security_headers import SecurityHeadersMiddleware, apply_security_headers, with_security_headers
+from app.services.auth.security_headers import SecurityHeadersMiddleware, apply_security_headers
 
 API = "/api/v1"
 BASIC = {"x-content-type-options": "nosniff", "x-frame-options": "DENY", "referrer-policy": "same-origin"}
@@ -82,7 +84,8 @@ class TestRealApplication:
 
 
 class TestDocumentationPages:
-    """Swagger UI и ReDoc грузят скрипты с CDN, поэтому CSP на них не ставится; базовые заголовки — как у всех (в настоящем приложении документация по умолчанию выключена)."""
+    """Swagger UI и ReDoc грузят скрипты с CDN, поэтому CSP на них не ставится; базовые заголовки — как у всех (в настоящем приложении
+    документация по умолчанию выключена)."""
 
     def test_openapi_json_gets_the_basic_headers_but_no_csp(self):
         app = FastAPI()
@@ -154,14 +157,6 @@ class TestApplySecurityHeaders:
         apply_security_headers(headers, "/")
 
         assert "content-security-policy" not in headers and headers["referrer-policy"] == "same-origin"
-
-    def test_with_security_headers_keeps_the_old_interface(self):
-        response = JSONResponse({"ok": True})
-
-        returned = with_security_headers(response, "/api/v1/health")
-
-        assert returned is response
-        assert response.headers["x-content-type-options"] == "nosniff" and response.headers["content-security-policy"] == CSP_POLICY
 
 
 class TestSecurityHeadersMiddleware:

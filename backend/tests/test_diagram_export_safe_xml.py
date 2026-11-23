@@ -8,6 +8,7 @@ register_namespace) осталась на стандартной библиот�
 Тесты вызывают функции постобработки пакета напрямую на собранных вручную zip-архивах: нужны только сами XML-части, а не
 полный экспорт с шаблоном Visio.
 """
+
 from __future__ import annotations
 
 import ast
@@ -27,12 +28,11 @@ VISIO_NS = "http://schemas.microsoft.com/office/visio/2012/main"
 
 # Взрыв сущностей («billion laughs» в миниатюре) и внешняя сущность (XXE): обе объявляют сущность в DTD.
 ENTITY_BOMB = (
-    b'<?xml version="1.0"?><!DOCTYPE lolz [<!ENTITY lol "lol"><!ENTITY lol2 "&lol;&lol;&lol;&lol;">]>'
-    b'<ns0:Pages xmlns:ns0="urn:x">&lol2;</ns0:Pages>'
+    b'<?xml version="1.0"?><!DOCTYPE lolz [<!ENTITY lol "lol"><!ENTITY lol2 '
+    b'"&lol;&lol;&lol;&lol;">]><ns0:Pages xmlns:ns0="urn:x">&lol2;</ns0:Pages>'
 )
 EXTERNAL_ENTITY = (
-    b'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/hostname">]>'
-    b'<ns0:Pages xmlns:ns0="urn:x">&x;</ns0:Pages>'
+    b'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/hostname">]><ns0:Pages xmlns:ns0="urn:x">&x;</ns0:Pages>'
 )
 HOSTILE_PARTS = [pytest.param(ENTITY_BOMB, id="entity-expansion"), pytest.param(EXTERNAL_ENTITY, id="external-entity")]
 
@@ -56,7 +56,10 @@ def _finalize_inputs(tmp_path: Path, page1: bytes, pages: bytes = b"<Pages/>") -
 
 
 ICON_RELS = b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'
-ICON_CONTENT_TYPES = b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>'
+ICON_CONTENT_TYPES = (
+    b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default '
+    b'Extension="xml" ContentType="application/xml"/></Types>'
+)
 PNG = b"\x89PNG\r\n\x1a\n-test-"
 
 
@@ -165,7 +168,11 @@ class TestNoUnsafeParsingInModule:
         assert {"ElementTree", "SubElement", "register_namespace"} <= used
 
     def test_import_is_annotated_for_bandit(self):
-        importing = [path for path in PACKAGE_FILES if re.search(r"^import xml\.etree\.ElementTree as ET\b", path.read_text(encoding="utf-8"), re.MULTILINE)]
+        importing = [
+            path
+            for path in PACKAGE_FILES
+            if re.search(r"^import xml\.etree\.ElementTree as ET\b", path.read_text(encoding="utf-8"), re.MULTILINE)
+        ]
         assert importing, "стандартный xml.etree больше нигде не импортируется — проверка записи/разбора устарела"
         for path in importing:
             source = path.read_text(encoding="utf-8")

@@ -5,6 +5,7 @@ GET /devices/{id}/subinterfaces (services/crud/subinterfaces.py).
 открытые порты хранятся с owner_type=device_subinterface, ключ subinterfaces — полный список (без
 ключа подинтерфейсы не трогаются), а удаление порта/подинтерфейса не оставляет «висячих» IP и портов.
 """
+
 from __future__ import annotations
 
 API = "/api/v1"
@@ -59,11 +60,26 @@ def test_port_with_subinterfaces_is_saved_with_ips_ports_and_flags(client):
     dev = _device(client, vlans=(v10, v20))
     ssh = _catalog_entry(client, 22, "SSH")
 
-    r = _sync(client, dev["id"], [_port("Gi0/0", subinterfaces=[
-        _sub("Gi0/0.10", v10, is_management=True, description="управление", ips=[{"ip_address": "10.0.10.1", "prefix_length": 24, "purpose": "шлюз"}],
-             open_ports=[{"protocol_catalog_id": ssh["id"], "transport_protocol": "TCP", "description": "админ"}]),
-        _sub("Gi0/0.20", v20, is_data_transfer=True, ips=[{"ip_address": "10.0.20.1", "prefix_length": 24}]),
-    ])])
+    r = _sync(
+        client,
+        dev["id"],
+        [
+            _port(
+                "Gi0/0",
+                subinterfaces=[
+                    _sub(
+                        "Gi0/0.10",
+                        v10,
+                        is_management=True,
+                        description="управление",
+                        ips=[{"ip_address": "10.0.10.1", "prefix_length": 24, "purpose": "шлюз"}],
+                        open_ports=[{"protocol_catalog_id": ssh["id"], "transport_protocol": "TCP", "description": "админ"}],
+                    ),
+                    _sub("Gi0/0.20", v20, is_data_transfer=True, ips=[{"ip_address": "10.0.20.1", "prefix_length": 24}]),
+                ],
+            )
+        ],
+    )
 
     assert r.status_code == 200, r.text
     (port,) = r.json()["items"]
@@ -71,7 +87,9 @@ def test_port_with_subinterfaces_is_saved_with_ips_ports_and_flags(client):
     assert set(subs) == {"Gi0/0.10", "Gi0/0.20"}
     mgmt = subs["Gi0/0.10"]
     assert (mgmt["vlan_id"], mgmt["is_management"], mgmt["is_data_transfer"], mgmt["description"]) == (v10["id"], True, False, "управление")
-    assert [(i["ip_address"], i["prefix_length"], i["purpose"], i["is_management"]) for i in mgmt["ips"]] == [("10.0.10.1", 24, "шлюз", True)]
+    assert [(i["ip_address"], i["prefix_length"], i["purpose"], i["is_management"]) for i in mgmt["ips"]] == [
+        ("10.0.10.1", 24, "шлюз", True)
+    ]
     assert [(p["protocol_catalog_id"], p["port"], p["description"]) for p in mgmt["open_ports"]] == [(ssh["id"], 22, "админ")]
     assert subs["Gi0/0.20"]["is_data_transfer"] is True and subs["Gi0/0.20"]["ips"][0]["is_management"] is False
     # порядок подинтерфейсов порта — по номеру VLAN
@@ -85,7 +103,9 @@ def test_port_with_subinterfaces_is_saved_with_ips_ports_and_flags(client):
 def test_subinterface_is_not_a_physical_port_and_uses_its_own_owner_type(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
-    r = _sync(client, dev["id"], [_port("Gi0/0", subinterfaces=[_sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}])])])
+    r = _sync(
+        client, dev["id"], [_port("Gi0/0", subinterfaces=[_sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}])])]
+    )
     assert r.status_code == 200, r.text
 
     ports = client.get(f"{API}/resources/interfaces", params={"physical_device_id": dev["id"], "limit": 1000}).json()["items"]
@@ -98,16 +118,45 @@ def test_resync_updates_in_place_adds_and_removes_without_orphans(client):
     v10, v20, v30 = _vlan(client, 10), _vlan(client, 20), _vlan(client, 30)
     dev = _device(client, vlans=(v10, v20, v30))
     ssh = _catalog_entry(client, 22, "SSH")
-    first = _sync(client, dev["id"], [_port("Gi0/0", subinterfaces=[
-        _sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}]),
-        _sub("Gi0/0.20", v20, ips=[{"ip_address": "10.0.20.1", "prefix_length": 24}]),
-    ])]).json()["items"][0]
+    first = _sync(
+        client,
+        dev["id"],
+        [
+            _port(
+                "Gi0/0",
+                subinterfaces=[
+                    _sub(
+                        "Gi0/0.10",
+                        v10,
+                        ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}],
+                        open_ports=[{"protocol_catalog_id": ssh["id"]}],
+                    ),
+                    _sub("Gi0/0.20", v20, ips=[{"ip_address": "10.0.20.1", "prefix_length": 24}]),
+                ],
+            )
+        ],
+    ).json()["items"][0]
     keep = _by_name(first["subinterfaces"])["Gi0/0.10"]
 
-    r = _sync(client, dev["id"], [_port("Gi0/0", id=first["id"], subinterfaces=[
-        {**_sub("Gi0/0.100", v10), "id": keep["id"], "ips": [{"id": keep["ips"][0]["id"], "ip_address": "10.0.10.254", "prefix_length": 24}], "open_ports": []},
-        _sub("Gi0/0.30", v30),
-    ])])
+    r = _sync(
+        client,
+        dev["id"],
+        [
+            _port(
+                "Gi0/0",
+                id=first["id"],
+                subinterfaces=[
+                    {
+                        **_sub("Gi0/0.100", v10),
+                        "id": keep["id"],
+                        "ips": [{"id": keep["ips"][0]["id"], "ip_address": "10.0.10.254", "prefix_length": 24}],
+                        "open_ports": [],
+                    },
+                    _sub("Gi0/0.30", v30),
+                ],
+            )
+        ],
+    )
 
     assert r.status_code == 200, r.text
     subs = _by_name(r.json()["items"][0]["subinterfaces"])
@@ -123,10 +172,14 @@ def test_resync_updates_in_place_adds_and_removes_without_orphans(client):
 def test_missing_subinterfaces_key_leaves_them_untouched_and_empty_list_removes_all(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
-    port = _sync(client, dev["id"], [_port("Gi0/0", subinterfaces=[_sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}])])]).json()["items"][0]
+    port = _sync(
+        client, dev["id"], [_port("Gi0/0", subinterfaces=[_sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}])])]
+    ).json()["items"][0]
 
     # ключа subinterfaces нет, а VLAN порта сохранены: PUT порта — полное состояние, без VLAN подинтерфейс остался бы без VLAN порта
-    kept = _sync(client, dev["id"], [_port("Gi0/0", id=port["id"], description="uplink", vlan_mode="trunk", all_vlans=True)]).json()["items"][0]
+    kept = _sync(client, dev["id"], [_port("Gi0/0", id=port["id"], description="uplink", vlan_mode="trunk", all_vlans=True)]).json()[
+        "items"
+    ][0]
     assert [s["name"] for s in kept["subinterfaces"]] == ["Gi0/0.10"]
     assert len(_poly(client, "ip-addresses", "device_subinterface")) == 1
 
@@ -143,10 +196,20 @@ def test_vlans_and_names_can_be_swapped_in_one_request(client):
     port = _sync(client, dev["id"], [_port("Gi0/0", subinterfaces=[_sub("a", v10), _sub("b", v20)])]).json()["items"][0]
     subs = _by_name(port["subinterfaces"])
 
-    r = _sync(client, dev["id"], [_port("Gi0/0", id=port["id"], subinterfaces=[
-        {**_sub("b", v10), "id": subs["a"]["id"]},
-        {**_sub("a", v20), "id": subs["b"]["id"]},
-    ])])
+    r = _sync(
+        client,
+        dev["id"],
+        [
+            _port(
+                "Gi0/0",
+                id=port["id"],
+                subinterfaces=[
+                    {**_sub("b", v10), "id": subs["a"]["id"]},
+                    {**_sub("a", v20), "id": subs["b"]["id"]},
+                ],
+            )
+        ],
+    )
 
     assert r.status_code == 200, r.text
     after = _by_name(r.json()["items"][0]["subinterfaces"])
@@ -195,9 +258,24 @@ def test_removing_a_port_removes_its_subinterfaces_ips_and_open_ports(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
     ssh = _catalog_entry(client, 22, "SSH")
-    port = _sync(client, dev["id"], [_port("Gi0/0", subinterfaces=[
-        _sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}], open_ports=[{"protocol_catalog_id": ssh["id"]}]),
-    ]), _port("Gi0/1")]).json()["items"][0]
+    port = _sync(
+        client,
+        dev["id"],
+        [
+            _port(
+                "Gi0/0",
+                subinterfaces=[
+                    _sub(
+                        "Gi0/0.10",
+                        v10,
+                        ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}],
+                        open_ports=[{"protocol_catalog_id": ssh["id"]}],
+                    ),
+                ],
+            ),
+            _port("Gi0/1"),
+        ],
+    ).json()["items"][0]
 
     r = _sync(client, dev["id"], [_port("Gi0/1")])
 
@@ -212,7 +290,9 @@ def test_removing_a_port_removes_its_subinterfaces_ips_and_open_ports(client):
 def test_generic_delete_of_a_port_removes_its_subinterfaces(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
-    port = _sync(client, dev["id"], [_port("Gi0/0", subinterfaces=[_sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}])])]).json()["items"][0]
+    port = _sync(
+        client, dev["id"], [_port("Gi0/0", subinterfaces=[_sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}])])]
+    ).json()["items"][0]
 
     r = client.delete(f"{API}/resources/interfaces/{port['id']}")
 
@@ -260,10 +340,19 @@ def test_device_list_shows_management_port_and_ip_from_a_management_subinterface
     как в отчётах; подинтерфейс без роли «Управление» и физические порты счётчик/управление не меняют."""
     v99, v10 = _vlan(client, 99), _vlan(client, 10)
     dev = _device(client, vlans=(v99, v10))
-    r = _sync(client, dev["id"], [_port("Gi0/0", subinterfaces=[
-        _sub("Gi0/0.99", v99, is_management=True, ips=[{"ip_address": "10.0.99.1", "prefix_length": 24}]),
-        _sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}]),
-    ])])
+    r = _sync(
+        client,
+        dev["id"],
+        [
+            _port(
+                "Gi0/0",
+                subinterfaces=[
+                    _sub("Gi0/0.99", v99, is_management=True, ips=[{"ip_address": "10.0.99.1", "prefix_length": 24}]),
+                    _sub("Gi0/0.10", v10, ips=[{"ip_address": "10.0.10.1", "prefix_length": 24}]),
+                ],
+            )
+        ],
+    )
     assert r.status_code == 200, r.text
 
     listed = next(d for d in client.get(f"{API}/resources/devices", params={"limit": 1000}).json()["items"] if d["id"] == dev["id"])
@@ -274,6 +363,7 @@ def test_device_list_shows_management_port_and_ip_from_a_management_subinterface
 
 
 # --- VLAN подинтерфейса — один из VLAN его порта (серверное правило, зеркало правила формы) ---------------------------
+
 
 def _vlan_ids_of(port_vlans: tuple[dict, ...]) -> list[str]:
     return [v["id"] for v in port_vlans]
@@ -304,7 +394,15 @@ def test_subinterface_on_one_of_the_selected_port_vlans_is_saved(client):
     v10, v20 = _vlan(client, 10), _vlan(client, 20)
     dev = _device(client, vlans=(v10, v20))
 
-    r = _sync(client, dev["id"], [_port("Gi0/0", vlan_mode="trunk", vlan_ids=_vlan_ids_of((v10, v20)), subinterfaces=[_sub("Gi0/0.10", v10), _sub("Gi0/0.20", v20)])])
+    r = _sync(
+        client,
+        dev["id"],
+        [
+            _port(
+                "Gi0/0", vlan_mode="trunk", vlan_ids=_vlan_ids_of((v10, v20)), subinterfaces=[_sub("Gi0/0.10", v10), _sub("Gi0/0.20", v20)]
+            )
+        ],
+    )
 
     assert r.status_code == 200, r.text
     assert {s["name"] for s in r.json()["items"][0]["subinterfaces"]} == {"Gi0/0.10", "Gi0/0.20"}
@@ -334,7 +432,9 @@ def test_all_vlans_port_follows_the_device_vlans(client):
 def test_removing_the_vlan_from_the_port_while_its_subinterface_stays_is_rejected(client):
     v10 = _vlan(client, 10)
     dev = _device(client, vlans=(v10,))
-    port = _sync(client, dev["id"], [_port("Gi0/0", vlan_mode="trunk", vlan_ids=_vlan_ids_of((v10,)), subinterfaces=[_sub("Gi0/0.10", v10)])]).json()["items"][0]
+    port = _sync(
+        client, dev["id"], [_port("Gi0/0", vlan_mode="trunk", vlan_ids=_vlan_ids_of((v10,)), subinterfaces=[_sub("Gi0/0.10", v10)])]
+    ).json()["items"][0]
 
     # VLAN с порта убран, подинтерфейс (ключ subinterfaces не прислан) остался на нём
     r = _sync(client, dev["id"], [_port("Gi0/0", id=port["id"], vlan_mode="trunk", vlan_ids=[])])
@@ -342,4 +442,3 @@ def test_removing_the_vlan_from_the_port_while_its_subinterface_stays_is_rejecte
     assert r.status_code == 422
     assert "не выбран на порту «Gi0/0»" in r.text
     assert [s["name"] for s in client.get(f"{API}/devices/{dev['id']}/subinterfaces").json()["items"]] == ["Gi0/0.10"]  # откат: данные целы
-

@@ -6,6 +6,7 @@
 
 Запуск: pytest backend/tests/test_migrations_group_subinterfaces.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -64,7 +65,8 @@ def _seed_group(conn: sqlite3.Connection) -> tuple[str, str]:
         (dev_id, device_type_id, dev_id[:12], _now(), _now()),
     )
     conn.execute(
-        "INSERT INTO interface_groups (id, physical_device_id, name, vlan_mode, all_vlans, manage_open_ports, created_at, updated_at) VALUES (?, ?, 'Серверные', 'trunk', 0, 0, ?, ?)",
+        "INSERT INTO interface_groups (id, physical_device_id, name, vlan_mode, all_vlans, manage_open_ports, "
+        "created_at, updated_at) VALUES (?, ?, 'Серверные', 'trunk', 0, 0, ?, ?)",
         (group_id, dev_id, _now(), _now()),
     )
     conn.execute("INSERT INTO vlans (id, vlan_id, name, created_at, updated_at) VALUES (?, 10, 'VLAN 10', ?, ?)", (vlan_id, _now(), _now()))
@@ -77,15 +79,18 @@ def _seed_template(conn: sqlite3.Connection, group_id: str, vlan_id: str) -> Non
     sub_id = _uid()
     catalog_id = conn.execute("SELECT id FROM protocol_port_catalogs LIMIT 1").fetchone()[0]
     conn.execute(
-        "INSERT INTO interface_group_subinterfaces (id, group_id, vlan_id, is_management, is_data_transfer, created_at, updated_at) VALUES (?, ?, ?, 0, 1, ?, ?)",
+        "INSERT INTO interface_group_subinterfaces (id, group_id, vlan_id, is_management, is_data_transfer, "
+        "created_at, updated_at) VALUES (?, ?, ?, 0, 1, ?, ?)",
         (sub_id, group_id, vlan_id, _now(), _now()),
     )
     conn.execute(
-        "INSERT INTO interface_group_subinterface_ips (id, subinterface_id, ip_address, prefix_length, created_at, updated_at) VALUES (?, ?, '10.0.10.1', 24, ?, ?)",
+        "INSERT INTO interface_group_subinterface_ips (id, subinterface_id, ip_address, prefix_length, created_at, "
+        "updated_at) VALUES (?, ?, '10.0.10.1', 24, ?, ?)",
         (_uid(), sub_id, _now(), _now()),
     )
     conn.execute(
-        "INSERT INTO interface_group_subinterface_open_ports (id, subinterface_id, protocol_catalog_id, transport_protocol, created_at, updated_at) VALUES (?, ?, ?, 'TCP', ?, ?)",
+        "INSERT INTO interface_group_subinterface_open_ports (id, subinterface_id, protocol_catalog_id, "
+        "transport_protocol, created_at, updated_at) VALUES (?, ?, ?, 'TCP', ?, ?)",
         (_uid(), sub_id, catalog_id, _now(), _now()),
     )
     conn.commit()

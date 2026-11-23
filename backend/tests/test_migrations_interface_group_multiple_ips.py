@@ -6,6 +6,7 @@ upgrade() переносит единственный IP каждой групп
 
 Запуск: pytest backend/tests/test_migrations_interface_group_multiple_ips.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -60,12 +61,13 @@ def _insert_groups(conn: sqlite3.Connection) -> dict[str, str]:
     )
     ids = {"С IP": _uid(), "Без IP": _uid()}
     conn.execute(
-        "INSERT INTO interface_groups (id, physical_device_id, name, ip_address, prefix_length, ip_purpose, manage_open_ports, created_at, updated_at) "
-        "VALUES (?, ?, 'С IP', '10.0.0.5', 24, 'Управление', 0, ?, ?)",
+        "INSERT INTO interface_groups (id, physical_device_id, name, ip_address, prefix_length, ip_purpose, "
+        "manage_open_ports, created_at, updated_at) VALUES (?, ?, 'С IP', '10.0.0.5', 24, 'Управление', 0, ?, ?)",
         (ids["С IP"], dev_id, _NOW, _NOW),
     )
     conn.execute(
-        "INSERT INTO interface_groups (id, physical_device_id, name, manage_open_ports, created_at, updated_at) VALUES (?, ?, 'Без IP', 0, ?, ?)",
+        "INSERT INTO interface_groups (id, physical_device_id, name, manage_open_ports, created_at, "
+        "updated_at) VALUES (?, ?, 'Без IP', 0, ?, ?)",
         (ids["Без IP"], dev_id, _NOW, _NOW),
     )
     conn.commit()
@@ -98,7 +100,8 @@ def test_downgrade_restores_columns_with_first_ip_of_each_group(alembic_config):
     command.upgrade(cfg, MULTIPLE_IPS_REV)
     conn = _connect(db_path)
     conn.execute(
-        "INSERT INTO interface_group_ips (id, group_id, ip_address, prefix_length, purpose, created_at, updated_at) VALUES (?, ?, '10.0.1.5', 24, 'Данные', '2099-01-01 00:00:00', '2099-01-01 00:00:00')",
+        "INSERT INTO interface_group_ips (id, group_id, ip_address, prefix_length, purpose, created_at, updated_at) "
+        "VALUES (?, ?, '10.0.1.5', 24, 'Данные', '2099-01-01 00:00:00', '2099-01-01 00:00:00')",
         (_uid(), ids["С IP"]),
     )
     conn.commit()
@@ -108,7 +111,10 @@ def test_downgrade_restores_columns_with_first_ip_of_each_group(alembic_config):
 
     conn = _connect(db_path)
     assert {"ip_address", "prefix_length", "ip_purpose"} <= _columns(conn, "interface_groups")
-    got = {r["name"]: (r["ip_address"], r["prefix_length"], r["ip_purpose"]) for r in conn.execute("SELECT name, ip_address, prefix_length, ip_purpose FROM interface_groups")}
+    got = {
+        r["name"]: (r["ip_address"], r["prefix_length"], r["ip_purpose"])
+        for r in conn.execute("SELECT name, ip_address, prefix_length, ip_purpose FROM interface_groups")
+    }
     assert got == {"С IP": ("10.0.0.5", 24, "Управление"), "Без IP": (None, None, None)}  # второй адрес в старой схеме негде хранить
     assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'interface_group_ips'").fetchone() is None
     conn.close()
@@ -160,8 +166,9 @@ def test_upgrade_does_not_duplicate_ips_when_table_exists_but_columns_remain(ale
     command.downgrade(cfg, PRE_REVISION)  # колонки вернулись с первым адресом
     conn = _connect(db_path)
     conn.execute(
-        "CREATE TABLE interface_group_ips (id VARCHAR(36) PRIMARY KEY, group_id VARCHAR(36) NOT NULL REFERENCES interface_groups(id) ON DELETE CASCADE, "
-        "ip_address VARCHAR(64) NOT NULL, prefix_length INTEGER, purpose VARCHAR(255), created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)"
+        "CREATE TABLE interface_group_ips (id VARCHAR(36) PRIMARY KEY, group_id VARCHAR(36) NOT NULL REFERENCES "
+        "interface_groups(id) ON DELETE CASCADE, ip_address VARCHAR(64) NOT NULL, prefix_length INTEGER, purpose "
+        "VARCHAR(255), created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)"
     )
     conn.execute("INSERT INTO interface_group_ips VALUES (?, ?, '10.0.0.5', 24, 'Управление', ?, ?)", (_uid(), ids["С IP"], _NOW, _NOW))
     conn.commit()

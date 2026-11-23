@@ -6,8 +6,10 @@ Pydantic-схемы есть только у devices / information-systems / vla
 дошедший до драйвера, превращается в 422 без текста драйвера.
 
 Запуск: pytest backend/tests/test_column_types_validation.py -v
-На PostgreSQL: INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/infra_test pytest backend/tests/test_column_types_validation.py
+На PostgreSQL: INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/infra_test pytest
+backend/tests/test_column_types_validation.py
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -192,7 +194,10 @@ class TestSchemaResources:
     def test_device_with_valid_date_is_accepted_after_pydantic_conversion(self, client):
         category = client.get(f"{API}/device-categories").json()["items"][0]
         device_type = client.post(f"{API}/device-types", json={"name": "Тип А-09 дата", "category_id": category["id"]}).json()
-        created = client.post(f"{API}/devices", json={"device_type_id": device_type["id"], "serial_number": "A09-D1", "oac_certificate_registry_date": "2026-10-19"})
+        created = client.post(
+            f"{API}/devices",
+            json={"device_type_id": device_type["id"], "serial_number": "A09-D1", "oac_certificate_registry_date": "2026-10-19"},
+        )
         assert created.status_code == 201, created.text
         assert created.json()["oac_certificate_registry_date"] == "2026-10-19"
 
@@ -200,7 +205,9 @@ class TestSchemaResources:
     def test_device_with_bad_date_is_422(self, client, value):
         category = client.get(f"{API}/device-categories").json()["items"][0]
         device_type = client.post(f"{API}/device-types", json={"name": "Тип А-09 дата 2", "category_id": category["id"]}).json()
-        response = client.post(f"{API}/devices", json={"device_type_id": device_type["id"], "serial_number": "A09-D2", "oac_certificate_registry_date": value})
+        response = client.post(
+            f"{API}/devices", json={"device_type_id": device_type["id"], "serial_number": "A09-D2", "oac_certificate_registry_date": value}
+        )
         assert response.status_code == 422, response.text
 
 
@@ -225,7 +232,9 @@ class TestValidateColumnTypes:
     def test_all_errors_are_reported_together_with_field_names(self):
         message = self._errors("racks", {"name": {"a": 1}, "height_u": "42", "room_id": 7})
         assert message.startswith("Ошибка валидации: ")
-        assert all(fragment in message for fragment in ("name: ожидается строка", "height_u: ожидается целое число", "room_id: ожидается строка"))
+        assert all(
+            fragment in message for fragment in ("name: ожидается строка", "height_u: ожидается целое число", "room_id: ожидается строка")
+        )
         assert message.count(";") == 2
 
     def test_keys_that_are_not_columns_are_ignored(self):
@@ -279,7 +288,11 @@ class TestDataErrorHandler:
 
         @app.post("/boom")
         def boom():
-            raise DataError("INSERT INTO secret_table …", {"p": "secret value"}, Exception("value too long for type character varying(255) secret_table"))
+            raise DataError(
+                "INSERT INTO secret_table …",
+                {"p": "secret value"},
+                Exception("value too long for type character varying(255) secret_table"),
+            )
 
         response = TestClient(app).post("/boom")
         assert response.status_code == 422

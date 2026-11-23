@@ -6,6 +6,7 @@ tests/test_port_sync_rules.py: там нарушения проверяются 
 `null`, частичное обновление поверх `base`. Тесты написаны на прежнем коде и проходят без правок
 после рефакторинга. Запуск: pytest backend/tests/test_rule_from_payload_behaviour.py -v
 """
+
 from __future__ import annotations
 
 from types import MappingProxyType
@@ -40,9 +41,19 @@ def _rejected(payload, *, base: RuleSpec | None = None) -> str:
 @pytest.fixture()
 def base() -> RuleSpec:
     return RuleSpec(
-        name="Базовое", action="manual", description="было", enabled=False, priority=7,
-        target=Side(mode="trunk", vlans="set"), source=Side(mode="access"), relation=Side(vlans="differs"),
-        apply_role=True, apply_mode=False, vlan_policy="copy", code="custom_code", id="rule-1",
+        name="Базовое",
+        action="manual",
+        description="было",
+        enabled=False,
+        priority=7,
+        target=Side(mode="trunk", vlans="set"),
+        source=Side(mode="access"),
+        relation=Side(vlans="differs"),
+        apply_role=True,
+        apply_mode=False,
+        vlan_policy="copy",
+        code="custom_code",
+        id="rule-1",
     )
 
 
@@ -124,12 +135,16 @@ class TestSides:
         assert updated.source == Side(mode="access")
         assert updated.relation == Side(mode="same", vlans="differs")
 
-    @pytest.mark.parametrize(("key", "label"), [("target", "Условия целевого порта"), ("source", "Условия порта-источника"), ("relation", "Отношение портов")])
+    @pytest.mark.parametrize(
+        ("key", "label"), [("target", "Условия целевого порта"), ("source", "Условия порта-источника"), ("relation", "Отношение портов")]
+    )
     @pytest.mark.parametrize("raw", ["trunk", 5, ["role"], True])
     def test_side_must_be_an_object(self, key, label, raw):
         assert _rejected(_payload(**{key: raw})) == f"{label} должно быть объектом"
 
-    @pytest.mark.parametrize(("key", "label"), [("target", "Условия целевого порта"), ("source", "Условия порта-источника"), ("relation", "Отношение портов")])
+    @pytest.mark.parametrize(
+        ("key", "label"), [("target", "Условия целевого порта"), ("source", "Условия порта-источника"), ("relation", "Отношение портов")]
+    )
     def test_unknown_fields_are_listed_sorted(self, key, label):
         assert _rejected(_payload(**{key: {"size": 1, "colour": "red", "mode": "any"}})) == f"{label}: неизвестные поля — colour, size"
 
@@ -140,7 +155,9 @@ class TestSides:
         # у отношения словарь другой: any / same / differs — и «same» недопустимо в условии на порт
         assert _rejected(_payload(target={"mode": "same"})) == "Условия целевого порта.mode: допустимые значения — any, access, trunk"
         assert _rejected(_payload(relation={"role": "set"})) == "Отношение портов.role: допустимые значения — any, same, differs"
-        assert rule_from_payload(_payload(relation={"role": "same", "mode": "differs", "vlans": "same"})).relation == Side("same", "differs", "same")
+        assert rule_from_payload(_payload(relation={"role": "same", "mode": "differs", "vlans": "same"})).relation == Side(
+            "same", "differs", "same"
+        )
 
     def test_non_string_values_are_rejected_as_not_allowed(self):
         assert _rejected(_payload(target={"role": 5})).startswith("Условия целевого порта.role: допустимые значения")
@@ -189,7 +206,10 @@ class TestCrossFieldRules:
 
     @pytest.mark.parametrize("apply", [{"role": True}, {"mode": True}, {"role": True, "mode": True}])
     def test_union_does_not_combine_with_role_or_mode_change(self, apply):
-        message = "Политика VLAN «объединить» меняет оба порта сразу и не сочетается со сменой роли или режима: их порт берёт у соседа, а не оба сразу"
+        message = (
+            "Политика VLAN «объединить» меняет оба порта сразу и не сочетается со сменой роли или режима: их "
+            "порт берёт у соседа, а не оба сразу"
+        )
         assert _rejected(_payload(apply={"vlans": "union", **apply})) == message
 
     def test_union_alone_is_fine(self):
@@ -216,25 +236,28 @@ class TestCrossFieldRules:
 class TestCheckOrder:
     """При нескольких нарушениях сообщение берётся у первого по порядку проверок."""
 
-    @pytest.mark.parametrize(("payload", "fragment"), [
-        ({"name": "", "description": 5, "enabled": "да", "priority": "1", "action": "x"}, "Название правила обязательно"),
-        ({"name": "Н", "description": 5, "enabled": "да", "priority": "1", "action": "x"}, "Описание должно быть строкой"),
-        ({"name": "Н", "enabled": "да", "priority": "1", "action": "x"}, "Поле enabled"),
-        ({"name": "Н", "priority": "1", "action": "x", "target": "t"}, "Приоритет"),
-        ({"name": "Н", "action": "x", "target": "t", "apply": "a"}, "Действие"),
-        ({"name": "Н", "target": "t", "source": "s", "relation": "r", "apply": "a"}, "Условия целевого порта должно быть объектом"),
-        ({"name": "Н", "target": {"role": "boss"}, "source": "s", "apply": "a"}, "Условия целевого порта.role"),
-        ({"name": "Н", "source": "s", "relation": "r", "apply": "a"}, "Условия порта-источника должно быть объектом"),
-        ({"name": "Н", "relation": "r", "apply": "a"}, "Отношение портов должно быть объектом"),
-        ({"name": "Н", "relation": {"mode": "x"}, "apply": "a"}, "Отношение портов.mode"),
-        ({"name": "Н", "apply": "a"}, "Поле apply должно быть объектом"),
-        ({"name": "Н", "apply": {"speed": 1, "role": "x", "mode": "x", "vlans": "x"}}, "apply: неизвестные поля"),
-        ({"name": "Н", "apply": {"role": "x", "mode": "x", "vlans": "x"}}, "apply.role"),
-        ({"name": "Н", "apply": {"mode": "x", "vlans": "x"}}, "apply.mode"),
-        ({"name": "Н", "apply": {"vlans": "x"}}, "apply.vlans"),
-        ({"name": "Н", "apply": {"vlans": "adapt"}}, "по режиму"),
-        ({"name": "Н", "apply": {"vlans": "union", "role": True}}, "не сочетается"),
-    ])
+    @pytest.mark.parametrize(
+        ("payload", "fragment"),
+        [
+            ({"name": "", "description": 5, "enabled": "да", "priority": "1", "action": "x"}, "Название правила обязательно"),
+            ({"name": "Н", "description": 5, "enabled": "да", "priority": "1", "action": "x"}, "Описание должно быть строкой"),
+            ({"name": "Н", "enabled": "да", "priority": "1", "action": "x"}, "Поле enabled"),
+            ({"name": "Н", "priority": "1", "action": "x", "target": "t"}, "Приоритет"),
+            ({"name": "Н", "action": "x", "target": "t", "apply": "a"}, "Действие"),
+            ({"name": "Н", "target": "t", "source": "s", "relation": "r", "apply": "a"}, "Условия целевого порта должно быть объектом"),
+            ({"name": "Н", "target": {"role": "boss"}, "source": "s", "apply": "a"}, "Условия целевого порта.role"),
+            ({"name": "Н", "source": "s", "relation": "r", "apply": "a"}, "Условия порта-источника должно быть объектом"),
+            ({"name": "Н", "relation": "r", "apply": "a"}, "Отношение портов должно быть объектом"),
+            ({"name": "Н", "relation": {"mode": "x"}, "apply": "a"}, "Отношение портов.mode"),
+            ({"name": "Н", "apply": "a"}, "Поле apply должно быть объектом"),
+            ({"name": "Н", "apply": {"speed": 1, "role": "x", "mode": "x", "vlans": "x"}}, "apply: неизвестные поля"),
+            ({"name": "Н", "apply": {"role": "x", "mode": "x", "vlans": "x"}}, "apply.role"),
+            ({"name": "Н", "apply": {"mode": "x", "vlans": "x"}}, "apply.mode"),
+            ({"name": "Н", "apply": {"vlans": "x"}}, "apply.vlans"),
+            ({"name": "Н", "apply": {"vlans": "adapt"}}, "по режиму"),
+            ({"name": "Н", "apply": {"vlans": "union", "role": True}}, "не сочетается"),
+        ],
+    )
     def test_first_violated_rule_wins(self, payload, fragment):
         assert fragment in _rejected(payload)
 
@@ -252,13 +275,29 @@ class TestResult:
         assert updated.target == original.target and updated.apply_mode == original.apply_mode
 
     def test_full_payload_is_assembled_into_every_field(self):
-        rule = rule_from_payload({
-            "name": " Полное ", "description": "д", "enabled": False, "priority": -3, "action": "auto",
-            "target": {"role": "any", "mode": "trunk", "vlans": "none"}, "source": {"mode": "access", "vlans": "set"},
-            "relation": {"role": "same", "mode": "differs", "vlans": "any"}, "apply": {"role": True, "mode": True, "vlans": "adapt"},
-        })
+        rule = rule_from_payload(
+            {
+                "name": " Полное ",
+                "description": "д",
+                "enabled": False,
+                "priority": -3,
+                "action": "auto",
+                "target": {"role": "any", "mode": "trunk", "vlans": "none"},
+                "source": {"mode": "access", "vlans": "set"},
+                "relation": {"role": "same", "mode": "differs", "vlans": "any"},
+                "apply": {"role": True, "mode": True, "vlans": "adapt"},
+            }
+        )
         assert rule == RuleSpec(
-            name="Полное", description="д", enabled=False, priority=-3, action="auto",
-            target=Side(mode="trunk", vlans="none"), source=Side(mode="access", vlans="set"), relation=Side("same", "differs", "any"),
-            apply_role=True, apply_mode=True, vlan_policy="adapt",
+            name="Полное",
+            description="д",
+            enabled=False,
+            priority=-3,
+            action="auto",
+            target=Side(mode="trunk", vlans="none"),
+            source=Side(mode="access", vlans="set"),
+            relation=Side("same", "differs", "any"),
+            apply_role=True,
+            apply_mode=True,
+            vlan_policy="adapt",
         )

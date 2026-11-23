@@ -1,9 +1,11 @@
 """
 A-06 (код-ревью main @ b375f58): управление дочерним процессом в services/vsdx_process.py на поддельном процессе и канале.
 
-Настоящий процесс покрытием не виден (тело `_render_worker` выполняется в другом процессе), а аварийные ветви — «процесс не завершился сам», «процесс не запустился»,
-«процесс умер без результата» — реальным запуском не воспроизвести надёжно, поэтому здесь `multiprocessing.get_context("spawn")` подменён: проверяется порядок действий —
-join → terminate → join → kill → join, закрытие обоих концов канала при сбое запуска, текст ошибки с кодом выхода, kill по таймауту.
+Настоящий процесс покрытием не виден (тело `_render_worker` выполняется в другом процессе), а аварийные ветви — «процесс не завершился сам»,
+«процесс не запустился», «процесс умер без результата» — реальным запуском не воспроизвести надёжно, поэтому здесь
+`multiprocessing.get_context("spawn")` подменён:
+проверяется порядок действий — join → terminate → join → kill → join, закрытие обоих концов канала при сбое запуска, текст ошибки с кодом
+выхода, kill по таймауту.
 
 Запуск: pytest backend/tests/test_vsdx_process_control_flow.py -v
 """
@@ -84,7 +86,11 @@ class _FakeContext:
 def wire(monkeypatch):
     def install(process: _FakeProcess, receiver: _FakeEnd, sender: _FakeEnd | None = None) -> _FakeContext:
         context = _FakeContext(process, receiver, sender or _FakeEnd())
-        monkeypatch.setattr(vsdx_process.multiprocessing, "get_context", lambda method: context if method == "spawn" else pytest.fail(f"запуск не через spawn: {method}"))
+        monkeypatch.setattr(
+            vsdx_process.multiprocessing,
+            "get_context",
+            lambda method: context if method == "spawn" else pytest.fail(f"запуск не через spawn: {method}"),
+        )
         return context
 
     return install

@@ -1,8 +1,10 @@
 """
 Тесты миграции d6c1a8f3e594 — таблица настроек аудита `audit_settings` (срок хранения журнала), A-05 код-ревью main @ b375f58.
 
-Миграция только добавляет таблицу: строку настроек не создаёт (без неё действует «не удалять»), в audit_log ничего не меняет. Сценарии одинаковы для SQLite
-(файл-БД, sqlite_only) и PostgreSQL (временная база из INFRA_REGISTRY_TEST_DATABASE_URL, postgres_only) — фикстура `database` та же, что у тестов e3b7a15c9d42.
+Миграция только добавляет таблицу: строку настроек не создаёт (без неё действует «не удалять»), в audit_log ничего не меняет.
+Сценарии одинаковы для SQLite (файл-БД, sqlite_only) и PostgreSQL (временная база из INFRA_REGISTRY_TEST_DATABASE_URL,
+postgres_only) — фикстура `database` та
+же, что у тестов e3b7a15c9d42.
 
 Запуск: pytest backend/tests/test_migrations_audit_settings.py -v
 """
@@ -57,10 +59,13 @@ def _insert_settings(db: Database, **values) -> None:
         )
 
 
-def test_the_migration_continues_the_single_chain_and_is_the_head():
+def test_the_migration_continues_the_single_chain():
+    """Миграция продолжает цепочку, а сама цепочка остаётся линейной (одна голова). Позже в неё добавляются новые миграции, поэтому
+    «голова» — не эта ревизия: проверяется, что она лежит на пути к голове."""
     script = ScriptDirectory.from_config(alembic_config())
     assert script.get_revision(TARGET_REVISION).down_revision == PRE_REVISION
-    assert script.get_heads() == [TARGET_REVISION]
+    (head,) = script.get_heads()
+    assert TARGET_REVISION in {revision.revision for revision in script.iterate_revisions(head, PRE_REVISION)}
 
 
 def test_upgrade_creates_an_empty_settings_table_and_keeps_the_audit_log(database):
@@ -77,7 +82,9 @@ def test_upgrade_creates_an_empty_settings_table_and_keeps_the_audit_log(databas
     assert set(columns) == {"id", "retention_days", "last_cleanup_at", "updated_at"}
     assert columns["retention_days"]["nullable"] and columns["last_cleanup_at"]["nullable"] and not columns["updated_at"]["nullable"]
     with database.engine.connect() as connection:
-        assert connection.execute(sa.text(f"SELECT count(*) FROM {TABLE}")).scalar_one() == 0, "строку настроек создаёт приложение, а не миграция"
+        assert connection.execute(sa.text(f"SELECT count(*) FROM {TABLE}")).scalar_one() == 0, (
+            "строку настроек создаёт приложение, а не миграция"
+        )
     assert _audit_entries(database) == 3, "записи журнала не тронуты"
 
 
@@ -112,10 +119,16 @@ def test_upgrade_after_downgrade_creates_the_table_again(database):
 
 
 def test_upgrade_skips_a_table_that_already_exists(database):
-    """Идемпотентность: база создана по моделям (таблица уже есть) или ревизию запускают повторно — готовая таблица и её данные не трогаются."""
+    """Идемпотентность: база создана по моделям (таблица уже есть) или ревизию запускают повторно — готовая таблица и её данные не
+    трогаются."""
     database.migrate(PRE_REVISION)
     with database.engine.begin() as connection:
-        connection.execute(sa.text(f"CREATE TABLE {TABLE} (id VARCHAR(20) PRIMARY KEY, retention_days INTEGER, last_cleanup_at TIMESTAMP, updated_at TIMESTAMP NOT NULL)"))
+        connection.execute(
+            sa.text(
+                f"CREATE TABLE {TABLE} (id VARCHAR(20) PRIMARY KEY, retention_days INTEGER, last_cleanup_at "
+                "TIMESTAMP, updated_at TIMESTAMP NOT NULL)"
+            )
+        )
     _insert_settings(database, retention_days=30)
 
     database.migrate(TARGET_REVISION)

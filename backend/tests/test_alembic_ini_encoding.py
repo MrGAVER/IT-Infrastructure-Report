@@ -1,9 +1,12 @@
 """backend/alembic.ini читается в локальной кодировке системы, а не в UTF-8 (EXE на не-русской Windows).
 
-`alembic.config.Config` читает ini через `configparser`, а `alembic/env.py` — через `logging.config.fileConfig`; ни тот ни другой не принимает кодировку,
-поэтому оба берут кодировку системы (locale.getpreferredencoding). На английской Windows это cp1252, и кириллица в комментариях ini (UTF-8) давала
-`UnicodeDecodeError: 'charmap' codec can't decode byte 0x8f` на первой же миграции: EXE не запускался (нашёл smoke-запуск EXE на windows-latest). На русской
-Windows cp1251 такие байты читает, поэтому у разработчиков ошибка не воспроизводилась. Файл должен быть только ASCII.
+`alembic.config.Config` читает ini через `configparser`, а `alembic/env.py` — через `logging.config.fileConfig`; ни тот ни другой
+не принимает кодировку, поэтому оба берут кодировку системы (locale.getpreferredencoding). На английской Windows это cp1252, и
+кириллица в комментариях
+ini (UTF-8) давала
+`UnicodeDecodeError: 'charmap' codec can't decode byte 0x8f` на первой же миграции: EXE не запускался (нашёл smoke-запуск EXE на
+windows-latest). На русской Windows cp1251 такие байты читает, поэтому у разработчиков ошибка не воспроизводилась. Файл должен
+быть только ASCII.
 
 Запуск: pytest backend/tests/test_alembic_ini_encoding.py -v
 """
@@ -18,7 +21,8 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parent.parent
 INI = BACKEND / "alembic.ini"
 
-# Python без UTF-8-режима в локали C кодирует и декодирует файлы как ASCII: тот же отказ, что cp1252 на английской Windows, но воспроизводится на Linux.
+# Python без UTF-8-режима в локали C кодирует и декодирует файлы как ASCII: тот же отказ, что cp1252 на английской Windows, но
+# воспроизводится на Linux.
 NARROW_LOCALE = {"LC_ALL": "C", "LANG": "C", "PYTHONUTF8": "0", "PYTHONCOERCECLOCALE": "0", "PYTHONIOENCODING": "ascii"}
 
 PROBE = """

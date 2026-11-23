@@ -22,12 +22,27 @@ from app.services.diagram_icons import SHAPE_GLYPHS
 SOURCE = Path(diagram_icons.__file__)
 TARGET_LINE_LENGTH = 140
 
-# Разметка глифов на момент ревью (до разбивки): первые 16 символов sha256 каждого глифа. Это снимок: осознанно меняете значок — обновите хеш.
-EXPECTED_GLYPH_HASHES = {"server": "7d637f251abfe93b", "switch_l2": "420dce3b9ee5e796", "switch_l3": "f9cd35c6dbbdd219", "router": "47d7ed11f492f813", "firewall": "b190ec4bebc933bf", "workstation": "7ffed08cc10121af", "peripheral": "32873f068955158a", "generic": "e29e2b4fd2f21879", "switch": "420dce3b9ee5e796"}
+# Разметка глифов на момент ревью (до разбивки): первые 16 символов sha256 каждого глифа. Это снимок: осознанно меняете значок —
+# обновите хеш.
+EXPECTED_GLYPH_HASHES = {
+    "server": "7d637f251abfe93b",
+    "switch_l2": "420dce3b9ee5e796",
+    "switch_l3": "f9cd35c6dbbdd219",
+    "router": "47d7ed11f492f813",
+    "firewall": "b190ec4bebc933bf",
+    "workstation": "7ffed08cc10121af",
+    "peripheral": "32873f068955158a",
+    "generic": "e29e2b4fd2f21879",
+    "switch": "420dce3b9ee5e796",
+}
 
 
 def test_no_line_in_diagram_icons_is_longer_than_the_target_line_length():
-    too_long = [(number, len(line)) for number, line in enumerate(SOURCE.read_text(encoding="utf-8").splitlines(), 1) if len(line) > TARGET_LINE_LENGTH]
+    too_long = [
+        (number, len(line))
+        for number, line in enumerate(SOURCE.read_text(encoding="utf-8").splitlines(), 1)
+        if len(line) > TARGET_LINE_LENGTH
+    ]
     assert too_long == [], f"строки длиннее {TARGET_LINE_LENGTH} символов (номер, длина): {too_long}"
 
 
@@ -46,7 +61,11 @@ def test_every_glyph_literal_is_split_into_short_pieces():
     lines = source.splitlines()
     first = next(number for number, line in enumerate(lines, 1) if line.startswith("SHAPE_GLYPHS: dict"))
     last = next(number for number, line in enumerate(lines, 1) if number > first and line.startswith("# fmt: on"))
-    pieces = [token.string for token in tokenize.generate_tokens(io.StringIO(source).readline) if token.type == tokenize.STRING and first <= token.start[0] <= last]
+    pieces = [
+        token.string
+        for token in tokenize.generate_tokens(io.StringIO(source).readline)
+        if token.type == tokenize.STRING and first <= token.start[0] <= last
+    ]
     markup = [piece for piece in pieces if piece.startswith("'<")]
     assert len(markup) > len(SHAPE_GLYPHS), "каждый глиф должен состоять минимум из одного литерала, а большинство — из нескольких"
     assert max(len(piece) for piece in markup) <= 120 + 2  # плюс две кавычки

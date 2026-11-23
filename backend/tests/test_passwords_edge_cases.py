@@ -1,9 +1,12 @@
 """
-A-06 (код-ревью main @ b375f58): граничные случаи services/auth/passwords.py — чужой алгоритм, повреждённый хэш, мусор в needs_rehash, правила стойкости пароля.
+A-06 (код-ревью main @ b375f58): граничные случаи services/auth/passwords.py — чужой алгоритм, повреждённый хэш, мусор в
+needs_rehash, правила стойкости пароля.
 
-Контракт verify_password: хэш из БД может быть чужим или повреждённым (ручная правка, импорт, обрыв записи) — тогда это «пароль не подошёл» (False), а не необработанное
-исключение, которое на экране входа превратилось бы в 500. Раньше так вели себя чужой алгоритм и мусор в соли/хэше, но не нулевое, отрицательное и непомерное число итераций:
-hashlib.pbkdf2_hmac бросал ValueError/OverflowError за пределами try. Теперь вычисление под защитой.
+Контракт verify_password: хэш из БД может быть чужим или повреждённым (ручная правка, импорт, обрыв записи) — тогда это «пароль не подошёл»
+(False), а не необработанное исключение, которое на экране входа превратилось бы в 500. Раньше так вели себя чужой алгоритм и мусор в
+соли/хэше, но не нулевое,
+отрицательное и непомерное число итераций: hashlib.pbkdf2_hmac бросал ValueError/OverflowError за пределами try. Теперь вычисление под
+защитой.
 
 Запуск: pytest backend/tests/test_passwords_edge_cases.py -v
 """
@@ -23,7 +26,8 @@ _SALT, _DIGEST = "c2FsdA==", "ZGlnZXN0"
 
 
 def _current_iterations() -> int:
-    """Число итераций читается с модуля при вызове: conftest.py на время теста снижает его до 1000 (иначе каждый hash_password считал бы 600 000)."""
+    """Число итераций читается с модуля при вызове: conftest.py на время теста снижает его до 1000 (иначе каждый hash_password
+    считал бы 600 000)."""
     return passwords.PBKDF2_ITERATIONS
 
 
@@ -53,7 +57,20 @@ class TestVerifyPassword:
             f"pbkdf2_sha256$-5${_SALT}${_DIGEST}",  # отрицательное число итераций
             f"pbkdf2_sha256$99999999999999999999${_SALT}${_DIGEST}",  # число не помещается в C long
         ],
-        ids=["empty", "no-separators", "extra-field", "missing-field", "foreign-algorithm", "algorithm-case", "iterations-nan", "bad-salt", "bad-hash", "zero-iterations", "negative-iterations", "huge-iterations"],
+        ids=[
+            "empty",
+            "no-separators",
+            "extra-field",
+            "missing-field",
+            "foreign-algorithm",
+            "algorithm-case",
+            "iterations-nan",
+            "bad-salt",
+            "bad-hash",
+            "zero-iterations",
+            "negative-iterations",
+            "huge-iterations",
+        ],
     )
     def test_foreign_or_corrupted_hash_is_a_failed_check_not_an_exception(self, broken):
         assert verify_password("anything", broken) is False
@@ -75,7 +92,11 @@ class TestNeedsRehash:
     def test_foreign_algorithm_needs_rehash(self):
         assert needs_rehash(f"bcrypt$12${_SALT}${_DIGEST}") is True
 
-    @pytest.mark.parametrize("garbage", ["", "garbage", "a$b$c", "a$b$c$d$e", f"pbkdf2_sha256$many${_SALT}${_DIGEST}"], ids=["empty", "no-separators", "three-fields", "five-fields", "iterations-nan"])
+    @pytest.mark.parametrize(
+        "garbage",
+        ["", "garbage", "a$b$c", "a$b$c$d$e", f"pbkdf2_sha256$many${_SALT}${_DIGEST}"],
+        ids=["empty", "no-separators", "three-fields", "five-fields", "iterations-nan"],
+    )
     def test_garbage_needs_rehash(self, garbage):
         assert needs_rehash(garbage) is True
 

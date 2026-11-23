@@ -9,6 +9,7 @@
 
 Запуск: pytest backend/tests/test_login_throttle_eviction.py -v
 """
+
 from __future__ import annotations
 
 import time
@@ -28,7 +29,8 @@ class Clock:
 
 
 def _throttle(max_keys: int, clock: Clock, **extra) -> LoginThrottle:
-    # Задержка 500 с (окно 900 с): за время теста, где часы уходят вперёд максимум на десяток секунд, она не истекает сама — так retry_after > 0 значит «запись есть».
+    # Задержка 500 с (окно 900 с): за время теста, где часы уходят вперёд максимум на десяток секунд, она не истекает сама — так retry_after
+    # > 0 значит «запись есть».
     return LoginThrottle(free_attempts=0, base_delay=500.0, max_delay=500.0, window=900.0, max_keys=max_keys, clock=clock, **extra)
 
 
@@ -111,4 +113,6 @@ def test_eviction_cost_does_not_grow_with_the_table_size():
     evictions = 300
     small = min(_eviction_seconds(1_000, evictions) for _ in range(3))
     large = min(_eviction_seconds(50_000, evictions) for _ in range(3))
-    assert large < max(small, 1e-4) * 10, f"вытеснение стало зависеть от размера таблицы: {small:.4f} с на 1 000 ключей и {large:.4f} с на 50 000"
+    assert large < max(small, 1e-4) * 10, (
+        f"вытеснение стало зависеть от размера таблицы: {small:.4f} с на 1 000 ключей и {large:.4f} с на 50 000"
+    )

@@ -1,9 +1,10 @@
 """
 A-03 (код-ревью main @ b375f58): пустое значение числовой переменной окружения не должно ронять запуск.
 
-Семь настроек разбирались «голым» `int(os.getenv(...))`/`float(...)`: незаполненная строка `VAR=` в `.env` давала при импорте `app.config` безымянный
-`ValueError: invalid literal for int() with base 10: ''` — контейнер уходил в цикл перезапусков. Теперь все они идут через `config._number_env`: пусто —
-значение по умолчанию, нечисловое или ниже допустимого — ошибка запуска с ИМЕНЕМ переменной.
+Семь настроек разбирались «голым» `int(os.getenv(...))`/`float(...)`: незаполненная строка `VAR=` в `.env` давала при импорте
+`app.config` безымянный
+`ValueError: invalid literal for int() with base 10: ''` — контейнер уходил в цикл перезапусков. Теперь все они идут через
+`config._number_env`: пусто — значение по умолчанию, нечисловое или ниже допустимого — ошибка запуска с ИМЕНЕМ переменной.
 
 Константы читаются при импорте модуля, поэтому реальные значения проверяются импортом `app.config` в отдельном процессе с нужным окружением.
 
@@ -24,19 +25,34 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 # (переменная, константа в app.config, умолчание, допустимое значение → результат, значение ниже допустимого или None)
 SETTINGS = [
-    ("INFRA_REGISTRY_REPORT_RETENTION_DAYS", "REPORT_RETENTION_DAYS", 30, ("7", 7), None),  # 0 и меньше — «не удалять по возрасту» (report_cleanup)
+    (
+        "INFRA_REGISTRY_REPORT_RETENTION_DAYS",
+        "REPORT_RETENTION_DAYS",
+        30,
+        ("7", 7),
+        None,
+    ),  # 0 и меньше — «не удалять по возрасту» (report_cleanup)
     ("INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES", "MAX_REQUEST_BODY_BYTES", 2 * 1024 * 1024, ("1024", 1024), "-1"),
     ("INFRA_REGISTRY_SESSION_TTL_HOURS", "AUTH_SESSION_TTL_HOURS", 12.0, ("0.5", 0.5), "-1"),
     ("INFRA_REGISTRY_AUTH_MAX_ATTEMPTS", "AUTH_MAX_FAILED_ATTEMPTS", 10, ("3", 3), "0"),
     ("INFRA_REGISTRY_AUTH_LOCKOUT_MINUTES", "AUTH_LOCKOUT_MINUTES", 15.0, ("2.5", 2.5), "-0.5"),
     ("INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH", "AUTH_MIN_PASSWORD_LENGTH", 8, ("12", 12), "0"),
     ("INFRA_REGISTRY_AUTH_KNOWN_CLIENT_DAYS", "AUTH_KNOWN_CLIENT_DAYS", 30, ("14", 14), "-1"),
-    ("INFRA_REGISTRY_AUDIT_RETENTION_DAYS", "AUDIT_RETENTION_DAYS", 0, ("90", 90), "-1"),  # A-05: срок хранения журнала аудита, 0 — не удалять (services/audit_retention)
+    (
+        "INFRA_REGISTRY_AUDIT_RETENTION_DAYS",
+        "AUDIT_RETENTION_DAYS",
+        0,
+        ("90", 90),
+        "-1",
+    ),  # A-05: срок хранения журнала аудита, 0 — не удалять (services/audit_retention)
 ]
 ALL_ENV_NAMES = [setting[0] for setting in SETTINGS]
 IDS = [setting[1] for setting in SETTINGS]
 
-_PROBE = "import json, sys; sys.path.insert(0, sys.argv[1]); import app.config as config; print(json.dumps({name: getattr(config, name) for name in sys.argv[2:]}))"
+_PROBE = (
+    "import json, sys; sys.path.insert(0, sys.argv[1]); import app.config as config; "
+    "print(json.dumps({name: getattr(config, name) for name in sys.argv[2:]}))"
+)
 
 
 def _import_config(tmp_path: Path, **env: str) -> subprocess.CompletedProcess:
@@ -45,11 +61,14 @@ def _import_config(tmp_path: Path, **env: str) -> subprocess.CompletedProcess:
     environment.update(DATABASE_URL="sqlite:///:memory:", INFRA_REGISTRY_DATA_DIR=str(tmp_path))
     environment.update(env)
     attributes = [setting[1] for setting in SETTINGS]
-    return subprocess.run([sys.executable, "-c", _PROBE, str(BACKEND_DIR), *attributes], env=environment, capture_output=True, text=True, timeout=60)
+    return subprocess.run(
+        [sys.executable, "-c", _PROBE, str(BACKEND_DIR), *attributes], env=environment, capture_output=True, text=True, timeout=60
+    )
 
 
 def _error_line(process: subprocess.CompletedProcess) -> str:
-    """Последняя строка traceback — само исключение. Проверять весь stderr нельзя: имя переменной попадает туда и через строку исходника в трассировке."""
+    """Последняя строка traceback — само исключение. Проверять весь stderr нельзя: имя переменной попадает туда и через строку
+    исходника в трассировке."""
     assert process.returncode != 0, "запуск должен был завершиться ошибкой"
     return process.stderr.strip().splitlines()[-1]
 
@@ -81,10 +100,16 @@ def test_valid_value_is_applied(tmp_path, env_name, attr, default, valid, below_
 @pytest.mark.parametrize(("env_name", "attr", "default", "valid", "below_minimum"), SETTINGS, ids=IDS)
 def test_non_numeric_value_fails_the_start_naming_the_variable(tmp_path, env_name, attr, default, valid, below_minimum):
     error = _error_line(_import_config(tmp_path, **{env_name: "abc"}))
-    assert error.startswith("ValueError") and env_name in error, f"в ошибке запуска должно быть имя переменной, а не безымянный invalid literal: {error}"
+    assert error.startswith("ValueError") and env_name in error, (
+        f"в ошибке запуска должно быть имя переменной, а не безымянный invalid literal: {error}"
+    )
 
 
-@pytest.mark.parametrize(("env_name", "attr", "default", "valid", "below_minimum"), [setting for setting in SETTINGS if setting[4] is not None], ids=[setting[1] for setting in SETTINGS if setting[4] is not None])
+@pytest.mark.parametrize(
+    ("env_name", "attr", "default", "valid", "below_minimum"),
+    [setting for setting in SETTINGS if setting[4] is not None],
+    ids=[setting[1] for setting in SETTINGS if setting[4] is not None],
+)
 def test_value_below_the_minimum_fails_the_start_naming_the_variable(tmp_path, env_name, attr, default, valid, below_minimum):
     error = _error_line(_import_config(tmp_path, **{env_name: below_minimum}))
     assert error.startswith("ValueError") and env_name in error, error
@@ -172,7 +197,8 @@ class TestNumberEnvHelper:
             _number_env("INFRA_REGISTRY_TEST_NUMBER", 10, int, minimum=1)
 
     def test_optional_variant_keeps_its_behaviour(self, monkeypatch):
-        """_optional_number_env — частный случай: пусто → None, отрицательное → ошибка (прежнее поведение, его используют REPORT_MAX_FILES и DB_POOL_*)."""
+        """_optional_number_env — частный случай: пусто → None, отрицательное → ошибка (прежнее поведение, его используют
+        REPORT_MAX_FILES и DB_POOL_*)."""
         from app.config import _optional_number_env
 
         monkeypatch.setenv("INFRA_REGISTRY_TEST_NUMBER", "")

@@ -6,6 +6,7 @@
 
 Запуск: pip install -r backend/requirements-dev.txt && pytest backend/tests/test_migrations_merge_embedded_os.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -56,8 +57,8 @@ def _insert_device(conn: sqlite3.Connection, *, serial_number: str, embedded_os_
     device_type_id = conn.execute("SELECT id FROM device_types LIMIT 1").fetchone()["id"]
     device_id = _uid()
     conn.execute(
-        "INSERT INTO physical_devices (id, device_type_id, serial_number, siem_enabled, embedded_os_id, created_at, updated_at) "
-        "VALUES (?,?,?,0,?,'2026-01-01','2026-01-01')",
+        "INSERT INTO physical_devices (id, device_type_id, serial_number, siem_enabled, embedded_os_id, created_at, "
+        "updated_at) VALUES (?,?,?,0,?,'2026-01-01','2026-01-01')",
         (device_id, device_type_id, serial_number, embedded_os_id),
     )
     return device_id
@@ -67,9 +68,7 @@ def test_merges_duplicate_sonic_entries_keeping_the_oldest(alembic_config):
     cfg, db_path = alembic_config
     command.upgrade(cfg, PRE_REVISION)
     conn = _connect(db_path)
-    ids = [
-        _insert_embedded_os(conn, name="SONiC", version=None, created_at=f"2026-01-0{i}") for i in (1, 2, 3)
-    ]
+    ids = [_insert_embedded_os(conn, name="SONiC", version=None, created_at=f"2026-01-0{i}") for i in (1, 2, 3)]
     conn.commit()
     conn.close()
 

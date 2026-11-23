@@ -4,6 +4,7 @@
 обогащения строк. Тесты написаны на прежнем коде и должны проходить без изменений на коде после рефакторинга.
 Запуск: pytest backend/tests/test_list_resource_behaviour.py -v
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -64,8 +65,11 @@ class TestFilters:
 class TestDateRange:
     def _seed(self, db_session) -> None:
         for day, entity in ((14, "a"), (15, "b"), (16, "c")):
-            db_session.add(AuditLog(entity_type="devices", entity_id=entity, action="UPDATE", details=entity,
-                                    created_at=datetime(2026, 8, day, 12, 0, 0)))
+            db_session.add(
+                AuditLog(
+                    entity_type="devices", entity_id=entity, action="UPDATE", details=entity, created_at=datetime(2026, 8, day, 12, 0, 0)
+                )
+            )
         db_session.commit()
 
     def _ids(self, db_session, **kwargs) -> list[str]:
@@ -126,7 +130,9 @@ class TestRowEnrichment:
 class TestUpdateResourceBehaviour:
     def _host(self, client, serial: str, os_id: str | None) -> dict:
         categories = client.get("/api/v1/resources/device-categories").json()["items"]
-        device_type = client.post("/api/v1/resources/device-types", json={"name": f"Хост {serial}", "category_id": categories[0]["id"], "allows_vm_hosting": True})
+        device_type = client.post(
+            "/api/v1/resources/device-types", json={"name": f"Хост {serial}", "category_id": categories[0]["id"], "allows_vm_hosting": True}
+        )
         assert device_type.status_code == 201, device_type.text
         body = {"device_type_id": device_type.json()["id"], "serial_number": serial}
         if os_id:
@@ -137,7 +143,9 @@ class TestUpdateResourceBehaviour:
 
     def _hypervisor_os(self, client) -> str:
         category = client.post("/api/v1/resources/os-categories", json={"name": "Гипервизоры тест", "is_hypervisor": True}).json()
-        return client.post("/api/v1/resources/operating-systems", json={"category_id": category["id"], "name": "HV", "version": "1"}).json()["id"]
+        return client.post(
+            "/api/v1/resources/operating-systems", json={"category_id": category["id"], "name": "HV", "version": "1"}
+        ).json()["id"]
 
     def test_moving_a_vm_to_another_host_updates_its_hypervisor_os(self, client):
         hv = self._hypervisor_os(client)

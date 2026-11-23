@@ -3,6 +3,7 @@
 
 Запуск: pytest backend/tests/test_port_edit_api.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -16,7 +17,9 @@ class Lab:
     def __init__(self, client, db_session) -> None:
         self.client, self.db = client, db_session
         category = client.get("/api/v1/resources/device-categories", params={"limit": 1}).json()["items"][0]["id"]
-        self.device_type = client.post("/api/v1/resources/device-types", json={"name": "Тип для правки порта", "category_id": category}).json()["id"]
+        self.device_type = client.post(
+            "/api/v1/resources/device-types", json={"name": "Тип для правки порта", "category_id": category}
+        ).json()["id"]
         self.vlans: dict[int, VLAN] = {}
 
     def vlan(self, number: int) -> VLAN:
@@ -27,7 +30,15 @@ class Lab:
             self.vlans[number] = row
         return self.vlans[number]
 
-    def port(self, serial: str = "EDIT-1", *, allowed: tuple[int, ...] = (10, 20, 30), mode: str = "trunk", role: tuple[bool, bool] = (False, True), ip: str | None = None) -> str:
+    def port(
+        self,
+        serial: str = "EDIT-1",
+        *,
+        allowed: tuple[int, ...] = (10, 20, 30),
+        mode: str = "trunk",
+        role: tuple[bool, bool] = (False, True),
+        ip: str | None = None,
+    ) -> str:
         device = self.client.post("/api/v1/resources/devices", json={"device_type_id": self.device_type, "serial_number": serial}).json()
         for number in allowed:
             self.db.add(PhysicalDeviceVLAN(physical_device_id=device["id"], vlan_id=self.vlan(number).id))
@@ -198,6 +209,7 @@ def test_duplicate_vlan_ids_are_collapsed(lab):
 
 # --- режим + роль + VLAN одной транзакцией (каскад с полем port) ---------------------------------
 
+
 def _cascade_url(port: str, step: str = "") -> str:
     return f"/api/v1/interfaces/{port}/vlan-mode-cascade{step}"
 
@@ -328,7 +340,10 @@ def test_port_does_not_combine_with_an_open_device_form(lab):
     port = lab.port(mode="trunk")
     device_id = lab.db.get(DeviceInterface, port).physical_device_id
 
-    response = lab.client.post(_cascade_url(port, "/preview"), json={"mode": "access", "edited": {"device_id": device_id, "ports": {}, "groups": {}}, "port": {"role": "data"}})
+    response = lab.client.post(
+        _cascade_url(port, "/preview"),
+        json={"mode": "access", "edited": {"device_id": device_id, "ports": {}, "groups": {}}, "port": {"role": "data"}},
+    )
 
     assert response.status_code == 422 and "edited" in response.json()["detail"]
 

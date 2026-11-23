@@ -1,13 +1,16 @@
 """
 A-01 (код-ревью main @ b375f58), этап 2: частичные уникальные индексы `uq_connections_source_active` и `uq_connections_destination_active`.
 
-Активное подключение (`is_active`; колонка NOT NULL, так что это то же, что `IS NOT FALSE` в validate_connection) занимает порт в своей роли не более одного раза: порт не может быть
-источником двух активных подключений и назначением двух активных подключений. Неактивные строки индекс не видит. Случай «порт — источник в одном подключении и назначение в другом»
-индексом по одной колонке не выразить: его закрывают validate_connection и блокировка строк портов (этап 1, test_connection_invariants.py).
+Активное подключение (`is_active`; колонка NOT NULL, так что это то же, что `IS NOT FALSE` в validate_connection) занимает порт в своей роли
+не более одного раза: порт не может быть источником двух активных подключений и назначением двух активных подключений. Неактивные строки
+индекс не видит. Случай «порт — источник в
+одном подключении и назначение в другом» индексом по одной колонке не выразить: его закрывают validate_connection и блокировка строк портов
+(этап 1, test_connection_invariants.py).
 
-Главная сложность — обмен соседями в форме устройства: уникальный индекс не откладывается до конца транзакции, а применение плана идёт по одному подключению, и в
-промежутке порт занят двумя подключениями. Поэтому sync_interface_connections на время применения плана выключает (is_active = false) подключения, которые переставляет, и
-включает их обратно, когда все стоят на новых местах.
+Главная сложность — обмен соседями в форме устройства: уникальный индекс не откладывается до конца транзакции, а применение плана идёт по
+одному подключению, и в промежутке порт занят двумя подключениями. Поэтому sync_interface_connections на время применения плана выключает
+(is_active = false)
+подключения, которые переставляет, и включает их обратно, когда все стоят на новых местах.
 
 Запуск: pytest backend/tests/test_connection_unique_ports.py -v
 """
@@ -83,7 +86,8 @@ class TestIndexes:
 
 
 class TestNeighbourSwapKeepsWorkingUnderTheIndexes:
-    """Обмен соседями в одном запросе: в промежутке порт занят двумя подключениями, индекс этого не допускает — отсюда выключение на время применения."""
+    """Обмен соседями в одном запросе: в промежутке порт занят двумя подключениями, индекс этого не допускает — отсюда выключение
+    на время применения."""
 
     def test_two_ports_swap_their_neighbours_and_connections_stay_active(self, client):
         _, theirs = _device_with_ports(client, "SW-U-SWAP", ["g1", "g2"])
@@ -118,7 +122,9 @@ class TestNeighbourSwapKeepsWorkingUnderTheIndexes:
             return [{"id": own[name]["id"], "name": name, "connection": _conn(theirs[peer], ct)} for name, peer in zip(names, order)]
 
         assert _sync(client, dev["id"], payload(["g1", "g2", "g3"])).status_code == 200
-        response = _sync(client, dev["id"], payload(["g2", "g3", "g1"]))  # циклический сдвиг: каждый занимает порт, который освобождает другой
+        response = _sync(
+            client, dev["id"], payload(["g2", "g3", "g1"])
+        )  # циклический сдвиг: каждый занимает порт, который освобождает другой
 
         assert response.status_code == 200, response.text
         expected = {frozenset((own[name]["id"], theirs[peer]["id"])) for name, peer in zip(names, ["g2", "g3", "g1"])}
@@ -131,7 +137,14 @@ class TestNeighbourSwapKeepsWorkingUnderTheIndexes:
         ct = _connection_type(client)
         dev, own = _device_with_ports(client, "SRV-U-REV", ["eth0", "eth1"])
         for remote, local in (("g1", "eth0"), ("g2", "eth1")):
-            created = client.post(f"{API}/resources/connections", json={"source_interface_id": theirs[remote]["id"], "destination_interface_id": own[local]["id"], "connection_type_id": ct["id"]})
+            created = client.post(
+                f"{API}/resources/connections",
+                json={
+                    "source_interface_id": theirs[remote]["id"],
+                    "destination_interface_id": own[local]["id"],
+                    "connection_type_id": ct["id"],
+                },
+            )
             assert created.status_code in (200, 201), created.text
 
         response = _sync(
@@ -199,7 +212,8 @@ class TestNeighbourSwapKeepsWorkingUnderTheIndexes:
 
 @pytest.mark.postgres_only  # на SQLite фикстуры делят одно соединение между потоками (StaticPool)
 class TestIndexProtectsEvenWithoutTheLockOnPostgres:
-    """Запись мимо validate_connection (а значит, и мимо блокировки портов) всё равно не создаст второе активное подключение: индекс держит и конкурентную вставку."""
+    """Запись мимо validate_connection (а значит, и мимо блокировки портов) всё равно не создаст второе активное подключение: индекс держит
+    и конкурентную вставку."""
 
     WAIT_SECONDS = 15
 
@@ -226,7 +240,9 @@ class TestIndexProtectsEvenWithoutTheLockOnPostgres:
             thread.start()
             deadline = time.monotonic() + self.WAIT_SECONDS
             while time.monotonic() < deadline and thread.is_alive():
-                if observer.execute(text("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'")).scalar():
+                if observer.execute(
+                    text("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'")
+                ).scalar():
                     break
                 time.sleep(0.05)
             assert thread.is_alive(), f"вторая вставка не дождалась первой: {outcome}"

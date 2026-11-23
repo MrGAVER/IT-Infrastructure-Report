@@ -3,6 +3,7 @@
 Фильтр клиентов — самый внешний слой HTTP-защиты (app.services.network_access): адрес вне списка получает 403
 до проверки Host и аутентификации. Запуск: pytest backend/tests/test_network_access.py -v
 """
+
 from __future__ import annotations
 
 import logging
@@ -120,7 +121,9 @@ class TestIpLiteralHost:
     def test_ip_addresses(self, header):
         assert is_ip_literal_host(header)
 
-    @pytest.mark.parametrize("header", ["", "localhost", "reestr.corp.local:8000", "evil.example", "192.168.1.10.evil.example", "[unclosed"])
+    @pytest.mark.parametrize(
+        "header", ["", "localhost", "reestr.corp.local:8000", "evil.example", "192.168.1.10.evil.example", "[unclosed"]
+    )
     def test_names_are_not_ip_literals(self, header):
         assert not is_ip_literal_host(header)
 

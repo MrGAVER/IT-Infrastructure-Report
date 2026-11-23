@@ -19,6 +19,7 @@
 больше `max_entries`; сбрасывается целиком после применения плана и после любой правки правил
 (`clear`). Правки самих портов и подключений кэш не отслеживает — их ограничивает TTL.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -57,7 +58,13 @@ class PlanCache:
         cache.get(scope_key(None, None), "hash")   # CachedPlan или None (нет / истёк / вытеснен)
     """
 
-    def __init__(self, *, ttl_seconds: float = DEFAULT_TTL_SECONDS, max_entries: int = DEFAULT_MAX_ENTRIES, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        *,
+        ttl_seconds: float = DEFAULT_TTL_SECONDS,
+        max_entries: int = DEFAULT_MAX_ENTRIES,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         if ttl_seconds <= 0 or max_entries < 1:
             raise ValueError("ttl_seconds и max_entries должны быть положительными")
         self._ttl = ttl_seconds

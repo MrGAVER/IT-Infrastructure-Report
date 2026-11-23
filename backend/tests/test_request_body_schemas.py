@@ -10,6 +10,7 @@ Pydantic-моделями вместо ``payload: dict`` (модели — api/r
 
 Запуск: pytest backend/tests/test_request_body_schemas.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -107,7 +108,12 @@ REPORT_ERRORS = [
     ("post", "/api/v1/report-templates", {"name": "   ", "config": {}}, "Укажите название шаблона"),
     ("post", "/api/v1/report-templates", {"name": "Т"}, "Поле config должно быть объектом с описанием листов/блоков"),
     ("post", "/api/v1/report-templates", {"name": "Т", "config": []}, "Поле config должно быть объектом с описанием листов/блоков"),
-    ("post", "/api/v1/report-templates", {"name": "Т", "config": {}, "format": 7}, "Неизвестный формат отчёта: '7' (ожидается xlsx или docx)"),
+    (
+        "post",
+        "/api/v1/report-templates",
+        {"name": "Т", "config": {}, "format": 7},
+        "Неизвестный формат отчёта: '7' (ожидается xlsx или docx)",
+    ),
     ("post", "/api/v1/report-builder/preview", {"limit": 0}, "limit должен быть целым числом от 1 до 200"),
     ("post", "/api/v1/report-builder/preview", {"limit": True}, "limit должен быть целым числом от 1 до 200"),
     ("post", "/api/v1/report-builder/preview", {"limit": None}, "limit должен быть целым числом от 1 до 200"),
@@ -150,7 +156,9 @@ def test_port_bodies_keep_the_russian_messages_as_a_plain_string(client, method,
 @pytest.mark.parametrize("confirm", ["true", 1, "yes", False, None])
 def test_cascade_apply_does_not_treat_a_lookalike_as_confirmation(client, confirm):
     body = {"mode": "trunk", "confirm": confirm}
-    _assert_422(client.post(f"/api/v1/interfaces/{MISSING}/vlan-mode-cascade", json=body), "Применение требует подтверждения: confirm = true")
+    _assert_422(
+        client.post(f"/api/v1/interfaces/{MISSING}/vlan-mode-cascade", json=body), "Применение требует подтверждения: confirm = true"
+    )
 
 
 APPROVE_ERRORS = [
@@ -175,10 +183,13 @@ def test_approve_keeps_the_russian_messages_as_a_plain_string(client, body, mess
 @pytest.mark.parametrize("key", ["departments", "protocols", "placement_assets", "sources"])
 def test_information_system_details_reject_a_non_list(client, key, value):
     system = client.post("/api/v1/resources/information-systems", json={"name": f"ИС для {key}"}).json()
-    _assert_422(client.put(f"/api/v1/resources/information-systems/{system['id']}/details", json={key: value}), f"Поле {key} должно быть массивом")
+    _assert_422(
+        client.put(f"/api/v1/resources/information-systems/{system['id']}/details", json={key: value}), f"Поле {key} должно быть массивом"
+    )
 
 
 # --- Порядок проверок не изменился: где был 404 раньше разбора тела, там он и остался ----------------------------------------
+
 
 def test_an_unknown_template_is_404_before_the_body_is_checked(client):
     assert client.put(f"/api/v1/report-templates/{MISSING}", json={}).status_code == 404
@@ -196,6 +207,7 @@ def test_the_port_part_of_a_cascade_is_checked_after_the_port_is_found(client):
 
 # --- То, что раньше давало 500 или принималось молча ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("name", [5, ["Т"], {"a": 1}, True])
 def test_a_template_name_that_is_not_a_string_is_a_422_not_a_500(client, name):
     _assert_422(client.post("/api/v1/report-templates", json={"name": name, "config": {}}), "Укажите название шаблона")
@@ -203,10 +215,14 @@ def test_a_template_name_that_is_not_a_string_is_a_422_not_a_500(client, name):
 
 @pytest.mark.parametrize("description", [5, ["x"], {"a": 1}])
 def test_a_template_description_must_be_a_string_or_null(client, description):
-    _assert_422(client.post("/api/v1/report-templates", json={"name": "Т", "config": {}, "description": description}), "Поле description должно быть строкой или null")
+    _assert_422(
+        client.post("/api/v1/report-templates", json={"name": "Т", "config": {}, "description": description}),
+        "Поле description должно быть строкой или null",
+    )
 
 
 # --- На корректных запросах поведение прежнее -----------------------------------------------------------------------------------
+
 
 def test_a_valid_preview_still_uses_the_defaults(client):
     # Ни формата, ни limit, ни config: xlsx, 15 строк, пустое описание — его отклоняет предметная проверка шаблона, а не модель.

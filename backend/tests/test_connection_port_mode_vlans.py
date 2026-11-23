@@ -3,6 +3,7 @@
 
 Запуск: pytest backend/tests/test_connection_port_mode_vlans.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -36,7 +37,9 @@ class Lab:
         ).json()["id"]
 
     def _port(self, device_type: str, serial: str) -> str:
-        device = self.client.post("/api/v1/resources/devices", json={"device_type_id": device_type, "serial_number": serial, "system_name": serial.lower()}).json()
+        device = self.client.post(
+            "/api/v1/resources/devices", json={"device_type_id": device_type, "serial_number": serial, "system_name": serial.lower()}
+        ).json()
         response = self.client.put(
             f"/api/v1/devices/{device['id']}/interfaces",
             json={"interfaces": [{"name": "p1", "is_management": False, "is_data_transfer": True}]},
@@ -155,10 +158,10 @@ def test_approving_a_mode_mismatch_and_dropping_it_when_the_mode_changes(lab):
     assert lab.approve()["approved_count"] == 1
     assert lab.row()["port_config_status"] == "approved"
 
-    lab.configure(lab.dst, "trunk")        # выровняли режимы — расхождения нет
+    lab.configure(lab.dst, "trunk")  # выровняли режимы — расхождения нет
     assert lab.row()["port_config_status"] == "ok"
 
-    lab.configure(lab.dst, "access")       # режимы снова разошлись так же — одобрение прежнее, но
+    lab.configure(lab.dst, "access")  # режимы снова разошлись так же — одобрение прежнее, но
     assert lab.row()["port_config_status"] == "approved"  # подпись описывает ту же пару «trunk>access»
 
 
@@ -217,7 +220,8 @@ def test_search_matches_the_port_mode(lab):
     assert lab.client.get("/api/v1/connections", params={"q": "trunk"}).json()["items"] == []
 
 
-@pytest.mark.sqlite_only  # «осиротевшую» строку делает PRAGMA foreign_keys=OFF; в PostgreSQL внешний ключ так не обойти, и такой строки там быть не может
+# «осиротевшую» строку делает PRAGMA foreign_keys=OFF; в PostgreSQL внешний ключ так не обойти, и такой строки там быть не может
+@pytest.mark.sqlite_only
 def test_orphan_connection_has_empty_mode_and_vlans(lab, db_session):
     """Порт удалён в обход внешних ключей — подключение остаётся в списке со статусом ok."""
     from sqlalchemy import text
@@ -233,6 +237,7 @@ def test_orphan_connection_has_empty_mode_and_vlans(lab, db_session):
 
 
 # --- предпросмотр сверки пары портов для формы подключения ---------------------------------
+
 
 def _preview(lab: Lab, **params) -> dict:
     query = {"source_interface_id": lab.src, "destination_interface_id": lab.dst, **params}

@@ -6,6 +6,7 @@
 
 Запуск: pytest backend/tests/test_wrong_current_password.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -52,7 +53,9 @@ def _user(db_session) -> User:
 
 def _failed_rows(db_session) -> list[AuditLog]:
     db_session.expire_all()
-    rows = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == "auth", AuditLog.action == "LOGIN_FAILED").order_by(AuditLog.created_at, AuditLog.id))
+    rows = db_session.scalars(
+        select(AuditLog).where(AuditLog.entity_type == "auth", AuditLog.action == "LOGIN_FAILED").order_by(AuditLog.created_at, AuditLog.id)
+    )
     return list(rows)
 
 

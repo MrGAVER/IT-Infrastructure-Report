@@ -10,6 +10,7 @@
 
 Запуск: pytest backend/tests/test_request_body_cleanup.py -v
 """
+
 from __future__ import annotations
 
 import ast
@@ -36,6 +37,7 @@ def _assert_422(response, message: str) -> None:
 
 # --- Обязательные поля без подавления типов ------------------------------------------------------------------------------------
 
+
 def test_api_schemas_have_no_type_ignore():
     offenders = [path.name for path in sorted(API_DIR.glob("*_schemas.py")) if "type: ignore" in path.read_text(encoding="utf-8")]
     assert offenders == []
@@ -60,7 +62,12 @@ def test_the_field_is_required_in_openapi(schema, field):
 @pytest.mark.parametrize(
     ("method", "path", "body", "message"),
     [
-        ("put", f"/api/v1/interfaces/{MISSING}/port-role", {}, "Поле is_management должно быть true или false; Поле is_data_transfer должно быть true или false"),
+        (
+            "put",
+            f"/api/v1/interfaces/{MISSING}/port-role",
+            {},
+            "Поле is_management должно быть true или false; Поле is_data_transfer должно быть true или false",
+        ),
         ("put", f"/api/v1/interfaces/{MISSING}/port-role", {"is_management": True}, "Поле is_data_transfer должно быть true или false"),
         ("post", f"/api/v1/interfaces/{MISSING}/vlan-mode-cascade/preview", {}, "Режим порта должен быть 'access' или 'trunk'"),
         ("post", "/api/v1/report-templates", {"name": "Шаблон"}, "Поле config должно быть объектом с описанием листов/блоков"),
@@ -97,9 +104,15 @@ def test_absent_as_null_fills_only_the_missing_names_and_keeps_the_input_intact(
 
 # --- Общая основа и публичные имена -----------------------------------------------------------------------------------------
 
+
 def test_diagram_bodies_share_the_common_request_body_base():
     assert not hasattr(diagram_schemas, "_Body")
-    for model in (diagram_schemas.DiagramCreate, diagram_schemas.DiagramRename, diagram_schemas.DiagramLayoutUpdate, diagram_schemas.DiagramGroupStateUpdate):
+    for model in (
+        diagram_schemas.DiagramCreate,
+        diagram_schemas.DiagramRename,
+        diagram_schemas.DiagramLayoutUpdate,
+        diagram_schemas.DiagramGroupStateUpdate,
+    ):
         assert issubclass(model, RequestBody)
     assert diagram_schemas.DiagramCreate.model_config["extra"] == "ignore"  # лишние поля по-прежнему игнорируются
 
@@ -112,6 +125,7 @@ def test_cascade_parsers_are_plain_public_functions_not_aliases():
 
 
 # --- Разбор тела одобрения --------------------------------------------------------------------------------------------------
+
 
 def test_approve_request_by_ids_is_deduplicated_in_arrival_order():
     selection = parse_approve_request({"connection_ids": ["b", "a", "b"]})
@@ -131,7 +145,10 @@ def test_approve_request_by_match_carries_the_query_with_the_mismatch_status():
         ({}, "Передайте ровно одно из полей: connection_ids или match"),
         ({"connection_ids": ["a"], "match": {}}, "Передайте ровно одно из полей: connection_ids или match"),
         ({"connection_ids": []}, "Поле connection_ids должно быть непустым массивом идентификаторов подключений"),
-        ({"connection_ids": [str(i) for i in range(MAX_APPROVE_BATCH + 1)]}, f"За один запрос можно одобрить не более {MAX_APPROVE_BATCH} подключений"),
+        (
+            {"connection_ids": [str(i) for i in range(MAX_APPROVE_BATCH + 1)]},
+            f"За один запрос можно одобрить не более {MAX_APPROVE_BATCH} подключений",
+        ),
         ([], "Тело запроса должно быть объектом"),
     ],
 )

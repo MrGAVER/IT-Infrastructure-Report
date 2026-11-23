@@ -45,6 +45,7 @@
 нет» не бывает. С `edited` (форма устройства открыта) `port` не сочетается: порты такого устройства
 сохраняются вместе с формой.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -77,13 +78,14 @@ _MAX_LISTED = 12
 
 def _chunks(items: list[str]) -> Iterable[list[str]]:
     for start in range(0, len(items), _CHUNK):
-        yield items[start:start + _CHUNK]
+        yield items[start : start + _CHUNK]
 
 
 @dataclass(frozen=True)
 class _EditedPort:
     """Порт редактируемого устройства в черновике формы. Опущенные поля (None / group_given=False)
     означают «как в БД»."""
+
     mode: str
     group_given: bool = False
     group: str | None = None  # ключ группы: id сохранённой или временный ключ новой; None — порт вне групп
@@ -94,6 +96,7 @@ class _EditedPort:
 @dataclass(frozen=True)
 class _EditedGroup:
     """Группа редактируемого устройства в черновике формы (в т.ч. новая, ещё без записи в БД)."""
+
     mode: str  # '' — группа режимом не управляет
     vlan_ids: tuple[str, ...] | None = None
     name: str | None = None
@@ -102,6 +105,7 @@ class _EditedGroup:
 @dataclass(frozen=True)
 class _Edited:
     """Редактируемое устройство и его порты/группы в черновике формы (порты — по id, группы — по ключу)."""
+
     device_id: str | None = None
     ports: dict[str, _EditedPort] = field(default_factory=dict)
     groups: dict[str, _EditedGroup] = field(default_factory=dict)
@@ -129,6 +133,7 @@ class _Edited:
 @dataclass
 class _GroupInfo:
     """Группа в том виде, в каком её видит каскад: из БД, а у редактируемого устройства — из черновика."""
+
     key: str  # id группы; у новой группы формы — её временный ключ
     name: str
     device_id: str
@@ -216,7 +221,9 @@ class _Loader:
         db_keys = [k for k in wanted if k in self.groups and k not in self._db_members]
         for chunk in _chunks(db_keys):
             found: dict[str, list[str]] = {k: [] for k in chunk}
-            for port in self.session.scalars(select(DeviceInterface).where(DeviceInterface.group_id.in_(chunk)).order_by(DeviceInterface.name)).all():
+            for port in self.session.scalars(
+                select(DeviceInterface).where(DeviceInterface.group_id.in_(chunk)).order_by(DeviceInterface.name)
+            ).all():
                 self.ports[port.id] = port
                 found[port.group_id].append(port.id)
             self._db_members.update(found)
@@ -243,7 +250,10 @@ class _Loader:
             ).all()
             for conn in connections:
                 bucket = self.active if conn.is_active else self.inactive
-                for here, there in ((conn.source_interface_id, conn.destination_interface_id), (conn.destination_interface_id, conn.source_interface_id)):
+                for here, there in (
+                    (conn.source_interface_id, conn.destination_interface_id),
+                    (conn.destination_interface_id, conn.source_interface_id),
+                ):
                     if here in requested:
                         bucket[here].append(there)
 
@@ -251,6 +261,7 @@ class _Loader:
 @dataclass
 class _Change:
     """Результат расчёта: что именно меняется (внутреннее представление, из него строится план)."""
+
     target: str
     start_id: str
     edited: _Edited
@@ -282,7 +293,11 @@ def _collect_area(loader: _Loader, edited: _Edited, start_id: str, target: str) 
             break
         done.update(batch)
         if len(done) > MAX_CASCADE_PORTS:
-            raise HTTPException(422, f"Область изменения превышает {MAX_CASCADE_PORTS} портов — смените режим по частям: в самой группе или у отдельных устройств")
+            raise HTTPException(
+                422,
+                f"Область изменения превышает {MAX_CASCADE_PORTS} портов — смените режим по частям: в самой группе "
+                "или у отдельных устройств",
+            )
         loader.load_ports(batch)
         loader.load_groups(key for p in batch if (key := edited.port_group_key(loader.ports[p])))
         new_groups: list[str] = []
@@ -410,13 +425,21 @@ def _build_plan(change: _Change) -> dict[str, Any]:
         info = loader.group_info(key)
         before = change.group_vlans.get(key, [])
         after, dropped = _split_vlans(before, change.vlans, target)
-        groups_out.append({
-            "id": key, "name": info.name, "device_id": info.device_id, "device_name": device_label(change.devices.get(info.device_id)),
-            "deferred": info.deferred, "from_mode": from_mode, "to_mode": target,
-            "ports": [{"id": m, "name": edited.port_name(loader.ports[m])} for m in loader.members[key]],
-            "vlans_before": [_vlan_ref(v, change.vlans) for v in _vlans_sorted(before, change.vlans)],
-            "vlans_after": [_vlan_ref(v, change.vlans) for v in after], "dropped_vlans": [_vlan_ref(v, change.vlans) for v in dropped],
-        })
+        groups_out.append(
+            {
+                "id": key,
+                "name": info.name,
+                "device_id": info.device_id,
+                "device_name": device_label(change.devices.get(info.device_id)),
+                "deferred": info.deferred,
+                "from_mode": from_mode,
+                "to_mode": target,
+                "ports": [{"id": m, "name": edited.port_name(loader.ports[m])} for m in loader.members[key]],
+                "vlans_before": [_vlan_ref(v, change.vlans) for v in _vlans_sorted(before, change.vlans)],
+                "vlans_after": [_vlan_ref(v, change.vlans) for v in after],
+                "dropped_vlans": [_vlan_ref(v, change.vlans) for v in dropped],
+            }
+        )
     ports_out: list[dict[str, Any]] = []
     for pid, from_mode in change.changed_ports.items():
         if pid in change.group_of_port:
@@ -424,33 +447,56 @@ def _build_plan(change: _Change) -> dict[str, Any]:
         port = loader.ports[pid]
         before = change.port_vlans.get(pid, [])
         after, dropped = _split_vlans(before, change.vlans, target)
-        ports_out.append({
-            "id": pid, "name": edited.port_name(port), "device_id": port.physical_device_id, "device_name": device_label(change.devices.get(port.physical_device_id)),
-            "deferred": edited.owns(port), "from_mode": from_mode, "to_mode": target,
-            "vlans_before": [_vlan_ref(v, change.vlans) for v in _vlans_sorted(before, change.vlans)],
-            "vlans_after": [_vlan_ref(v, change.vlans) for v in after], "dropped_vlans": [_vlan_ref(v, change.vlans) for v in dropped],
-        })
+        ports_out.append(
+            {
+                "id": pid,
+                "name": edited.port_name(port),
+                "device_id": port.physical_device_id,
+                "device_name": device_label(change.devices.get(port.physical_device_id)),
+                "deferred": edited.owns(port),
+                "from_mode": from_mode,
+                "to_mode": target,
+                "vlans_before": [_vlan_ref(v, change.vlans) for v in _vlans_sorted(before, change.vlans)],
+                "vlans_after": [_vlan_ref(v, change.vlans) for v in after],
+                "dropped_vlans": [_vlan_ref(v, change.vlans) for v in dropped],
+            }
+        )
     groups_out.sort(key=lambda g: (g["device_name"], g["name"]))
     ports_out.sort(key=lambda p: (p["device_name"], p["name"]))
     devices_out: dict[str, dict[str, Any]] = {}
     for pid in change.changed_ports:
         port = loader.ports[pid]
-        entry = devices_out.setdefault(port.physical_device_id, {
-            "id": port.physical_device_id, "name": device_label(change.devices.get(port.physical_device_id)),
-            "deferred": edited.owns(port), "port_count": 0, "group_count": 0,
-        })
+        entry = devices_out.setdefault(
+            port.physical_device_id,
+            {
+                "id": port.physical_device_id,
+                "name": device_label(change.devices.get(port.physical_device_id)),
+                "deferred": edited.owns(port),
+                "port_count": 0,
+                "group_count": 0,
+            },
+        )
         entry["port_count"] += 1
     for group in groups_out:
         devices_out[group["device_id"]]["group_count"] += 1
     devices = sorted(devices_out.values(), key=lambda d: d["name"])
     deferred_ports = sum(d["port_count"] for d in devices if d["deferred"])
     plan: dict[str, Any] = {
-        "target_mode": target, "start_interface_id": change.start_id, "edited_device_id": edited.device_id, "empty": not change.changed_ports,
-        "groups": groups_out, "ports": ports_out, "devices": devices,
+        "target_mode": target,
+        "start_interface_id": change.start_id,
+        "edited_device_id": edited.device_id,
+        "empty": not change.changed_ports,
+        "groups": groups_out,
+        "ports": ports_out,
+        "devices": devices,
         "totals": {
-            "ports": len(change.changed_ports), "devices": len(devices), "groups": len(groups_out),
-            "deferred_ports": deferred_ports, "immediate_ports": len(change.changed_ports) - deferred_ports,
-            "immediate_devices": sum(1 for d in devices if not d["deferred"]), "dropped_vlans": sum(len(x["dropped_vlans"]) for x in groups_out + ports_out),
+            "ports": len(change.changed_ports),
+            "devices": len(devices),
+            "groups": len(groups_out),
+            "deferred_ports": deferred_ports,
+            "immediate_ports": len(change.changed_ports) - deferred_ports,
+            "immediate_devices": sum(1 for d in devices if not d["deferred"]),
+            "dropped_vlans": sum(len(x["dropped_vlans"]) for x in groups_out + ports_out),
         },
     }
     plan["warnings"] = _warnings(plan, change)
@@ -462,8 +508,13 @@ def _plan_hash(plan: dict[str, Any]) -> str:
     """Отпечаток того, что будет записано: цель, редактируемое устройство и для каждой группы/порта
     прежний/новый режим и итоговые VLAN. Предупреждения и подписи в него не входят."""
     material = {
-        "target": plan["target_mode"], "start": plan["start_interface_id"], "edited": plan["edited_device_id"],
-        "groups": sorted((g["id"], g["from_mode"], g["to_mode"], [v["id"] for v in g["vlans_after"]], [p["id"] for p in g["ports"]]) for g in plan["groups"]),
+        "target": plan["target_mode"],
+        "start": plan["start_interface_id"],
+        "edited": plan["edited_device_id"],
+        "groups": sorted(
+            (g["id"], g["from_mode"], g["to_mode"], [v["id"] for v in g["vlans_after"]], [p["id"] for p in g["ports"]])
+            for g in plan["groups"]
+        ),
         "ports": sorted((p["id"], p["from_mode"], p["to_mode"], [v["id"] for v in p["vlans_after"]]) for p in plan["ports"]),
     }
     return hashlib.sha256(json.dumps(material, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:32]
@@ -480,28 +531,81 @@ def _warnings(plan: dict[str, Any], change: _Change) -> list[dict[str, str]]:
     totals, target = plan["totals"], plan["target_mode"]
     result: list[dict[str, str]] = []
     if totals["immediate_ports"]:
-        result.append(_warning("immediate", "warning", f"Изменения на других устройствах ({totals['immediate_ports']} портов на {totals['immediate_devices']} устройствах) применяются сразу и не отменяются кнопкой «Отмена» формы; они записываются в журнал аудита."))
+        result.append(
+            _warning(
+                "immediate",
+                "warning",
+                f"Изменения на других устройствах ({totals['immediate_ports']} портов на {totals['immediate_devices']} "
+                "устройствах) применяются сразу и не отменяются кнопкой «Отмена» формы; они записываются в журнал аудита.",
+            )
+        )
     if totals["deferred_ports"]:
-        result.append(_warning("deferred", "info", f"Изменения на редактируемом устройстве ({totals['deferred_ports']} портов) попадут в форму и сохранятся только после нажатия «Сохранить». Если форму не сохранить, режим у соседей уже будет другим, и расхождения появятся снова."))
+        result.append(
+            _warning(
+                "deferred",
+                "info",
+                f"Изменения на редактируемом устройстве ({totals['deferred_ports']} портов) попадут в форму и сохранятся только "
+                "после нажатия «Сохранить». Если форму не сохранить, режим у соседей уже будет другим, и расхождения появятся "
+                "снова.",
+            )
+        )
     if plan["groups"]:
         listed = _short_list([f"«{g['name']}» ({len(g['ports'])} портов, {g['device_name']})" for g in plan["groups"]])
-        result.append(_warning("groups", "warning", f"Режим порта задаётся группами, поэтому он изменится у всех портов группы, а не только у связанного порта: {listed}."))
+        result.append(
+            _warning(
+                "groups",
+                "warning",
+                f"Режим порта задаётся группами, поэтому он изменится у всех портов группы, а не только у связанного порта: {listed}.",
+            )
+        )
     start_group = change.group_of_port.get(change.start_id)
     start_scope = {change.start_id} | (set(change.loader.members[start_group]) if start_group else set())
     beyond = [p for p in change.changed_ports if p not in start_scope]
     if beyond:
         beyond_devices = {change.loader.ports[p].physical_device_id for p in beyond}
-        result.append(_warning("cascade", "warning", f"Чтобы на портах соседей не осталось расхождений, режим меняется и у связанных с ними портов: ещё {len(beyond)} портов на {len(beyond_devices)} устройствах."))
+        result.append(
+            _warning(
+                "cascade",
+                "warning",
+                "Чтобы на портах соседей не осталось расхождений, режим меняется и у связанных с ними портов: ещё "
+                f"{len(beyond)} портов на {len(beyond_devices)} устройствах.",
+            )
+        )
     dropped = [(g["name"], g, v) for g in plan["groups"] + plan["ports"] for v in g["dropped_vlans"]]
     if dropped:
-        listed = _short_list([f"VLAN {v['vlan_id']} «{v['name']}» ({'группа' if 'ports' in g else 'порт'} «{owner}»)" for owner, g, v in dropped])
-        result.append(_warning("vlans_dropped", "warning", f"Режим access допускает у порта или группы не более одного VLAN: останется VLAN с наименьшим номером, будут сняты {listed}. Это изменит VLAN ID и VLAN Name в отчётах (лист «Организация подключений») и на диаграммах."))
+        listed = _short_list(
+            [f"VLAN {v['vlan_id']} «{v['name']}» ({'группа' if 'ports' in g else 'порт'} «{owner}»)" for owner, g, v in dropped]
+        )
+        result.append(
+            _warning(
+                "vlans_dropped",
+                "warning",
+                "Режим access допускает у порта или группы не более одного VLAN: останется VLAN с наименьшим номером, будут "
+                f"сняты {listed}. Это изменит VLAN ID и VLAN Name в отчётах (лист «Организация подключений») и на диаграммах.",
+            )
+        )
     if target == "trunk":
-        result.append(_warning("trunk", "info", "В режиме trunk остаются только уже назначенные VLAN — «все VLAN» автоматически не добавляются. При необходимости добавьте VLAN в группе или у порта."))
+        result.append(
+            _warning(
+                "trunk",
+                "info",
+                "В режиме trunk остаются только уже назначенные VLAN — «все VLAN» автоматически не добавляются. При "
+                "необходимости добавьте VLAN в группе или у порта.",
+            )
+        )
     if change.inactive_ports:
-        result.append(_warning("inactive", "info", f"Неактивные подключения не учитываются: у {len(change.inactive_ports)} изменяемых портов они ведут к портам с другим режимом."))
+        result.append(
+            _warning(
+                "inactive",
+                "info",
+                f"Неактивные подключения не учитываются: у {len(change.inactive_ports)} изменяемых портов они ведут к "
+                "портам с другим режимом.",
+            )
+        )
     if totals["ports"] > LARGE_CASCADE_PORTS:
-        result.append(_warning("large", "warning", f"Область изменения большая — {totals['ports']} портов. Проверьте список перед применением."))
+        result.append(
+            _warning("large", "warning", f"Область изменения большая — {totals['ports']} портов. Проверьте список перед применением.")
+        )
     return result
 
 
@@ -536,8 +640,11 @@ def _parse_edited_port(port_id: Any, raw: Any) -> _EditedPort:
     if group is not None and not isinstance(group, str):
         raise HTTPException(422, f"{where}: group должна быть ключом группы или null")
     return _EditedPort(
-        mode=raw["mode"], group_given="group" in raw, group=group or None,
-        vlan_ids=_vlan_id_list(raw.get("vlan_ids"), where), name=_optional_text(raw.get("name"), where, "name"),
+        mode=raw["mode"],
+        group_given="group" in raw,
+        group=group or None,
+        vlan_ids=_vlan_id_list(raw.get("vlan_ids"), where),
+        name=_optional_text(raw.get("name"), where, "name"),
     )
 
 
@@ -547,7 +654,9 @@ def _parse_edited_group(key: Any, raw: Any) -> _EditedGroup:
         raise HTTPException(422, f"{where} должен быть объектом {{mode, vlan_ids?, name?}} с непустым ключом группы")
     if raw.get("mode") not in (*VLAN_MODES, ""):
         raise HTTPException(422, f"{where}: режим группы должен быть 'access', 'trunk' или пустым")
-    return _EditedGroup(mode=raw["mode"], vlan_ids=_vlan_id_list(raw.get("vlan_ids"), where), name=_optional_text(raw.get("name"), where, "name"))
+    return _EditedGroup(
+        mode=raw["mode"], vlan_ids=_vlan_id_list(raw.get("vlan_ids"), where), name=_optional_text(raw.get("name"), where, "name")
+    )
 
 
 def parse_cascade_edited(raw: Any) -> _Edited:
@@ -576,7 +685,9 @@ def _compute(start_id: str, mode: str, edited: _Edited, session: Session) -> _Ch
     if start_id not in loader.ports:
         raise HTTPException(404, "Порт не найден")
     changed_ports, changed_groups = _collect_area(loader, edited, start_id, mode)
-    change = _Change(target=mode, start_id=start_id, edited=edited, loader=loader, changed_ports=changed_ports, changed_groups=changed_groups)
+    change = _Change(
+        target=mode, start_id=start_id, edited=edited, loader=loader, changed_ports=changed_ports, changed_groups=changed_groups
+    )
     if changed_ports:
         _load_details(change)
     change.plan = _build_plan(change)
@@ -733,7 +844,11 @@ def apply_vlan_mode_cascade(interface_id: str, payload: dict[str, Any], session:
         raise HTTPException(409, "Данные изменились после предпросмотра — повторите операцию и проверьте новый план")
     written_ports = _write_plan(change, session)
     _audit_cascade(change, session)
-    applied = {"ports": len(written_ports), "groups": sum(1 for g in plan["groups"] if not g["deferred"]), "devices": plan["totals"]["immediate_devices"]}
+    applied = {
+        "ports": len(written_ports),
+        "groups": sum(1 for g in plan["groups"] if not g["deferred"]),
+        "devices": plan["totals"]["immediate_devices"],
+    }
     # Роль и VLAN порта-инициатора — после каскада, в той же транзакции: набор записывается точно как в запросе
     # (каскад мог урезать его до одного VLAN в access — проверка под целевой режим это учла).
     wrote = prepared is not None and write_port_change(prepared, session, context=f" (вместе со сменой режима → {mode})")

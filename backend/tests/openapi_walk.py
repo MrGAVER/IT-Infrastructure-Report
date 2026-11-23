@@ -3,6 +3,7 @@
 Строит тела запросов по схеме операции, подставляет реальные родительские записи в путь и отправляет запрос так, чтобы
 необработанное исключение сервера считалось ответом 500. Это вспомогательный модуль, не тестовый: тестов здесь нет.
 """
+
 from __future__ import annotations
 
 import json
@@ -16,21 +17,49 @@ from app.main import app
 JSON_TYPE = "application/json"
 WRITE_METHODS = ("post", "put", "patch")
 # Для объекта без описанных полей (произвольный dict: правила синхронизации портов, сверка) — ключи, которые реально читают сервисы.
-GENERIC_KEYS = ("name", "description", "enabled", "priority", "apply", "action", "ids", "rule_id", "connection_ids", "plan_hash", "confirm", "limit", "offset")
+GENERIC_KEYS = (
+    "name",
+    "description",
+    "enabled",
+    "priority",
+    "apply",
+    "action",
+    "ids",
+    "rule_id",
+    "connection_ids",
+    "plan_hash",
+    "confirm",
+    "limit",
+    "offset",
+)
 MAX_DEPTH = 4
 PATH_PARAM = re.compile(r"\{(\w+)\}")
 MISSING_ID = "does-not-exist"
 
 # Допустимое описание листа отчёта: схема OpenAPI называет ``config`` просто объектом, поэтому глубокие поля (ширина столбца, высота
 # строки …) обход по схеме не видит.
-REPORT_CONFIG = {"sheets": [{"title": "Лист1", "columns": [{"width": 25}], "rows": [{
-    "height": 18, "repeat": True, "data_source": {"root_entity": "information-systems", "limit": 5},
-    "cells": [{"col": 0, "kind": "field", "path": "name"}]}]}]}
+REPORT_CONFIG = {
+    "sheets": [
+        {
+            "title": "Лист1",
+            "columns": [{"width": 25}],
+            "rows": [
+                {
+                    "height": 18,
+                    "repeat": True,
+                    "data_source": {"root_entity": "information-systems", "limit": 5},
+                    "cells": [{"col": 0, "kind": "field", "path": "name"}],
+                }
+            ],
+        }
+    ]
+}
 
 _PLAIN_STRING = "a"
 
 
 # --- обход схемы OpenAPI ---------------------------------------------------------------------------------------------------
+
 
 def deref(spec: dict, schema: dict) -> dict:
     """Раскрывает ``$ref`` (на любую глубину цепочки ссылок)."""
@@ -52,7 +81,8 @@ def variants(spec: dict, schema: dict) -> list[dict]:
 
 
 class Builder:
-    """Строит тело запроса по схеме. ``leaves`` собирает пути листьев (путь, вид) при первом проходе; ``overrides`` подменяет значения листьев."""
+    """Строит тело запроса по схеме. ``leaves`` собирает пути листьев (путь, вид) при первом проходе; ``overrides`` подменяет
+    значения листьев."""
 
     def __init__(self, spec: dict) -> None:
         self.spec = spec
@@ -102,6 +132,7 @@ class Builder:
 
 
 # --- отправка запроса -------------------------------------------------------------------------------------------------------
+
 
 def send(client, db_session, method: str, url: str, body: Any) -> tuple[int, str]:
     """(статус, начало ответа). ``body`` — объект (кодируется в JSON) или готовые байты. Необработанное исключение сервера — 500:

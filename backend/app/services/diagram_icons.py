@@ -18,6 +18,7 @@ from typing import Optional
 from defusedxml import ElementTree as SafeET
 from fastapi import HTTPException
 
+from ..constants import MAX_CUSTOM_ICON_SVG_LENGTH, MAX_SVG_DEPTH, MAX_SVG_NODES
 from ..models import DeviceCategory, DeviceModel, DeviceType, DiagramIcon, Manufacturer, PhysicalDevice
 
 MAX_PORT_TICKS = 32
@@ -38,7 +39,7 @@ DEFAULT_COLOR = "#9aa0a6"  # "default нейтральный серый" (раз
 # изменений (см. DiagramDeviceNode.vue).
 # fmt: off
 # Разметка разбита по элементам SVG и не пересобирается форматтером: при line-length = 400 `ruff format` склеивал её в строки до 397
-# символов (ИА-06 код-ревью r3). Склейка кусков даёт ту же строку, что и раньше — это проверяет test_diagram_icon_glyph_source.py.
+# символов. Склейка кусков даёт ту же строку, что и раньше — это проверяет test_diagram_icon_glyph_source.py.
 SHAPE_GLYPHS: dict[str, str] = {
     "server": (
         '<rect x="4" y="2" width="16" height="20" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/>'
@@ -131,7 +132,7 @@ def safe_shape(value, default: str = DEFAULT_SHAPE) -> str:
 # при рендеринге. Пользователь с правом на каталог иконок мог бы разместить payload, который сработает у
 # ЛЮБОГО, кто откроет диаграмму, и похитит токен сессии из localStorage.
 #
-# Раньше проверка была чёрным списком по регулярному выражению и обходилась (код-ревью, п. 4):
+# Раньше проверка была чёрным списком по регулярному выражению и обходилась:
 # <s:script> с префиксом пространства имён, javascript: через HTML-сущность (&#106;avascript:), SMIL-
 # анимация href. Теперь — белый список: разметка разбирается как XML (defusedxml: DTD и сущности
 # запрещены), допускаются только перечисленные графические теги, а из атрибутов отвергаются обработчики
@@ -184,7 +185,7 @@ def _reject(message: str) -> HTTPException:
 
 
 def _has_script_scheme(value: str) -> bool:
-    """Значение содержит исполняемую схему (javascript:, vbscript:) или CSS-выражение expression(…) (A-03 код-ревью r3).
+    """Значение содержит исполняемую схему (javascript:, vbscript:) или CSS-выражение expression(…).
 
     Сравнение идёт после удаления служебных символов и пробелов и без учёта регистра: так схему не спрятать переводом строки или
     табуляцией внутри слова. Просто слово «script» (`id="description"`, `aria-label="Transcript"`) — не схема и не отвергается: опасные
@@ -200,7 +201,7 @@ def _check_attribute(tag: str, qualified_name: str, value: str) -> None:
         raise _reject(f"обработчик событий «{name}» в теге «{tag}» запрещён")
     if name == "style":
         # Клиент (frontend-vue/src/utils/sanitizeSvg.ts) вырезает style целиком; без этой проверки иконка со style сохранялась бы и
-        # отрисовывалась иначе, чем ожидал автор (R1-06). Проверка выполняется только при записи (validate_svg_markup вызывается
+        # отрисовывалась иначе, чем ожидал автор. Проверка выполняется только при записи (validate_svg_markup вызывается
         # валидатором создания/изменения иконки): уже сохранённые иконки при чтении и экспорте не отвергаются.
         raise _reject(f"атрибут «style» в теге «{tag}» не поддерживается — задайте цвет отдельными атрибутами fill и stroke")
     if name == "href" and not lowered.startswith("#"):
@@ -222,29 +223,44 @@ def validate_svg_markup(svg_markup: str | None) -> None:
     Принимает как полный <svg>…</svg>, так и голый фрагмент из нескольких элементов (он оборачивается
     в корневой элемент с пространствами имён SVG и xlink).
 
+    Размер ограничен до разбора и после него: длина не больше MAX_CUSTOM_ICON_SVG_LENGTH, вложенность не больше
+    MAX_SVG_DEPTH уровней (<svg> — первый), элементов не больше MAX_SVG_NODES. Раньше принималась разметка в 1 МБ из 150 000
+    вложенных <g>: данные сохранялись и отдавались в каждом списке иконок, а экспорт диаграммы такую иконку всё равно пропускал.
+
     Пример вызова:
         validate_svg_markup('<svg><rect width="10" height="10"/></svg>')  # OK, не бросает
         validate_svg_markup('<svg onload="alert(1)"></svg>')  # HTTPException(422)
     """
     if not svg_markup or not svg_markup.strip():
         return
+    if len(svg_markup) > MAX_CUSTOM_ICON_SVG_LENGTH:  # до разбора: слишком длинную разметку не тратим время парсить
+        raise _reject(f"размер превышает допустимый предел ({MAX_CUSTOM_ICON_SVG_LENGTH // 1024} К символов)")
     body = _XML_DECLARATION.sub("", svg_markup, count=1)
     try:
         root = SafeET.fromstring(f'<root xmlns="{_SVG_NS}" xmlns:xlink="{_XLINK_NS}">{body}</root>')
     except Exception as exc:  # defusedxml бросает разные типы (ParseError, EntitiesForbidden, DTDForbidden…)
         raise HTTPException(422, "Недопустимое содержимое SVG: разметка не является корректным XML без DTD и сущностей") from exc
 
-    for element in root.iter():
-        if element is root:
-            continue
-        if not isinstance(element.tag, str):  # комментарии и инструкции обработки
-            continue
-        namespace = element.tag[1:].split("}", 1)[0] if element.tag.startswith("{") else ""
-        tag = _local_name(element.tag)
-        if namespace != _SVG_NS or tag not in _ALLOWED_SVG_TAGS:
-            raise _reject(f"тег «{tag}» не разрешён")
-        for attribute, value in element.attrib.items():
-            _check_attribute(tag, attribute, value)
+    # Обход без рекурсии — глубину считаем сами: у корня-обёртки глубина 0, у элементов пользователя — с 1. Дети кладутся в стек в обратном
+    # порядке, чтобы элементы шли в порядке документа и сообщение называло первое нарушение, как и раньше (root.iter()).
+    nodes = 0
+    stack = [(root, 0)]
+    while stack:
+        element, depth = stack.pop()
+        if element is not root:
+            nodes += 1
+            if depth > MAX_SVG_DEPTH:
+                raise _reject(f"вложенность элементов превышает {MAX_SVG_DEPTH} уровней")
+            if nodes > MAX_SVG_NODES:
+                raise _reject(f"элементов больше {MAX_SVG_NODES}")
+            if isinstance(element.tag, str):  # комментарии и инструкции обработки не проверяются
+                namespace = element.tag[1:].split("}", 1)[0] if element.tag.startswith("{") else ""
+                tag = _local_name(element.tag)
+                if namespace != _SVG_NS or tag not in _ALLOWED_SVG_TAGS:
+                    raise _reject(f"тег «{tag}» не разрешён")
+                for attribute, value in element.attrib.items():
+                    _check_attribute(tag, attribute, value)
+        stack.extend((child, depth + 1) for child in reversed(element))
 
 
 @dataclass(frozen=True)

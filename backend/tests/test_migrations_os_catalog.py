@@ -8,6 +8,7 @@
 Гоняется на одноразовой SQLite БД.
 Запуск: pytest backend/tests/test_migrations_os_catalog.py -v
 """
+
 from __future__ import annotations
 
 import sys
@@ -44,7 +45,9 @@ def test_free_text_os_moves_into_the_catalog_and_repeats_share_one_entry(databas
     migrate(url, REVISION)
     with engine.connect() as connection:
         devices = {r.id: r.operating_system_id for r in connection.execute(sa.text("SELECT id, operating_system_id FROM physical_devices"))}
-        vm_row = connection.execute(sa.text("SELECT operating_system_id, hypervisor_os_id FROM virtual_machines WHERE id = :i"), {"i": vm}).one()
+        vm_row = connection.execute(
+            sa.text("SELECT operating_system_id, hypervisor_os_id FROM virtual_machines WHERE id = :i"), {"i": vm}
+        ).one()
         debian_entries = connection.execute(sa.text("SELECT COUNT(*) FROM operating_systems WHERE name = 'Debian'")).scalar_one()
     assert all(devices.values())
     assert devices[windows_a] == devices[windows_b] and devices[debian_a] == devices[debian_b] and devices[windows_a] != devices[debian_a]
@@ -70,4 +73,6 @@ def test_row_with_neither_name_nor_version_gets_no_catalog_entry(database):
         empty = insert_row(connection, "physical_devices", os_name=None, os_version=None)
     migrate(url, REVISION)
     with engine.connect() as connection:
-        assert connection.execute(sa.text("SELECT operating_system_id FROM physical_devices WHERE id = :i"), {"i": empty}).scalar_one() is None
+        assert (
+            connection.execute(sa.text("SELECT operating_system_id FROM physical_devices WHERE id = :i"), {"i": empty}).scalar_one() is None
+        )

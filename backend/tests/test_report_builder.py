@@ -8,6 +8,7 @@
 тестируется реальная работа с ORM-метаданными через inspect(), которую сложно достоверно
 замокать). Если зависимости недоступны, тесты пропускаются (skip), а не падают.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,16 +19,27 @@ APP_DIR = Path(__file__).resolve().parent.parent / "app"
 
 try:
     import sys
+
     sys.path.insert(0, str(APP_DIR.parent))
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
     from app.models import (
-        Base, Department, DeviceCategory, DeviceType, InformationSystem, ISDepartment, PhysicalDevice,
+        Base,
+        Department,
+        DeviceCategory,
+        DeviceType,
+        InformationSystem,
+        ISDepartment,
+        PhysicalDevice,
         VirtualMachine,
     )
     from app.services.report_engine import (
-        ReportBuilderError, ReportContext, iter_report_rows, render_field, substitute_params,
+        ReportBuilderError,
+        ReportContext,
+        iter_report_rows,
+        render_field,
+        substitute_params,
         validate_config,
     )
     from app.services.report_meta import build_entity_metadata, entity_metadata_public
@@ -75,10 +87,12 @@ class ReportEngineTestCase(unittest.TestCase):
         self.isys = InformationSystem(name="ИС Тест", description="active")
         self.session.add(self.isys)
         self.session.flush()
-        self.session.add_all([
-            ISDepartment(information_system_id=self.isys.id, department_id=self.dep_finance.id),
-            ISDepartment(information_system_id=self.isys.id, department_id=self.dep_it.id),
-        ])
+        self.session.add_all(
+            [
+                ISDepartment(information_system_id=self.isys.id, department_id=self.dep_finance.id),
+                ISDepartment(information_system_id=self.isys.id, department_id=self.dep_it.id),
+            ]
+        )
 
         self.device_category = DeviceCategory(name="Серверы и СХД")
         self.session.add(self.device_category)
@@ -164,13 +178,19 @@ class ReportEngineTestCase(unittest.TestCase):
 
     def test_validate_config_accepts_well_formed_docx_template(self):
         meta = build_entity_metadata()
-        good = {"blocks": [
-            {"type": "heading", "level": 1, "text": "Заголовок"},
-            {"type": "table", "root_entity": "information-systems", "columns": [
-                {"header": "Наименование", "source": "field", "path": "name"},
-                {"header": "Подразделения", "source": "field", "path": "is_departments[].department.name"},
-            ]},
-        ]}
+        good = {
+            "blocks": [
+                {"type": "heading", "level": 1, "text": "Заголовок"},
+                {
+                    "type": "table",
+                    "root_entity": "information-systems",
+                    "columns": [
+                        {"header": "Наименование", "source": "field", "path": "name"},
+                        {"header": "Подразделения", "source": "field", "path": "is_departments[].department.name"},
+                    ],
+                },
+            ]
+        }
         validate_config(meta, "docx", good)  # не должно бросать исключение
 
 
@@ -187,18 +207,25 @@ class ReportRenderTestCase(unittest.TestCase):
         self.isys = InformationSystem(name="ИС А", description="active")
         self.session.add(self.isys)
         self.session.commit()
-        self.docx_config = {"blocks": [
-            {"type": "heading", "level": 1, "text": "Заголовок"},
-            {"type": "table", "root_entity": "information-systems", "columns": [
-                {"header": "Наименование", "source": "field", "path": "name"},
-            ]},
-        ]}
+        self.docx_config = {
+            "blocks": [
+                {"type": "heading", "level": 1, "text": "Заголовок"},
+                {
+                    "type": "table",
+                    "root_entity": "information-systems",
+                    "columns": [
+                        {"header": "Наименование", "source": "field", "path": "name"},
+                    ],
+                },
+            ]
+        }
 
     def tearDown(self):
         self.session.close()
 
     def test_build_docx_table_contains_row(self):
         from docx import Document
+
         path = build_docx(self.session, self.docx_config, Path("/tmp/rb_render_test"), template_name="Т2")
         try:
             doc = Document(str(path))

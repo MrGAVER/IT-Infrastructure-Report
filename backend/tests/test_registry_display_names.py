@@ -1,12 +1,14 @@
 """R1-07 п. 3 код-ревью: ключи `DISPLAY_NAMES` и `MODEL_MAP`.
 
-Отчёт посчитал ключ `diagrams` мёртвой записью (его нет в `MODEL_MAP`) и предложил удалить его. Проверка показала обратное: сохранённые диаграммы
-не ресурс универсального CRUD, но `api/diagrams.py` пишет в журнал аудита `entity_type="diagrams"`, а журнал и его выгрузка берут подпись
+Отчёт посчитал ключ `diagrams` мёртвой записью (его нет в `MODEL_MAP`) и предложил удалить его. Проверка показала обратное:
+сохранённые диаграммы не ресурс универсального CRUD, но `api/diagrams.py` пишет в журнал аудита `entity_type="diagrams"`, а журнал
+и его выгрузка берут подпись
 сущности из `DISPLAY_NAMES`; без ключа в журнале стояло бы сырое «diagrams». Поэтому ключ остаётся, а инвариант записан тестом: подпись без
 ресурса допустима только для перечисленных типов сущностей аудита, и каждый из них действительно пишется в журнал.
 
 Запуск: pytest backend/tests/test_registry_display_names.py -v
 """
+
 from __future__ import annotations
 
 import re
@@ -32,7 +34,9 @@ def test_each_audit_only_entity_type_is_really_written_to_the_audit_log():
     """Исключение не должно пережить код, ради которого сделано: если никто больше не пишет в журнал этот тип, ключ можно удалить."""
     sources = "\n".join(path.read_text(encoding="utf-8") for path in APP_DIR.rglob("*.py"))
     for entity_type in AUDIT_ONLY_ENTITY_TYPES:
-        assert re.search(rf"audit\(\s*session\s*,\s*[\"']{re.escape(entity_type)}[\"']", sources), f"{entity_type}: в журнал не пишется — удалите ключ из DISPLAY_NAMES и из исключений"
+        assert re.search(rf"audit\(\s*session\s*,\s*[\"']{re.escape(entity_type)}[\"']", sources), (
+            f"{entity_type}: в журнал не пишется — удалите ключ из DISPLAY_NAMES и из исключений"
+        )
 
 
 # --- ИА-04 код-ревью r3: подпись — для людей, пояснение для разработчика — в комментарии --------------------------------------------------

@@ -41,7 +41,10 @@ def test_documented_keys_are_found():
 
 def test_every_documented_env_key_is_forwarded_by_compose():
     missing = sorted(_documented_keys() - _referenced_keys())
-    assert not missing, f"Ключи из .env.example не пробрасываются в контейнер ({missing}): оператор задаст значение, а приложение его не увидит. Добавьте их в app.environment docker-compose.yml."
+    assert not missing, (
+        f"Ключи из .env.example не пробрасываются в контейнер ({missing}): оператор задаст значение, а приложение его "
+        "не увидит. Добавьте их в app.environment docker-compose.yml."
+    )
 
 
 def test_csp_is_never_forwarded_with_an_empty_default():

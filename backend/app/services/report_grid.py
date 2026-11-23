@@ -55,6 +55,7 @@ style — необязательный объект на ячейке: bold/ital
 "#RRGGBB"), number_format (строка формата Excel, например "0.00" или "DD.MM.YYYY"), border (bool,
 тонкая рамка со всех сторон).
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -70,8 +71,13 @@ from .computed import local_timestamp_suffix
 from .excel_layout import text_capacity, wrap_lines
 from .excel_safety import guard_text_cell
 from .report_engine import (
-    ReportBuilderError, ReportContext, iter_report_rows, resolve_value, safe_report_filename,
-    substitute_params, validate_path,
+    ReportBuilderError,
+    ReportContext,
+    iter_report_rows,
+    resolve_value,
+    safe_report_filename,
+    substitute_params,
+    validate_path,
 )
 
 _CELL_KINDS = {"static", "field", "index", "formula"}
@@ -83,6 +89,7 @@ _FILTER_OPS = {"eq", "ne", "contains", "not_contains", "not_empty", "is_true", "
 # --------------------------------------------------------------------------------------------
 # Валидация
 # --------------------------------------------------------------------------------------------
+
 
 def _validate_data_source(meta: dict[str, dict[str, Any]], ds: Any, location: str) -> str:
     if not isinstance(ds, dict):
@@ -144,8 +151,9 @@ def _validate_vertical_merge(rows: list[Any], ri: int, rowspan: int, col: int, r
             raise ReportBuilderError(f"{where} — объединение по вертикали не может охватывать повторяющуюся строку")
 
 
-def _validate_cell_content(meta: dict[str, dict[str, Any]], cell: dict[str, Any], col: int, repeat: bool, root_entity: str | None, where: str,
-                           style_where: str) -> None:
+def _validate_cell_content(
+    meta: dict[str, dict[str, Any]], cell: dict[str, Any], col: int, repeat: bool, root_entity: str | None, where: str, style_where: str
+) -> None:
     """Тип ячейки и то, что для него обязательно (путь поля, формула), плюс стиль.
 
     style_where — префикс сообщений о стиле: у них формат «<лист>, строка N», отличный от where («<лист>: строка N»)."""
@@ -165,8 +173,9 @@ def _validate_cell_content(meta: dict[str, dict[str, Any]], cell: dict[str, Any]
     _validate_style(cell.get("style"), f"{style_where}, колонка {col}")
 
 
-def _validate_row(meta: dict[str, dict[str, Any]], n_cols: int, rows: list[Any], ri: int,
-                   pending_spans: list[tuple[int, int, int]], location: str) -> None:
+def _validate_row(
+    meta: dict[str, dict[str, Any]], n_cols: int, rows: list[Any], ri: int, pending_spans: list[tuple[int, int, int]], location: str
+) -> None:
     row = rows[ri]
     where = f"{location}: строка {ri + 1}"
     if not isinstance(row, dict):
@@ -237,6 +246,7 @@ def validate_grid_config(meta: dict[str, dict[str, Any]], config: dict[str, Any]
 # Материализация: конфигурация листа + данные БД -> физические строки/ячейки
 # --------------------------------------------------------------------------------------------
 
+
 def _normalize_field_value(raw: Any, separator: str) -> Any:
     """Приводит "сырое" значение поля к тому, что можно записать в ячейку Excel: списки (из полей
     вида relation[].field) склеиваются в текст, bool — в "Да"/"Нет" (как и в старом движке отчётов),
@@ -267,8 +277,9 @@ def _formula_value(cell: dict[str, Any], params: dict[str, Any]) -> str:
     return text if text.startswith("=") else f"={text}"
 
 
-def _physical_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, Any], *,
-                    limit: int | None) -> tuple[list[dict[str, Any]], list[int]]:
+def _physical_rows(
+    ctx: ReportContext, sheet: dict[str, Any], params: dict[str, Any], *, limit: int | None
+) -> tuple[list[dict[str, Any]], list[int]]:
     """Возвращает (физические строки листа, список total-ов по каждой повторяющейся строке —
     сколько записей нашлось ДО применения limit, для предпросмотра "показаны N из M")."""
     physical: list[dict[str, Any]] = []
@@ -283,22 +294,33 @@ def _physical_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, 
             for cell in cells:
                 kind = cell.get("kind", "static")
                 value = _formula_value(cell, params) if kind == "formula" else substitute_params(cell.get("text", ""), params)
-                # Код-ревью п.3.2: формулы kind=="formula" — задуманы автором шаблона отчёта и защищаться не должны;
+                # Формулы kind=="formula" — задуманы автором шаблона отчёта и защищаться не должны;
                 # все остальные виды ячеек могут содержать пользовательские данные (например, статичный текст с
                 # параметром {{...}}) и защищаются при записи в .xlsx (guard_text, см. services/excel_safety.py).
-                resolved.append({**_cell_geometry(cell), "value": value, "is_datetime": False, "style": cell.get("style") or {}, "guard_text": kind != "formula"})
+                resolved.append(
+                    {
+                        **_cell_geometry(cell),
+                        "value": value,
+                        "is_datetime": False,
+                        "style": cell.get("style") or {},
+                        "guard_text": kind != "formula",
+                    }
+                )
             physical.append({"height": height, "cells": resolved})
             continue
 
         ds = row.get("data_source") or {}
         root_entity = ds["root_entity"]
-        matches = list(iter_report_rows(
-            ctx, root_entity,
-            expand=ds.get("expand"),
-            include_empty_expand=ds.get("include_empty_expand", True),
-            filters=ds.get("filters"),
-            sort_by=ds.get("sort_by"),
-        ))
+        matches = list(
+            iter_report_rows(
+                ctx,
+                root_entity,
+                expand=ds.get("expand"),
+                include_empty_expand=ds.get("include_empty_expand", True),
+                filters=ds.get("filters"),
+                sort_by=ds.get("sort_by"),
+            )
+        )
         totals.append(len(matches))
         subset = matches if limit is None else matches[:limit]
 
@@ -312,16 +334,23 @@ def _physical_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, 
                 elif kind == "formula":
                     value = _formula_value(cell, params)
                 elif kind == "field":
-                    raw = resolve_value(ctx, root_entity, obj, cell["path"],
-                                         expand_relation=expand_rel, expand_obj=expand_obj)
+                    raw = resolve_value(ctx, root_entity, obj, cell["path"], expand_relation=expand_rel, expand_obj=expand_obj)
                     value = _normalize_field_value(raw, cell.get("separator", "; "))
                     is_dt = isinstance(value, datetime)
                 else:  # static — например, постоянная подпись рядом с данными в той же строке
                     value = substitute_params(cell.get("text", ""), params)
-                # Код-ревью п.3.2: см. комментарий в ветке row.get("repeat") is falsy выше — formula не защищаем
+                # См. комментарий в ветке row.get("repeat") is falsy выше — formula не защищаем
                 # намеренно, остальное (в первую очередь kind == "field" — данные из БД, потенциально
                 # пользовательский ввод) защищаем при записи в .xlsx.
-                resolved.append({**_cell_geometry(cell), "value": value, "is_datetime": is_dt, "style": cell.get("style") or {}, "guard_text": kind != "formula"})
+                resolved.append(
+                    {
+                        **_cell_geometry(cell),
+                        "value": value,
+                        "is_datetime": is_dt,
+                        "style": cell.get("style") or {},
+                        "guard_text": kind != "formula",
+                    }
+                )
             physical.append({"height": height, "cells": resolved})
 
     return physical, totals
@@ -330,6 +359,7 @@ def _physical_rows(ctx: ReportContext, sheet: dict[str, Any], params: dict[str, 
 # --------------------------------------------------------------------------------------------
 # Рендеринг в файл xlsx
 # --------------------------------------------------------------------------------------------
+
 
 def _hex(value: str | None) -> str | None:
     return value.lstrip("#").upper() if value else None
@@ -340,12 +370,16 @@ def _apply_style(xl_cell, style: dict[str, Any] | None, *, is_datetime: bool) ->
     # Имя и размер шрифта заданы явно (Calibri 11 — шрифт книги по умолчанию в Excel): Font(bold=True) без
     # имени LibreOffice рисует другим, более широким шрифтом, и оценка высоты строки (_estimate_row_height,
     # рассчитана на Calibri 11) оказывалась заниженной — текст обрезался.
-    xl_cell.font = Font(name="Calibri", size=11, bold=bool(style.get("bold")), italic=bool(style.get("italic")),
-                         underline="single" if style.get("underline") else None,
-                         color=_hex(style.get("color")))
+    xl_cell.font = Font(
+        name="Calibri",
+        size=11,
+        bold=bool(style.get("bold")),
+        italic=bool(style.get("italic")),
+        underline="single" if style.get("underline") else None,
+        color=_hex(style.get("color")),
+    )
     align_v = {"top": "top", "middle": "center", "bottom": "bottom"}.get(style.get("valign"), "top")
-    xl_cell.alignment = Alignment(horizontal=style.get("align") or "left", vertical=align_v,
-                                   wrap_text=bool(style.get("wrap", True)))
+    xl_cell.alignment = Alignment(horizontal=style.get("align") or "left", vertical=align_v, wrap_text=bool(style.get("wrap", True)))
     bg = _hex(style.get("bg"))
     if bg:
         xl_cell.fill = PatternFill(fill_type="solid", start_color=bg, end_color=bg)
@@ -392,9 +426,15 @@ def _estimate_row_height(cells: list[dict[str, Any]], columns: list[dict[str, An
     return max(configured_height, min(estimated, 400))
 
 
-def build_xlsx_grid(session: Session, config: dict[str, Any], report_dir: Path, *, template_name: str,
-                     params: dict[str, Any] | None = None,
-                     structural_unit_ids: list[str] | None = None) -> Path:
+def build_xlsx_grid(
+    session: Session,
+    config: dict[str, Any],
+    report_dir: Path,
+    *,
+    template_name: str,
+    params: dict[str, Any] | None = None,
+    structural_unit_ids: list[str] | None = None,
+) -> Path:
     params = params or {}
     sheets = config.get("sheets") or []
     if not sheets:
@@ -409,7 +449,8 @@ def build_xlsx_grid(session: Session, config: dict[str, Any], report_dir: Path, 
         title = (substitute_params(sheet.get("title", "Лист"), params) or "Лист")[:31]
         base, n = title, 2
         while title in used_titles:
-            title = f"{base[:28]}({n})"; n += 1
+            title = f"{base[:28]}({n})"
+            n += 1
         used_titles.add(title)
         ws = wb.create_sheet(title)
 
@@ -428,8 +469,10 @@ def build_xlsx_grid(session: Session, config: dict[str, Any], report_dir: Path, 
                 _apply_style(xl_cell, cell["style"], is_datetime=cell["is_datetime"])
                 if cell["colspan"] > 1 or cell["rowspan"] > 1:
                     ws.merge_cells(
-                        start_row=ri, start_column=cell["col"] + 1,
-                        end_row=ri + cell["rowspan"] - 1, end_column=cell["col"] + cell["colspan"],
+                        start_row=ri,
+                        start_column=cell["col"] + 1,
+                        end_row=ri + cell["rowspan"] - 1,
+                        end_column=cell["col"] + cell["colspan"],
                     )
 
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -450,10 +493,12 @@ def preview_grid(session: Session, config: dict[str, Any], *, limit: int = 15) -
         except ReportBuilderError as e:
             sections.append({"title": sheet.get("title", ""), "error": str(e)})
             continue
-        sections.append({
-            "title": sheet.get("title", ""),
-            "n_cols": len(sheet.get("columns") or []),
-            "rows": physical_rows,
-            "total_records": sum(totals) if totals else 0,
-        })
+        sections.append(
+            {
+                "title": sheet.get("title", ""),
+                "n_cols": len(sheet.get("columns") or []),
+                "rows": physical_rows,
+                "total_records": sum(totals) if totals else 0,
+            }
+        )
     return {"sections": sections}

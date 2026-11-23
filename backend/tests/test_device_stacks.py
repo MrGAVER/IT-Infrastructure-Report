@@ -10,6 +10,7 @@
 
 Запуск:  pytest backend/tests/test_device_stacks.py -v
 """
+
 from __future__ import annotations
 
 

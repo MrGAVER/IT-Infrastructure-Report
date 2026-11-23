@@ -4,6 +4,7 @@
 Docker, а не localhost). Поэтому compose обязан требовать INFRA_REGISTRY_SETUP_TOKEN и по умолчанию привязывать порт к
 127.0.0.1. Docker в тестовой среде недоступен — проверяется сам файл (как test_docker_frontend_dirs.py проверяет Dockerfile).
 """
+
 from __future__ import annotations
 
 import re

@@ -31,6 +31,7 @@ iter_report_rows, resolve_value, validate_path, substitute_params) как общ
 связанных записей используется тот единственный объект, на который эта строка была развёрнута —
 иначе каждая строка развёрнутой таблицы содержала бы полный список вместо одного элемента.
 """
+
 from __future__ import annotations
 
 import re
@@ -120,16 +121,13 @@ def _split_path(path: str) -> list[str]:
         raise ReportBuilderError("Пустой путь поля")
     many_count = sum(1 for s in segments if s.endswith("[]"))
     if many_count > 1:
-        raise ReportBuilderError(
-            f"Путь '{path}' содержит более одной связи \"многие\" ([]) — поддерживается только одна на путь"
-        )
+        raise ReportBuilderError(f"Путь '{path}' содержит более одной связи \"многие\" ([]) — поддерживается только одна на путь")
     if segments[-1].endswith("[]"):
         raise ReportBuilderError(f"Путь '{path}' не может заканчиваться связью \"[]\", укажите ещё и поле")
     return segments
 
 
-def _resolve(ctx: ReportContext, entity_key: str, obj: Any, segments: list[str],
-             expand_relation: str | None, expand_obj: Any) -> Any:
+def _resolve(ctx: ReportContext, entity_key: str, obj: Any, segments: list[str], expand_relation: str | None, expand_obj: Any) -> Any:
     if obj is None:
         return None
     seg = segments[0]
@@ -182,15 +180,24 @@ def _to_text(raw: Any, separator: str = "; ") -> str:
     return str(raw)
 
 
-def render_field(ctx: ReportContext, entity_key: str, obj: Any, path: str, *, separator: str = "; ",
-                  expand_relation: str | None = None, expand_obj: Any = None) -> str:
+def render_field(
+    ctx: ReportContext,
+    entity_key: str,
+    obj: Any,
+    path: str,
+    *,
+    separator: str = "; ",
+    expand_relation: str | None = None,
+    expand_obj: Any = None,
+) -> str:
     segments = _split_path(path)
     raw = _resolve(ctx, entity_key, obj, segments, expand_relation, expand_obj)
     return _to_text(raw, separator)
 
 
-def resolve_value(ctx: ReportContext, entity_key: str, obj: Any, path: str, *,
-                   expand_relation: str | None = None, expand_obj: Any = None) -> Any:
+def resolve_value(
+    ctx: ReportContext, entity_key: str, obj: Any, path: str, *, expand_relation: str | None = None, expand_obj: Any = None
+) -> Any:
     """Как render_field(), но возвращает "сырое" значение (число/дата/bool/None/список), а не
     готовую строку. Используется grid-движком (report_grid.py, только формат xlsx): числовые и
     датовые поля должны попадать в ячейку как настоящие Excel-значения — иначе в файле нельзя ни
@@ -264,9 +271,15 @@ def _sort_key(raw: Any) -> tuple[int, int, Any]:
     return (0, 2, str(raw))
 
 
-def iter_report_rows(ctx: ReportContext, root_entity: str, *, expand: str | None = None,
-                      include_empty_expand: bool = True, filters: list[dict[str, Any]] | None = None,
-                      sort_by: str | None = None) -> Iterable[tuple[Any, str | None, Any]]:
+def iter_report_rows(
+    ctx: ReportContext,
+    root_entity: str,
+    *,
+    expand: str | None = None,
+    include_empty_expand: bool = True,
+    filters: list[dict[str, Any]] | None = None,
+    sort_by: str | None = None,
+) -> Iterable[tuple[Any, str | None, Any]]:
     """Возвращает (root_obj, expand_relation, expand_obj) для каждой строки будущего отчёта.
 
     Без expand — одна строка на запись корневой сущности. С expand — по одной строке на каждый
@@ -320,8 +333,7 @@ def validate_path(meta: dict[str, dict[str, Any]], entity_key: str, path: str) -
             current_entity = rel["target"]
 
 
-def _validate_columns(meta: dict[str, dict[str, Any]], root_entity: str, columns: list[dict[str, Any]],
-                       location: str) -> None:
+def _validate_columns(meta: dict[str, dict[str, Any]], root_entity: str, columns: list[dict[str, Any]], location: str) -> None:
     if not columns:
         raise ReportBuilderError(f"{location}: не задано ни одной колонки")
     for c in columns:
@@ -378,8 +390,16 @@ def validate_config(meta: dict[str, dict[str, Any]], fmt: str, config: dict[str,
         raise ReportBuilderError(f"Неизвестный формат отчёта: '{fmt}' (ожидается xlsx или docx)")
 
 
-def column_value(ctx: ReportContext, root_entity: str, row: Any, expand_relation: str | None, expand_obj: Any,
-                  column: dict[str, Any], row_index: int, params: dict[str, Any]) -> Any:
+def column_value(
+    ctx: ReportContext,
+    root_entity: str,
+    row: Any,
+    expand_relation: str | None,
+    expand_obj: Any,
+    column: dict[str, Any],
+    row_index: int,
+    params: dict[str, Any],
+) -> Any:
     source = column.get("source", "field")
     if source == "index":
         return row_index
@@ -390,8 +410,12 @@ def column_value(ctx: ReportContext, root_entity: str, row: Any, expand_relation
         if not path:
             raise ReportBuilderError(f"У колонки '{column.get('header')}' не задан путь поля")
         return render_field(
-            ctx, root_entity, row, path,
+            ctx,
+            root_entity,
+            row,
+            path,
             separator=column.get("separator", "; "),
-            expand_relation=expand_relation, expand_obj=expand_obj,
+            expand_relation=expand_relation,
+            expand_obj=expand_obj,
         )
     raise ReportBuilderError(f"Неизвестный источник колонки: {source}")

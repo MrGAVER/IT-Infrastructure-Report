@@ -8,6 +8,7 @@
 доверенным прокси uvicorn сам подставляет в request.client адрес из заголовка. Тест такого соединения: TestClient с адресом
 клиента, равным записи заголовка (client_factory("203.0.113.5") + X-Forwarded-For: 203.0.113.5).
 """
+
 from __future__ import annotations
 
 import logging
@@ -32,11 +33,16 @@ def _warnings(caplog) -> list[logging.LogRecord]:
 
 
 def _request(headers: dict[str, str], client: tuple[str, int] | None = ("127.0.0.1", 50000)) -> Request:
-    return Request({
-        "type": "http", "method": "GET", "path": "/api/v1/health", "query_string": b"",
-        "headers": [(k.lower().encode("latin1"), v.encode("latin1")) for k, v in headers.items()],
-        "client": client,
-    })
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/health",
+            "query_string": b"",
+            "headers": [(k.lower().encode("latin1"), v.encode("latin1")) for k, v in headers.items()],
+            "client": client,
+        }
+    )
 
 
 class TestWarningOnUntrustedProxy:
@@ -86,11 +92,14 @@ class TestNoWarningWhenNothingIsWrong:
             assert client.get(HEALTH_URL).status_code == 200
         assert _warnings(caplog) == []
 
-    @pytest.mark.parametrize("header_value", [
-        "203.0.113.5",                    # одиночная запись
-        "198.51.100.7, 203.0.113.5",      # цепочка прокси: адрес клиента — одна из записей
-        "203.0.113.5:4711",               # запись с портом: uvicorn отбрасывает порт
-    ])
+    @pytest.mark.parametrize(
+        "header_value",
+        [
+            "203.0.113.5",  # одиночная запись
+            "198.51.100.7, 203.0.113.5",  # цепочка прокси: адрес клиента — одна из записей
+            "203.0.113.5:4711",  # запись с портом: uvicorn отбрасывает порт
+        ],
+    )
     def test_correctly_trusted_proxy_does_not_warn(self, client_factory, caplog, header_value):
         """uvicorn уже подставил адрес клиента из заголовка (прокси есть в FORWARDED_ALLOW_IPS): подозревать нечего."""
         behind_proxy = client_factory("203.0.113.5")
@@ -119,22 +128,33 @@ class TestNoWarningWhenNothingIsWrong:
 
 
 class TestUntrustedProxyHeaderHelper:
-    @pytest.mark.parametrize("headers, client, expected", [
-        ({}, ("127.0.0.1", 1), None),
-        ({"X-Forwarded-For": "203.0.113.5"}, ("127.0.0.1", 1), "X-Forwarded-For"),
-        ({"X-Forwarded-For": "203.0.113.5"}, ("203.0.113.5", 0), None),
-        ({"X-Forwarded-For": "10.0.0.9, 203.0.113.5"}, ("203.0.113.5", 0), None),
-        ({"Forwarded": "for=203.0.113.5"}, ("127.0.0.1", 1), "Forwarded"),
-        ({"X-Forwarded-For": "203.0.113.5", "Forwarded": "for=203.0.113.5"}, ("203.0.113.5", 0), None),
-        ({"X-Forwarded-For": "203.0.113.5"}, None, None),
-    ])
+    @pytest.mark.parametrize(
+        "headers, client, expected",
+        [
+            ({}, ("127.0.0.1", 1), None),
+            ({"X-Forwarded-For": "203.0.113.5"}, ("127.0.0.1", 1), "X-Forwarded-For"),
+            ({"X-Forwarded-For": "203.0.113.5"}, ("203.0.113.5", 0), None),
+            ({"X-Forwarded-For": "10.0.0.9, 203.0.113.5"}, ("203.0.113.5", 0), None),
+            ({"Forwarded": "for=203.0.113.5"}, ("127.0.0.1", 1), "Forwarded"),
+            ({"X-Forwarded-For": "203.0.113.5", "Forwarded": "for=203.0.113.5"}, ("203.0.113.5", 0), None),
+            ({"X-Forwarded-For": "203.0.113.5"}, None, None),
+        ],
+    )
     def test_detection(self, headers, client, expected):
         assert proxy_module._untrusted_proxy_header(_request(headers, client)) == expected
 
-    @pytest.mark.parametrize("raw, expected", [
-        ("1.2.3.4", "1.2.3.4"), (" 1.2.3.4 ", "1.2.3.4"), ("1.2.3.4:80", "1.2.3.4"),
-        ("[::1]:8080", "::1"), ("[::1]", "::1"), ("2001:db8::7", "2001:db8::7"), ("", ""),
-    ])
+    @pytest.mark.parametrize(
+        "raw, expected",
+        [
+            ("1.2.3.4", "1.2.3.4"),
+            (" 1.2.3.4 ", "1.2.3.4"),
+            ("1.2.3.4:80", "1.2.3.4"),
+            ("[::1]:8080", "::1"),
+            ("[::1]", "::1"),
+            ("2001:db8::7", "2001:db8::7"),
+            ("", ""),
+        ],
+    )
     def test_normalize_host_matches_uvicorn_parsing(self, raw, expected):
         assert proxy_module._normalize_host(raw) == expected
 

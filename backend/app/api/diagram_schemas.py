@@ -1,4 +1,4 @@
-"""Pydantic-модели тел запросов роутера диаграмм (код-ревью main, F-06, этап 2).
+"""Pydantic-модели тел запросов роутера диаграмм.
 
 Раньше четыре обработчика (POST /diagrams, PUT .../rename, PUT .../layout, PUT .../groups/{key}) принимали ``payload: dict`` и
 проверяли поля вручную: у таких эндпоинтов не было описания в OpenAPI, а проверки были размазаны по обработчикам. Теперь форма тела
@@ -97,12 +97,24 @@ class DiagramCreate(RequestBody):
     """POST /api/v1/diagrams."""
 
     # validate_default: отсутствующее название проходит ту же проверку и получает то же сообщение «Укажите название диаграммы».
-    name: str = Field(default="", validate_default=True, max_length=MAX_DIAGRAM_NAME_LENGTH, description="Название диаграммы; управляющие символы заменяются пробелом, не длиннее 255 символов.")
-    group_by: str = Field(default="structural_unit", description="Измерение группировки узлов.", json_schema_extra={"enum": list(GROUP_DIMENSIONS)})
+    name: str = Field(
+        default="",
+        validate_default=True,
+        max_length=MAX_DIAGRAM_NAME_LENGTH,
+        description="Название диаграммы; управляющие символы заменяются пробелом, не длиннее 255 символов.",
+    )
+    group_by: str = Field(
+        default="structural_unit", description="Измерение группировки узлов.", json_schema_extra={"enum": list(GROUP_DIMENSIONS)}
+    )
     scope_filter: dict[str, Any] = Field(default_factory=dict, description="Фильтр охвата: какие устройства попадают на диаграмму.")
     description: str | None = None
     # ge/le нужны только схеме OpenAPI (minimum/maximum): сообщение об ошибке даёт валидатор ниже.
-    collapse_threshold: int = Field(default=DEFAULT_COLLAPSE_THRESHOLD, ge=1, le=MAX_COLLAPSE_THRESHOLD, description="Группа крупнее этого числа устройств сворачивается.")
+    collapse_threshold: int = Field(
+        default=DEFAULT_COLLAPSE_THRESHOLD,
+        ge=1,
+        le=MAX_COLLAPSE_THRESHOLD,
+        description="Группа крупнее этого числа устройств сворачивается.",
+    )
 
     @field_validator("name", mode="before")
     @classmethod
@@ -169,7 +181,9 @@ class DiagramGroupStateUpdate(RequestBody):
     а ``custom_threshold: null`` сбрасывает порог группы (различие — по ``model_fields_set``)."""
 
     is_collapsed: StrictBool = False
-    custom_threshold: int | None = Field(default=None, ge=1, le=MAX_COLLAPSE_THRESHOLD, description="Свой порог сворачивания группы; null — использовать порог диаграммы.")
+    custom_threshold: int | None = Field(
+        default=None, ge=1, le=MAX_COLLAPSE_THRESHOLD, description="Свой порог сворачивания группы; null — использовать порог диаграммы."
+    )
 
     @field_validator("custom_threshold", mode="before")
     @classmethod

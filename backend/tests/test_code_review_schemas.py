@@ -5,6 +5,7 @@
 
 Запуск: pytest backend/tests/test_code_review_schemas.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -50,12 +51,20 @@ class TestInterfacesSync:
     def test_missing_groups_key_leaves_groups_untouched_while_empty_list_removes_them(self, client):
         device = _device(client)
         group = {"key": "g1", "name": "Группа 1", "vlan_mode": None, "vlan_ids": []}
-        assert client.put(f"/api/v1/devices/{device['id']}/interfaces", json={"groups": [group], "interfaces": [{"name": "eth0", "group_key": "g1"}]}).status_code == 200
+        assert (
+            client.put(
+                f"/api/v1/devices/{device['id']}/interfaces", json={"groups": [group], "interfaces": [{"name": "eth0", "group_key": "g1"}]}
+            ).status_code
+            == 200
+        )
         groups = lambda: client.get(f"/api/v1/devices/{device['id']}/interface-groups").json()["items"]  # noqa: E731
         assert len(groups()) == 1
         assert _put_interfaces(client, device["id"], ["eth0"]).status_code == 200  # без ключа groups
         assert len(groups()) == 1
-        assert client.put(f"/api/v1/devices/{device['id']}/interfaces", json={"groups": [], "interfaces": [{"name": "eth0"}]}).status_code == 200
+        assert (
+            client.put(f"/api/v1/devices/{device['id']}/interfaces", json={"groups": [], "interfaces": [{"name": "eth0"}]}).status_code
+            == 200
+        )
         assert groups() == []
 
 
@@ -76,7 +85,10 @@ class TestOtherSyncBodies:
     def test_bulk_assign_validates_the_envelope(self, client):
         assert client.post("/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": [], "vlan_id": "x"}).status_code == 422
         assert client.post("/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": "abc", "vlan_id": "x"}).status_code == 422
-        assert client.post("/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": ["a"], "vlan_id": "x", "extra": 1}).status_code == 422
+        assert (
+            client.post("/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": ["a"], "vlan_id": "x", "extra": 1}).status_code
+            == 422
+        )
         r = client.post("/api/v1/device-vlans/bulk-assign", json={"physical_device_ids": ["a"], "vlan_id": "нет"})
         assert r.status_code == 404  # тело корректно, VLAN не существует
 
@@ -112,7 +124,12 @@ class TestOtherSyncBodies:
     def test_stack_member_position_must_be_positive_and_defaults_to_one(self, client):
         stack = client.post("/api/v1/resources/device-stacks", json={"name": "Стек схем"}).json()
         device = _device(client, "ST-1")
-        assert client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": device["id"], "position": 0}).status_code == 422
+        assert (
+            client.post(
+                f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": device["id"], "position": 0}
+            ).status_code
+            == 422
+        )
         r = client.post(f"/api/v1/device-stacks/{stack['id']}/members", json={"physical_device_id": device["id"]})
         assert r.status_code == 200, r.text
         assert r.json()["position"] == 1
@@ -124,8 +141,18 @@ def test_openapi_documents_the_request_bodies():
 
     spec = app.openapi()
     schemas = spec["components"]["schemas"]
-    for name in ("DeviceInterfacesSync", "DeviceVlansSync", "DeployedSoftwareSync", "VMOpenPortsSync", "VMIPAddressesSync",
-                 "VlanCopyRequest", "BulkVlanAssignRequest", "VLANDomainMemberRequest", "VLANDomainSyncRequest", "DeviceStackMemberRequest"):
+    for name in (
+        "DeviceInterfacesSync",
+        "DeviceVlansSync",
+        "DeployedSoftwareSync",
+        "VMOpenPortsSync",
+        "VMIPAddressesSync",
+        "VlanCopyRequest",
+        "BulkVlanAssignRequest",
+        "VLANDomainMemberRequest",
+        "VLANDomainSyncRequest",
+        "DeviceStackMemberRequest",
+    ):
         assert name in schemas, name
         assert schemas[name].get("additionalProperties") is False, name  # extra="forbid" виден и в документации
     body = spec["paths"]["/api/v1/devices/{device_id}/interfaces"]["put"]["requestBody"]["content"]["application/json"]["schema"]

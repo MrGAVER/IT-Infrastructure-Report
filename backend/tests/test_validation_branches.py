@@ -1,9 +1,11 @@
 """
-A-06 (код-ревью main @ b375f58): ветки validation.py, которые не вызывал ни один тест — проверки согласованности связей, которые API выполняет до записи.
+A-06 (код-ревью main @ b375f58): ветки validation.py, которые не вызывал ни один тест — проверки согласованности связей, которые
+API выполняет до записи.
 
-Тикет называл «ранние 422-ветки validate_connection»; после тестов A-01 они покрыты (test_connection_invariants.py, test_interface_connections.py), поэтому здесь —
-оставшиеся непокрытые проверки: модель устройства, встроенная ОС, ОС, хост ВМ, гипервизор, иерархия «здание → помещение → стойка», способ техподдержки и организация.
-Каждая ветка проверяется по тексту ответа 422: пользователь видит именно его.
+Тикет называл «ранние 422-ветки validate_connection»; после тестов A-01 они покрыты (test_connection_invariants.py,
+test_interface_connections.py), поэтому здесь — оставшиеся непокрытые проверки: модель устройства, встроенная ОС, ОС, хост ВМ, гипервизор,
+иерархия «здание → помещение → стойка», способ
+техподдержки и организация. Каждая ветка проверяется по тексту ответа 422: пользователь видит именно его.
 
 Запуск: pytest backend/tests/test_validation_branches.py -v
 """
@@ -56,7 +58,11 @@ def _add(session, *objects):
 def catalog(db_session):
     """Два производителя и два типа устройств; модель Cisco относится к типу «Коммутатор»."""
     category = _add(db_session, DeviceCategory(name="Оборудование"))
-    switch, server = _add(db_session, DeviceType(name="Коммутатор", category_id=category.id), DeviceType(name="Сервер", category_id=category.id, allows_vm_hosting=True))
+    switch, server = _add(
+        db_session,
+        DeviceType(name="Коммутатор", category_id=category.id),
+        DeviceType(name="Сервер", category_id=category.id, allows_vm_hosting=True),
+    )
     cisco, dell = _add(db_session, Manufacturer(name="Cisco"), Manufacturer(name="Dell"))
     model = _add(db_session, DeviceModel(manufacturer_id=cisco.id, device_type_id=switch.id, model="C9300"))
     return {"switch": switch, "server": server, "cisco": cisco, "dell": dell, "model": model}
@@ -64,7 +70,9 @@ def catalog(db_session):
 
 class TestDeviceModelRelation:
     def test_unknown_model_is_rejected(self, db_session):
-        assert _rejected(validate_device_model_relation, {"model_id": "no-such-model"}, db_session) == "Выбранная модель устройства не найдена"
+        assert (
+            _rejected(validate_device_model_relation, {"model_id": "no-such-model"}, db_session) == "Выбранная модель устройства не найдена"
+        )
 
     def test_model_of_another_manufacturer_is_rejected(self, db_session, catalog):
         data = {"model_id": catalog["model"].id, "manufacturer_id": catalog["dell"].id}
@@ -77,24 +85,33 @@ class TestDeviceModelRelation:
         assert _rejected(validate_device_model_relation, data, db_session) == "Выбранная модель не соответствует выбранному типу устройства"
 
     def test_matching_model_passes(self, db_session, catalog):
-        validate_device_model_relation({"model_id": catalog["model"].id, "manufacturer_id": catalog["cisco"].id, "device_type_id": catalog["switch"].id}, db_session)
+        validate_device_model_relation(
+            {"model_id": catalog["model"].id, "manufacturer_id": catalog["cisco"].id, "device_type_id": catalog["switch"].id}, db_session
+        )
 
     def test_model_without_manufacturer_and_type_in_the_request_passes(self, db_session, catalog):
         validate_device_model_relation({"model_id": catalog["model"].id}, db_session)
 
     def test_missing_fields_are_taken_from_the_device_being_edited(self, db_session, catalog):
-        """При правке устройства производитель и тип, которых нет в запросе, берутся из самого устройства: модель другого производителя отвергается и тогда."""
-        device = _add(db_session, PhysicalDevice(device_type_id=catalog["switch"].id, manufacturer_id=catalog["dell"].id, serial_number="SN-1"))
+        """При правке устройства производитель и тип, которых нет в запросе, берутся из самого устройства: модель другого
+        производителя отвергается и тогда."""
+        device = _add(
+            db_session, PhysicalDevice(device_type_id=catalog["switch"].id, manufacturer_id=catalog["dell"].id, serial_number="SN-1")
+        )
 
         message = _rejected(validate_device_model_relation, {"model_id": catalog["model"].id}, db_session, device.id)
 
         assert message == "Выбранная модель не принадлежит указанному производителю"
 
     def test_request_values_win_over_the_edited_device(self, db_session, catalog):
-        device = _add(db_session, PhysicalDevice(device_type_id=catalog["server"].id, manufacturer_id=catalog["dell"].id, serial_number="SN-2"))
+        device = _add(
+            db_session, PhysicalDevice(device_type_id=catalog["server"].id, manufacturer_id=catalog["dell"].id, serial_number="SN-2")
+        )
         data = {"model_id": catalog["model"].id, "manufacturer_id": catalog["cisco"].id, "device_type_id": catalog["switch"].id}
 
-        validate_device_model_relation(data, db_session, device.id)  # в запросе — Cisco и коммутатор, как у модели, хотя устройство сейчас Dell-сервер
+        validate_device_model_relation(
+            data, db_session, device.id
+        )  # в запросе — Cisco и коммутатор, как у модели, хотя устройство сейчас Dell-сервер
 
     def test_unknown_edited_device_is_ignored(self, db_session, catalog):
         validate_device_model_relation({"model_id": catalog["model"].id}, db_session, "no-such-device")
@@ -171,7 +188,9 @@ class TestLocationHierarchy:
         return {"main": main, "annex": annex, "hall": hall, "lab": lab, "rack": rack}
 
     def test_consistent_location_passes(self, db_session, places):
-        validate_device_location_hierarchy({"building_id": places["main"].id, "room_id": places["hall"].id, "rack_id": places["rack"].id}, db_session)
+        validate_device_location_hierarchy(
+            {"building_id": places["main"].id, "room_id": places["hall"].id, "rack_id": places["rack"].id}, db_session
+        )
 
     def test_empty_location_passes(self, db_session):
         validate_device_location_hierarchy({}, db_session)
@@ -217,8 +236,12 @@ class TestSupportMethodOrganization:
         _rejected(validate_support_method_organization, {"support_method_id": support["bound"].id}, db_session)
 
     def test_bound_method_with_its_own_organization_passes(self, db_session, support):
-        validate_support_method_organization({"support_method_id": support["bound"].id, "support_organization_id": support["mine"].id}, db_session)
+        validate_support_method_organization(
+            {"support_method_id": support["bound"].id, "support_organization_id": support["mine"].id}, db_session
+        )
 
     def test_universal_method_suits_any_organization_or_none(self, db_session, support):
-        validate_support_method_organization({"support_method_id": support["universal"].id, "support_organization_id": support["other"].id}, db_session)
+        validate_support_method_organization(
+            {"support_method_id": support["universal"].id, "support_organization_id": support["other"].id}, db_session
+        )
         validate_support_method_organization({"support_method_id": support["universal"].id}, db_session)

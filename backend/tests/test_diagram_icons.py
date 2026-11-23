@@ -9,6 +9,7 @@
 
 Запуск: pip install -r backend/requirements-dev.txt && pytest backend/tests/test_diagram_icons.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -190,7 +191,7 @@ def test_build_device_icon_defaults_manufacturer_and_model_labels_to_empty_strin
     "svg_markup",
     [
         '<svg onload="alert(1)"></svg>',
-        '<svg><script>alert(1)</script></svg>',
+        "<svg><script>alert(1)</script></svg>",
         '<svg ONLOAD="alert(1)"></svg>',  # регистронезависимость
         '<svg><foreignObject><body onload="alert(1)"/></foreignObject></svg>',
         '<svg><a href="javascript:alert(1)">кликни</a></svg>',
@@ -227,7 +228,26 @@ def test_hex_colors_are_accepted(value):
     assert safe_color(value) == value
 
 
-@pytest.mark.parametrize("value", [DIRTY_COLOR, "", "red", "#ff", "#ffff", "#fffff", "#fffffff", "#12345g", "4f7cff", "#fff\n", " #fff", "#fff;stroke:red", None, 123, ["#fff"]])
+@pytest.mark.parametrize(
+    "value",
+    [
+        DIRTY_COLOR,
+        "",
+        "red",
+        "#ff",
+        "#ffff",
+        "#fffff",
+        "#fffffff",
+        "#12345g",
+        "4f7cff",
+        "#fff\n",
+        " #fff",
+        "#fff;stroke:red",
+        None,
+        123,
+        ["#fff"],
+    ],
+)
 def test_non_hex_colors_fall_back_to_default(value):
     assert not is_hex_color(value)
     assert safe_color(value) == DEFAULT_COLOR

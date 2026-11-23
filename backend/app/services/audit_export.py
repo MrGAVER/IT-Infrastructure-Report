@@ -22,7 +22,15 @@ from .computed import local_timestamp_suffix
 from .crud import list_resource
 from .excel_safety import guard_text_cell
 
-ACTION_LABELS = {"CREATE": "Создание", "UPDATE": "Изменение", "DELETE": "Удаление", "SYNC": "Синхронизация", "LOGIN": "Вход", "LOGIN_FAILED": "Неудачный вход", "LOGOUT": "Выход"}
+ACTION_LABELS = {
+    "CREATE": "Создание",
+    "UPDATE": "Изменение",
+    "DELETE": "Удаление",
+    "SYNC": "Синхронизация",
+    "LOGIN": "Вход",
+    "LOGIN_FAILED": "Неудачный вход",
+    "LOGOUT": "Выход",
+}
 AUDIT_HEADERS = ["Дата и время", "Пользователь", "IP-адрес", "Раздел", "Идентификатор записи", "Действие", "Подробности"]
 
 # Журнал аудита экспортируется целиком в пределах разумного потолка (а не постранично, как в UI):
@@ -42,16 +50,19 @@ def _audit_rows(session: Session, filters: dict | None, date_from: str | None, d
     offset = 0
     while offset < EXPORT_ROW_LIMIT:
         limit = min(EXPORT_PAGE_SIZE, EXPORT_ROW_LIMIT - offset)
-        items = list_resource("audit-log", session, offset=offset, limit=limit, filters=filters, date_from=date_from, date_to=date_to)["items"]
+        items = list_resource("audit-log", session, offset=offset, limit=limit, filters=filters, date_from=date_from, date_to=date_to)[
+            "items"
+        ]
         yield from items
         if len(items) < limit:
             return
         offset += limit
 
 
-# Имя файла отчёта журнала аудита начинается с этого префикса. Его читает и скачивание (api/reports.py: файл только для администратора), поэтому
-# генератор имени и проверка обязаны брать одну константу — иначе переименование префикса молча сняло бы защиту (R1-05 код-ревью).
-# Проверка по имени — второй слой: основной — подкаталог (audit_report_dir), до которого общий эндпоинт скачивания не дотягивается (A-05).
+# Имя файла отчёта журнала аудита начинается с этого префикса. Его читает и скачивание (api/reports.py: файл только для
+# администратора), поэтому генератор имени и проверка обязаны брать одну константу — иначе переименование префикса молча сняло бы
+# защиту.
+# Проверка по имени — второй слой: основной — подкаталог (audit_report_dir), до которого общий эндпоинт скачивания не дотягивается.
 AUDIT_REPORT_PREFIX = "Журнал_аудита_"
 
 
@@ -71,15 +82,18 @@ def is_audit_report_name(name: str) -> bool:
     return _comparable(name).startswith(_comparable(AUDIT_REPORT_PREFIX))
 
 
-def build_audit_log_report(session: Session, report_dir: Path, date_from: str | None = None, date_to: str | None = None, entity_type: str | None = None) -> Path:
+def build_audit_log_report(
+    session: Session, report_dir: Path, date_from: str | None = None, date_to: str | None = None, entity_type: str | None = None
+) -> Path:
     """Формирует .xlsx журнала аудита потоковой записью (Workbook(write_only=True)): память не растёт с числом
     записей. Оформление то же, что у остальных отчётов (жирная центрированная шапка, закреплённая первая
     строка, автофильтр), кроме подбора ширины по содержимому — она фиксирована (_COLUMN_WIDTHS).
 
-    Файл создаётся в подкаталоге audit_report_dir(report_dir), а не в самом report_dir (A-05).
+    Файл создаётся в подкаталоге audit_report_dir(report_dir), а не в самом report_dir.
 
     Пример вызова:
-        path = build_audit_log_report(session, REPORT_DIR, date_from="2026-10-01", entity_type="devices")  # REPORT_DIR/audit/Журнал_аудита_….xlsx
+        path = build_audit_log_report(session, REPORT_DIR, date_from="2026-10-01", entity_type="devices")  #
+        REPORT_DIR/audit/Журнал_аудита_….xlsx
     """
     filters = {"entity_type": entity_type} if entity_type else None
 

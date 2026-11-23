@@ -11,6 +11,7 @@
 
 Запуск: pytest backend/tests/test_auth_package_structure.py -v
 """
+
 from __future__ import annotations
 
 import ast
@@ -28,15 +29,40 @@ TESTS_DIR = Path(__file__).resolve().parent
 
 # Публичные имена модуля services/auth.py до нарезки (по его AST).
 LEGACY_PUBLIC_NAMES = [
-    "hash_password", "verify_password", "validate_password_strength",
-    "find_user_by_username", "ensure_not_last_admin", "create_user", "update_user", "delete_user", "change_own_password", "serialize_user",
-    "get_or_create_auth_settings", "reset_auth_enabled_cache", "set_auth_enabled",
-    "create_session", "cleanup_expired_sessions", "resolve_session", "revoke_session", "revoke_all_sessions", "revoke_all_sessions_except",
-    "revoke_session_by_id", "list_active_sessions", "serialize_session",
+    "hash_password",
+    "verify_password",
+    "validate_password_strength",
+    "find_user_by_username",
+    "ensure_not_last_admin",
+    "create_user",
+    "update_user",
+    "delete_user",
+    "change_own_password",
+    "serialize_user",
+    "get_or_create_auth_settings",
+    "reset_auth_enabled_cache",
+    "set_auth_enabled",
+    "create_session",
+    "cleanup_expired_sessions",
+    "resolve_session",
+    "revoke_session",
+    "revoke_all_sessions",
+    "revoke_all_sessions_except",
+    "revoke_session_by_id",
+    "list_active_sessions",
+    "serialize_session",
     "authenticate",
-    "WRITE_METHODS", "PUBLIC_API_PATHS", "ROLE_CHECK_EXEMPT_PATHS", "ROLE_CHECK_EXEMPT_PREFIXES", "READ_ONLY_POST_PATHS", "auth_gate_middleware",
-    "require_setup_access", "require_admin_if_auth_enabled", "require_admin",
-    "Actor", "current_actor",  # реэкспортировались и раньше (__all__ старого модуля)
+    "WRITE_METHODS",
+    "PUBLIC_API_PATHS",
+    "ROLE_CHECK_EXEMPT_PATHS",
+    "ROLE_CHECK_EXEMPT_PREFIXES",
+    "READ_ONLY_POST_PATHS",
+    "AuthGateMiddleware",
+    "require_setup_access",
+    "require_admin_if_auth_enabled",
+    "require_admin",
+    "Actor",
+    "current_actor",  # реэкспортировались и раньше (__all__ старого модуля)
 ]
 # Имена старого модуля, которые намеренно НЕ реэкспортируются: это изменяемое состояние и настройка, которые подменяют в тестах.
 # Подмена такого имени на пакете не подействовала бы, поэтому обращаться к ним нужно в подмодуле (login, passwords).
@@ -79,7 +105,8 @@ def test_package_init_holds_only_imports_and_the_export_list():
     tree = ast.parse((PACKAGE_DIR / "__init__.py").read_text(encoding="utf-8"))
     allowed = (ast.Import, ast.ImportFrom)
     stray = [
-        node for node in tree.body
+        node
+        for node in tree.body
         if not isinstance(node, allowed)
         and not (isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str))  # докстринг
         and not (isinstance(node, ast.Assign) and [t.id for t in node.targets if isinstance(t, ast.Name)] == ["__all__"])
@@ -106,7 +133,17 @@ def test_submodules_do_not_depend_on_each_other_in_a_cycle():
 def test_package_modules_are_the_expected_set():
     # Новый модуль в пакете — осознанное решение: добавьте его сюда и в «Состав пакета» докстринга __init__.py.
     assert _submodule_names() == [
-        "_common", "gate", "guards", "lockout", "login", "passwords", "proxy_headers", "security_headers", "sessions", "settings", "users",
+        "_common",
+        "gate",
+        "guards",
+        "lockout",
+        "login",
+        "passwords",
+        "proxy_headers",
+        "security_headers",
+        "sessions",
+        "settings",
+        "users",
     ]
     docstring = auth.__doc__ or ""
     assert [name for name in _submodule_names() if name not in docstring] == []
@@ -121,7 +158,8 @@ def test_tests_do_not_patch_names_on_the_package_itself():
     # тест прошёл бы с настоящим кодом. Подменять нужно в подмодуле, который имя читает.
     pattern = re.compile(r"setattr\(\s*(?:auth_module|auth)\s*,")
     offenders = [
-        path.name for path in sorted(TESTS_DIR.glob("*.py"))
+        path.name
+        for path in sorted(TESTS_DIR.glob("*.py"))
         if path.name != Path(__file__).name and pattern.search(path.read_text(encoding="utf-8"))
     ]
     assert offenders == [], f"подмена имени на пакете services.auth: {offenders}"

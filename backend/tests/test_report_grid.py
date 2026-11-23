@@ -6,6 +6,7 @@
 Запуск: python3 -m unittest discover -s backend/tests -v
 Требует sqlalchemy/openpyxl (как test_report_builder.py) — при их отсутствии тесты пропускаются.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -15,6 +16,7 @@ APP_DIR = Path(__file__).resolve().parent.parent / "app"
 
 try:
     import sys
+
     sys.path.insert(0, str(APP_DIR.parent))
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
@@ -56,9 +58,7 @@ class ValidateGridConfigTestCase(unittest.TestCase):
 
     def test_rejects_sheet_without_columns(self):
         with self.assertRaises(ReportBuilderError):
-            validate_grid_config(self.meta, {"sheets": [{"title": "x", "columns": [], "rows": [
-                _static_row([_cell(0, text="a")])
-            ]}]})
+            validate_grid_config(self.meta, {"sheets": [{"title": "x", "columns": [], "rows": [_static_row([_cell(0, text="a")])]}]})
 
     def test_rejects_sheet_without_rows(self):
         with self.assertRaises(ReportBuilderError):
@@ -70,13 +70,15 @@ class ValidateGridConfigTestCase(unittest.TestCase):
         validate_grid_config(self.meta, {"sheets": [sheet]})  # не должно бросать
 
     def test_accepts_well_formed_repeat_row(self):
-        sheet = self._sheet([
-            _static_row([_cell(0, text="№"), _cell(1, text="Наименование"), _cell(2, text="Статус")]),
-            _repeat_row(
-                [_cell(0, "index"), _cell(1, "field", path="name"), _cell(2, "field", path="description")],
-                {"root_entity": "information-systems"},
-            ),
-        ])
+        sheet = self._sheet(
+            [
+                _static_row([_cell(0, text="№"), _cell(1, text="Наименование"), _cell(2, text="Статус")]),
+                _repeat_row(
+                    [_cell(0, "index"), _cell(1, "field", path="name"), _cell(2, "field", path="description")],
+                    {"root_entity": "information-systems"},
+                ),
+            ]
+        )
         validate_grid_config(self.meta, {"sheets": [sheet]})  # не должно бросать
 
     def test_rejects_field_cell_outside_repeat_row(self):
@@ -100,32 +102,46 @@ class ValidateGridConfigTestCase(unittest.TestCase):
             validate_grid_config(self.meta, {"sheets": [sheet]})
 
     def test_rejects_unknown_field_path(self):
-        sheet = self._sheet([_repeat_row(
-            [_cell(0, "field", path="no_such_field")], {"root_entity": "information-systems"},
-        )])
+        sheet = self._sheet(
+            [
+                _repeat_row(
+                    [_cell(0, "field", path="no_such_field")],
+                    {"root_entity": "information-systems"},
+                )
+            ]
+        )
         with self.assertRaises(ReportBuilderError):
             validate_grid_config(self.meta, {"sheets": [sheet]})
 
     def test_rejects_rowspan_in_repeat_row(self):
-        sheet = self._sheet([_repeat_row(
-            [_cell(0, "index", rowspan=2)], {"root_entity": "information-systems"},
-        )])
+        sheet = self._sheet(
+            [
+                _repeat_row(
+                    [_cell(0, "index", rowspan=2)],
+                    {"root_entity": "information-systems"},
+                )
+            ]
+        )
         with self.assertRaises(ReportBuilderError):
             validate_grid_config(self.meta, {"sheets": [sheet]})
 
     def test_rejects_rowspan_spanning_into_repeat_row(self):
-        sheet = self._sheet([
-            _static_row([_cell(0, text="Заголовок", rowspan=2)]),
-            _repeat_row([_cell(0, "index")], {"root_entity": "information-systems"}),
-        ])
+        sheet = self._sheet(
+            [
+                _static_row([_cell(0, text="Заголовок", rowspan=2)]),
+                _repeat_row([_cell(0, "index")], {"root_entity": "information-systems"}),
+            ]
+        )
         with self.assertRaises(ReportBuilderError):
             validate_grid_config(self.meta, {"sheets": [sheet]})
 
     def test_accepts_rowspan_across_two_static_rows(self):
-        sheet = self._sheet([
-            _static_row([_cell(0, text="A", rowspan=2), _cell(1, text="B1"), _cell(2, text="C1")]),
-            _static_row([_cell(1, text="B2"), _cell(2, text="C2")]),
-        ])
+        sheet = self._sheet(
+            [
+                _static_row([_cell(0, text="A", rowspan=2), _cell(1, text="B1"), _cell(2, text="C1")]),
+                _static_row([_cell(1, text="B2"), _cell(2, text="C2")]),
+            ]
+        )
         validate_grid_config(self.meta, {"sheets": [sheet]})  # не должно бросать
 
     def test_rejects_overlapping_cells_in_same_row(self):
@@ -134,10 +150,12 @@ class ValidateGridConfigTestCase(unittest.TestCase):
             validate_grid_config(self.meta, {"sheets": [sheet]})
 
     def test_rejects_cell_under_rowspan_from_above(self):
-        sheet = self._sheet([
-            _static_row([_cell(0, text="A", rowspan=2), _cell(1, text="B1"), _cell(2, text="C1")]),
-            _static_row([_cell(0, text="занято сверху"), _cell(1, text="B2"), _cell(2, text="C2")]),
-        ])
+        sheet = self._sheet(
+            [
+                _static_row([_cell(0, text="A", rowspan=2), _cell(1, text="B1"), _cell(2, text="C1")]),
+                _static_row([_cell(0, text="занято сверху"), _cell(1, text="B2"), _cell(2, text="C2")]),
+            ]
+        )
         with self.assertRaises(ReportBuilderError):
             validate_grid_config(self.meta, {"sheets": [sheet]})
 
@@ -157,17 +175,26 @@ class ValidateGridConfigTestCase(unittest.TestCase):
             validate_grid_config(self.meta, {"sheets": [sheet]})
 
     def test_rejects_filter_with_unknown_op(self):
-        sheet = self._sheet([_repeat_row(
-            [_cell(0, "index")],
-            {"root_entity": "information-systems", "filters": [{"path": "description", "op": "bogus", "value": "x"}]},
-        )])
+        sheet = self._sheet(
+            [
+                _repeat_row(
+                    [_cell(0, "index")],
+                    {"root_entity": "information-systems", "filters": [{"path": "description", "op": "bogus", "value": "x"}]},
+                )
+            ]
+        )
         with self.assertRaises(ReportBuilderError):
             validate_grid_config(self.meta, {"sheets": [sheet]})
 
     def test_rejects_unknown_expand_relation(self):
-        sheet = self._sheet([_repeat_row(
-            [_cell(0, "index")], {"root_entity": "devices", "expand": "no_such_relation"},
-        )])
+        sheet = self._sheet(
+            [
+                _repeat_row(
+                    [_cell(0, "index")],
+                    {"root_entity": "devices", "expand": "no_such_relation"},
+                )
+            ]
+        )
         with self.assertRaises(ReportBuilderError):
             validate_grid_config(self.meta, {"sheets": [sheet]})
 
@@ -202,23 +229,35 @@ class BuildXlsxGridTestCase(unittest.TestCase):
         self.session.close()
 
     def _basic_config(self, extra_row_kwargs=None):
-        return {"sheets": [{
-            "title": "Лист1",
-            "columns": [{"width": 8}, {"width": 25}, {"width": 15}],
-            "rows": [
-                _static_row([_cell(0, text="№", style={"bold": True}),
-                             _cell(1, text="Наименование", style={"bold": True}),
-                             _cell(2, text="Статус", style={"bold": True})]),
-                _repeat_row(
-                    [_cell(0, "index"), _cell(1, "field", path="name"),
-                     _cell(2, "field", path="description", **(extra_row_kwargs or {}))],
-                    {"root_entity": "information-systems", "sort_by": "name"},
-                ),
-            ],
-        }]}
+        return {
+            "sheets": [
+                {
+                    "title": "Лист1",
+                    "columns": [{"width": 8}, {"width": 25}, {"width": 15}],
+                    "rows": [
+                        _static_row(
+                            [
+                                _cell(0, text="№", style={"bold": True}),
+                                _cell(1, text="Наименование", style={"bold": True}),
+                                _cell(2, text="Статус", style={"bold": True}),
+                            ]
+                        ),
+                        _repeat_row(
+                            [
+                                _cell(0, "index"),
+                                _cell(1, "field", path="name"),
+                                _cell(2, "field", path="description", **(extra_row_kwargs or {})),
+                            ],
+                            {"root_entity": "information-systems", "sort_by": "name"},
+                        ),
+                    ],
+                }
+            ]
+        }
 
     def test_build_writes_header_and_data_rows(self):
         import openpyxl
+
         path = build_xlsx_grid(self.session, self._basic_config(), Path("/tmp/rb_grid_test"), template_name="Т1")
         try:
             wb = openpyxl.load_workbook(path)
@@ -232,6 +271,7 @@ class BuildXlsxGridTestCase(unittest.TestCase):
 
     def test_header_row_is_bold(self):
         import openpyxl
+
         path = build_xlsx_grid(self.session, self._basic_config(), Path("/tmp/rb_grid_test"), template_name="Т1")
         try:
             wb = openpyxl.load_workbook(path)
@@ -244,6 +284,7 @@ class BuildXlsxGridTestCase(unittest.TestCase):
         """Font(bold=True) без имени LibreOffice рисует другим, более широким шрифтом — оценка высоты
         строки (рассчитана на Calibri 11) оказывалась заниженной, и текст обрезался."""
         import openpyxl
+
         path = build_xlsx_grid(self.session, self._basic_config(), Path("/tmp/rb_grid_test"), template_name="Т1")
         try:
             ws = openpyxl.load_workbook(path)["Лист1"]
@@ -254,15 +295,22 @@ class BuildXlsxGridTestCase(unittest.TestCase):
 
     def test_merged_static_header_cell(self):
         import openpyxl
-        config = {"sheets": [{
-            "title": "Лист1",
-            "columns": [{"width": 15}, {"width": 15}, {"width": 15}],
-            "rows": [
-                _static_row([_cell(0, text="Заголовок отчёта", colspan=3, style={"align": "center"})]),
-                _repeat_row([_cell(0, "index"), _cell(1, "field", path="name"), _cell(2, "field", path="description")],
-                            {"root_entity": "information-systems"}),
-            ],
-        }]}
+
+        config = {
+            "sheets": [
+                {
+                    "title": "Лист1",
+                    "columns": [{"width": 15}, {"width": 15}, {"width": 15}],
+                    "rows": [
+                        _static_row([_cell(0, text="Заголовок отчёта", colspan=3, style={"align": "center"})]),
+                        _repeat_row(
+                            [_cell(0, "index"), _cell(1, "field", path="name"), _cell(2, "field", path="description")],
+                            {"root_entity": "information-systems"},
+                        ),
+                    ],
+                }
+            ]
+        }
         path = build_xlsx_grid(self.session, config, Path("/tmp/rb_grid_test"), template_name="Т1")
         try:
             wb = openpyxl.load_workbook(path)
@@ -275,6 +323,7 @@ class BuildXlsxGridTestCase(unittest.TestCase):
 
     def test_column_widths_applied(self):
         import openpyxl
+
         path = build_xlsx_grid(self.session, self._basic_config(), Path("/tmp/rb_grid_test"), template_name="Т1")
         try:
             wb = openpyxl.load_workbook(path)
@@ -285,10 +334,16 @@ class BuildXlsxGridTestCase(unittest.TestCase):
 
     def test_formula_cell_written_verbatim_with_leading_equals(self):
         import openpyxl
-        config = {"sheets": [{
-            "title": "Лист1", "columns": [{"width": 10}, {"width": 10}],
-            "rows": [_static_row([_cell(0, text="5"), _cell(1, "formula", text="A1*2")])],
-        }]}
+
+        config = {
+            "sheets": [
+                {
+                    "title": "Лист1",
+                    "columns": [{"width": 10}, {"width": 10}],
+                    "rows": [_static_row([_cell(0, text="5"), _cell(1, "formula", text="A1*2")])],
+                }
+            ]
+        }
         path = build_xlsx_grid(self.session, config, Path("/tmp/rb_grid_test"), template_name="Т1")
         try:
             wb = openpyxl.load_workbook(path)
@@ -301,6 +356,7 @@ class BuildXlsxGridTestCase(unittest.TestCase):
         задуман автором шаблона отчёта) — kind=="field" тянет данные из БД (потенциально
         пользовательский ввод) и обязан стать текстовой ячейкой (без <f>, значение без апострофа, quotePrefix)."""
         import openpyxl
+
         self.isys1.name = '=HYPERLINK("http://evil.example")'
         self.session.commit()
         path = build_xlsx_grid(self.session, self._basic_config(), Path("/tmp/rb_grid_test"), template_name="Т1")
@@ -315,10 +371,16 @@ class BuildXlsxGridTestCase(unittest.TestCase):
 
     def test_number_format_applied_from_style(self):
         import openpyxl
-        config = {"sheets": [{
-            "title": "Лист1", "columns": [{"width": 10}],
-            "rows": [_static_row([_cell(0, text="1234.5", style={"number_format": "0.00"})])],
-        }]}
+
+        config = {
+            "sheets": [
+                {
+                    "title": "Лист1",
+                    "columns": [{"width": 10}],
+                    "rows": [_static_row([_cell(0, text="1234.5", style={"number_format": "0.00"})])],
+                }
+            ]
+        }
         path = build_xlsx_grid(self.session, config, Path("/tmp/rb_grid_test"), template_name="Т1")
         try:
             wb = openpyxl.load_workbook(path)
@@ -328,10 +390,16 @@ class BuildXlsxGridTestCase(unittest.TestCase):
 
     def test_bg_color_applied(self):
         import openpyxl
-        config = {"sheets": [{
-            "title": "Лист1", "columns": [{"width": 10}],
-            "rows": [_static_row([_cell(0, text="x", style={"bg": "#FFCC00"})])],
-        }]}
+
+        config = {
+            "sheets": [
+                {
+                    "title": "Лист1",
+                    "columns": [{"width": 10}],
+                    "rows": [_static_row([_cell(0, text="x", style={"bg": "#FFCC00"})])],
+                }
+            ]
+        }
         path = build_xlsx_grid(self.session, config, Path("/tmp/rb_grid_test"), template_name="Т1")
         try:
             wb = openpyxl.load_workbook(path)
@@ -341,10 +409,9 @@ class BuildXlsxGridTestCase(unittest.TestCase):
 
     def test_filters_narrow_repeat_row_records(self):
         import openpyxl
+
         config = self._basic_config()
-        config["sheets"][0]["rows"][1]["data_source"]["filters"] = [
-            {"path": "description", "op": "eq", "value": "active"}
-        ]
+        config["sheets"][0]["rows"][1]["data_source"]["filters"] = [{"path": "description", "op": "eq", "value": "active"}]
         path = build_xlsx_grid(self.session, config, Path("/tmp/rb_grid_test"), template_name="Т1")
         try:
             wb = openpyxl.load_workbook(path)
@@ -356,13 +423,21 @@ class BuildXlsxGridTestCase(unittest.TestCase):
 
     def test_bridge_relation_field_joins_multiple_values(self):
         import openpyxl
-        config = {"sheets": [{
-            "title": "Лист1", "columns": [{"width": 15}, {"width": 20}],
-            "rows": [_repeat_row(
-                [_cell(0, "field", path="name"), _cell(1, "field", path="is_departments[].department.name")],
-                {"root_entity": "information-systems", "filters": [{"path": "name", "op": "eq", "value": "ИС Альфа"}]},
-            )],
-        }]}
+
+        config = {
+            "sheets": [
+                {
+                    "title": "Лист1",
+                    "columns": [{"width": 15}, {"width": 20}],
+                    "rows": [
+                        _repeat_row(
+                            [_cell(0, "field", path="name"), _cell(1, "field", path="is_departments[].department.name")],
+                            {"root_entity": "information-systems", "filters": [{"path": "name", "op": "eq", "value": "ИС Альфа"}]},
+                        )
+                    ],
+                }
+            ]
+        }
         path = build_xlsx_grid(self.session, config, Path("/tmp/rb_grid_test"), template_name="Т1")
         try:
             wb = openpyxl.load_workbook(path)
@@ -373,6 +448,7 @@ class BuildXlsxGridTestCase(unittest.TestCase):
 
     def test_duplicate_sheet_titles_are_disambiguated(self):
         import openpyxl
+
         one = self._basic_config()["sheets"][0]
         two = dict(one)
         config = {"sheets": [one, two]}
@@ -389,11 +465,16 @@ class BuildXlsxGridTestCase(unittest.TestCase):
         сколько строк реально займёт текст при переносе (openpyxl, в отличие от интерактивного
         Excel, не пересчитывает высоту сам)."""
         import openpyxl
-        config = {"sheets": [{
-            "title": "Лист1",
-            "columns": [{"width": 10}],
-            "rows": [_static_row([_cell(0, text="A" * 300, style={"wrap": True})], height=18)],
-        }]}
+
+        config = {
+            "sheets": [
+                {
+                    "title": "Лист1",
+                    "columns": [{"width": 10}],
+                    "rows": [_static_row([_cell(0, text="A" * 300, style={"wrap": True})], height=18)],
+                }
+            ]
+        }
         path = build_xlsx_grid(self.session, config, Path("/tmp/rb_grid_test"), template_name="Т1")
         try:
             wb = openpyxl.load_workbook(path)
@@ -403,11 +484,16 @@ class BuildXlsxGridTestCase(unittest.TestCase):
 
     def test_short_text_keeps_configured_height_unchanged(self):
         import openpyxl
-        config = {"sheets": [{
-            "title": "Лист1",
-            "columns": [{"width": 30}],
-            "rows": [_static_row([_cell(0, text="Коротко", style={})], height=40)],
-        }]}
+
+        config = {
+            "sheets": [
+                {
+                    "title": "Лист1",
+                    "columns": [{"width": 30}],
+                    "rows": [_static_row([_cell(0, text="Коротко", style={})], height=40)],
+                }
+            ]
+        }
         path = build_xlsx_grid(self.session, config, Path("/tmp/rb_grid_test"), template_name="Т1")
         try:
             wb = openpyxl.load_workbook(path)
@@ -444,7 +530,7 @@ class EstimateRowHeightTestCase(unittest.TestCase):
     def test_bold_text_needs_more_height_than_regular_text(self):
         """Жирные символы шире: тот же заголовок в той же колонке в жирном начертании переносится на
         большее число строк (раньше жирность не учитывалась, и шапка обрезалась)."""
-        text = "аааааааааа " * 12                      # 12 слов по 10 символов
+        text = "аааааааааа " * 12  # 12 слов по 10 символов
         regular = _estimate_row_height([{"col": 0, "value": text, "style": {}}], [{"width": 36}], 18)
         bold = _estimate_row_height([{"col": 0, "value": text, "style": {"bold": True}}], [{"width": 36}], 18)
         self.assertGreater(bold, regular)
@@ -487,28 +573,43 @@ class PreviewGridTestCase(unittest.TestCase):
         self.session.close()
 
     def test_preview_truncates_repeat_rows_but_reports_total(self):
-        config = {"sheets": [{
-            "title": "Лист1", "columns": [{"width": 15}],
-            "rows": [_repeat_row([_cell(0, "field", path="name")], {"root_entity": "information-systems"})],
-        }]}
+        config = {
+            "sheets": [
+                {
+                    "title": "Лист1",
+                    "columns": [{"width": 15}],
+                    "rows": [_repeat_row([_cell(0, "field", path="name")], {"root_entity": "information-systems"})],
+                }
+            ]
+        }
         result = preview_grid(self.session, config, limit=2)
         section = result["sections"][0]
         self.assertEqual(section["total_records"], 5)
         self.assertEqual(len(section["rows"]), 2)
 
     def test_preview_does_not_write_any_file(self):
-        config = {"sheets": [{
-            "title": "Лист1", "columns": [{"width": 15}],
-            "rows": [_repeat_row([_cell(0, "field", path="name")], {"root_entity": "information-systems"})],
-        }]}
+        config = {
+            "sheets": [
+                {
+                    "title": "Лист1",
+                    "columns": [{"width": 15}],
+                    "rows": [_repeat_row([_cell(0, "field", path="name")], {"root_entity": "information-systems"})],
+                }
+            ]
+        }
         preview_grid(self.session, config)
         self.assertFalse(list(Path("/tmp/rb_grid_test").glob("*preview*")))
 
     def test_preview_reports_error_for_broken_sheet_without_raising(self):
-        config = {"sheets": [{
-            "title": "Плохой лист", "columns": [{"width": 15}],
-            "rows": [_repeat_row([_cell(0, "field", path="name")], {"root_entity": "no-such-entity"})],
-        }]}
+        config = {
+            "sheets": [
+                {
+                    "title": "Плохой лист",
+                    "columns": [{"width": 15}],
+                    "rows": [_repeat_row([_cell(0, "field", path="name")], {"root_entity": "no-such-entity"})],
+                }
+            ]
+        }
         result = preview_grid(self.session, config)
         self.assertIn("error", result["sections"][0])
 

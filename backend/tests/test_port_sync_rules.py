@@ -2,6 +2,7 @@
 
 Запуск: pytest backend/tests/test_port_sync_rules.py -v
 """
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -48,6 +49,7 @@ RULES = active_rules(DEFAULT_RULES)
 
 # --- состояние VLAN и условия ------------------------------------------------------------------
 
+
 def test_vlan_state_distinguishes_none_set_and_all():
     assert facts().vlan_state == "none"
     assert facts(vlans=(10,)).vlan_state == "set"
@@ -85,7 +87,12 @@ def test_side_conditions(condition, port, expected):
         (Side(mode="differs"), facts(mode="trunk"), facts(mode="access"), True),
         (Side(vlans="differs"), facts(vlans=(10,)), facts(vlans=(10,)), False),
         (Side(vlans="same"), facts(vlans=(10, 20)), facts(vlans=(20, 10)), True),
-        (Side(role="differs", mode="differs"), facts(PortRole.DATA, "trunk"), facts(PortRole.MANAGEMENT, "trunk"), False),  # все отношения должны выполняться
+        (
+            Side(role="differs", mode="differs"),
+            facts(PortRole.DATA, "trunk"),
+            facts(PortRole.MANAGEMENT, "trunk"),
+            False,
+        ),  # все отношения должны выполняться
     ],
 )
 def test_relations(relation, a, b, expected):
@@ -93,6 +100,7 @@ def test_relations(relation, a, b, expected):
 
 
 # --- главное требование: trunk без VLAN получает VLAN соседа -------------------------------------
+
 
 def test_empty_trunk_takes_the_vlans_of_a_trunk_neighbor():
     empty, filled = facts(vlans=()), facts(vlans=(10, 20))
@@ -121,9 +129,9 @@ def test_empty_trunk_also_takes_all_vlans_of_the_neighbor():
 @pytest.mark.parametrize(
     ("port", "neighbor"),
     [
-        (facts(vlans=(5,)), facts(vlans=(10,))),       # у порта уже есть VLAN — это обычное расхождение VLAN, не «пустой trunk»
-        (facts(), facts()),                            # у соседа тоже пусто — брать нечего
-        (facts(mode="access"), facts(vlans=(10,))),    # порт не trunk
+        (facts(vlans=(5,)), facts(vlans=(10,))),  # у порта уже есть VLAN — это обычное расхождение VLAN, не «пустой trunk»
+        (facts(), facts()),  # у соседа тоже пусто — брать нечего
+        (facts(mode="access"), facts(vlans=(10,))),  # порт не trunk
         (facts(), facts(mode="access", vlans=(10,))),  # сосед не trunk
     ],
 )
@@ -152,6 +160,7 @@ def test_empty_trunk_rule_wins_over_the_manual_rules_below_and_leaves_the_rest_f
 
 
 # --- «все текущие правила»: стандартные правила повторяют сверку дашборда ---------------------------
+
 
 def test_default_rules_cover_exactly_the_discrepancies_found_by_the_dashboard_check():
     """Для каждой пары конфигураций: расхождение по роли / режиму / VLAN (services/port_config.py) есть
@@ -205,6 +214,7 @@ def test_mode_rule_keeps_assigned_vlans_when_the_target_becomes_trunk():
 
 # --- проверка приоритета, действий и пустых изменений -------------------------------------------
 
+
 def test_rules_are_checked_by_priority_not_by_list_order():
     wide = RuleSpec(name="wide", action="manual", priority=50)
     narrow = RuleSpec(name="narrow", action="manual", priority=5)
@@ -254,6 +264,7 @@ def test_decision_for_matching_ports_is_none():
 
 # --- расчёт изменений ---------------------------------------------------------------------------
 
+
 def test_compute_changes_reports_only_real_differences():
     rule = RuleSpec(name="r", apply_role=True, apply_mode=True, vlan_policy="copy")
 
@@ -287,6 +298,7 @@ def test_flags_from_role_round_trips_every_role():
 
 
 # --- проверка введённого правила ----------------------------------------------------------------
+
 
 def _payload(**overrides):
     base = {"name": "Новое", "action": "auto", "apply": {"vlans": "copy"}}
@@ -359,6 +371,7 @@ def test_service_fields_in_the_payload_are_ignored():
 
 # --- стандартные правила ------------------------------------------------------------------------
 
+
 def test_default_rules_have_unique_codes_names_and_priorities():
     assert len({r.code for r in DEFAULT_RULES}) == len(DEFAULT_RULES) == 7
     assert len({r.name for r in DEFAULT_RULES}) == len(DEFAULT_RULES)
@@ -369,8 +382,13 @@ def test_default_rules_have_unique_codes_names_and_priorities():
 def test_every_default_rule_passes_the_same_validation_as_a_user_rule():
     for rule in DEFAULT_RULES:
         payload = {
-            "name": rule.name, "description": rule.description, "action": rule.action, "priority": rule.priority,
-            "target": vars(rule.target), "source": vars(rule.source), "relation": vars(rule.relation),
+            "name": rule.name,
+            "description": rule.description,
+            "action": rule.action,
+            "priority": rule.priority,
+            "target": vars(rule.target),
+            "source": vars(rule.source),
+            "relation": vars(rule.relation),
             "apply": {"role": rule.apply_role, "mode": rule.apply_mode, "vlans": rule.vlan_policy},
         }
         assert rules_equal_ignoring_state(rule_from_payload(payload), rule)
@@ -380,11 +398,11 @@ def test_new_standard_rule_matches_the_requested_definition():
     rule = DEFAULT_RULES_BY_CODE[EMPTY_TRUNK_RULE]
 
     assert rule.action == "auto"
-    assert (rule.target.mode, rule.target.vlans) == ("trunk", "none")      # на порту trunk совсем без VLAN
-    assert (rule.source.mode, rule.source.vlans) == ("trunk", "set")       # у соседа trunk с VLAN (или «все VLAN»)
+    assert (rule.target.mode, rule.target.vlans) == ("trunk", "none")  # на порту trunk совсем без VLAN
+    assert (rule.source.mode, rule.source.vlans) == ("trunk", "set")  # у соседа trunk с VLAN (или «все VLAN»)
     assert rule.apply_mode and rule.vlan_policy == "copy" and not rule.apply_role
     others = [r for r in DEFAULT_RULES if r.code not in (EMPTY_TRUNK_RULE, ALL_VLANS_RULE, ALL_VLANS_BOTH_RULE)]
-    assert rule.priority < min(r.priority for r in others)                 # конкретное правило проверяется раньше общих
+    assert rule.priority < min(r.priority for r in others)  # конкретное правило проверяется раньше общих
 
 
 def test_rules_equal_ignoring_state_ignores_priority_and_enabled_only():
@@ -396,6 +414,7 @@ def test_rules_equal_ignoring_state_ignores_priority_and_enabled_only():
 
 
 # --- политика VLAN «объединить» (trunk с разными наборами VLAN) ---------------------------------
+
 
 def _union(decision):
     """Что получает каждый порт пары: {apply_to: итоговый набор VLAN или None}."""
@@ -466,6 +485,7 @@ def test_user_merge_rule_applies_to_both_ports_without_manual_direction():
 
 
 # --- «Все VLAN» на порту → «Все VLAN» у соседа ----------------------------------------------------
+
 
 def all_port(*vlans: int, mode: str = "trunk") -> PortFacts:
     return facts(PortRole.DATA, mode, vlans, all_vlans=True)
@@ -541,6 +561,7 @@ def test_all_vlans_policy_is_accepted_by_validation_and_unknown_policy_is_not():
 
 # --- «Все VLAN» на обоих портах, но номера различаются: пару не трогаем ------------------------------
 
+
 def test_all_vlans_on_both_ports_standard_rule_matches_the_requested_definition():
     rule = DEFAULT_RULES_BY_CODE[ALL_VLANS_BOTH_RULE]
 
@@ -553,11 +574,14 @@ def test_all_vlans_on_both_ports_standard_rule_matches_the_requested_definition(
     assert all_rule.priority < rule.priority < min(r.priority for r in others)  # после «Все VLAN → Все VLAN», раньше остальных
 
 
-@pytest.mark.parametrize("a, b", [
-    (all_port(10, 20, 30), all_port(10, 20)),  # у устройства соседа нет VLAN 30
-    (all_port(10, 20), all_port(10, 20, 30)),  # то же в другую сторону
-    (all_port(10, 20), all_port(30, 40)),      # наборы вообще не пересекаются
-])
+@pytest.mark.parametrize(
+    "a, b",
+    [
+        (all_port(10, 20, 30), all_port(10, 20)),  # у устройства соседа нет VLAN 30
+        (all_port(10, 20), all_port(10, 20, 30)),  # то же в другую сторону
+        (all_port(10, 20), all_port(30, 40)),  # наборы вообще не пересекаются
+    ],
+)
 def test_all_vlans_on_both_ports_with_different_numbers_is_left_alone(a, b):
     decision = decide(RULES, a, b)
 

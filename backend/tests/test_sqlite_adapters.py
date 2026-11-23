@@ -7,6 +7,7 @@ Python 3.12 объявил адаптеры sqlite3 по умолчанию ус
 
 Запуск: pytest backend/tests/test_sqlite_adapters.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -22,7 +23,9 @@ from app.db import register_sqlite_adapters
 CASES = [
     pytest.param(datetime(2026, 11, 8, 1, 2, 3, 456789), "2026-11-08 01:02:03.456789", id="datetime с микросекундами"),
     pytest.param(datetime(2026, 11, 8, 1, 2, 3), "2026-11-08 01:02:03", id="datetime без микросекунд"),
-    pytest.param(datetime(2026, 11, 8, 1, 2, 3, tzinfo=timezone(timedelta(hours=3))), "2026-11-08 01:02:03+03:00", id="datetime со смещением"),
+    pytest.param(
+        datetime(2026, 11, 8, 1, 2, 3, tzinfo=timezone(timedelta(hours=3))), "2026-11-08 01:02:03+03:00", id="datetime со смещением"
+    ),
     pytest.param(date(2026, 11, 8), "2026-11-08", id="date"),
 ]
 

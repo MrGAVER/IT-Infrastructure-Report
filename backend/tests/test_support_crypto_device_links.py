@@ -13,6 +13,7 @@
 
 Запуск:  pip install -r backend/requirements-dev.txt && pytest backend/tests/test_support_crypto_device_links.py -v
 """
+
 from __future__ import annotations
 
 

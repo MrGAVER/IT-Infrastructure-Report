@@ -8,6 +8,7 @@ PUT /user      — личные настройки (тема, размеры с�
 PUT /global    — общие настройки (название организации); при включённой аутентификации — только администратор.
 Поле, которого нет в теле, не меняется; null сбрасывает настройку к умолчанию.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -36,7 +37,9 @@ def get_preferences(request: Request, session: Session = Depends(get_db)) -> dic
 def update_user_preferences(payload: UserPreferencesUpdate, request: Request, session: Session = Depends(get_db)) -> dict:
     user = _current_user(request)
     if user is None:
-        raise HTTPException(400, "Личные настройки хранятся на сервере только для учётных записей; при выключенной аутентификации они остаются в браузере.")
+        raise HTTPException(
+            400, "Личные настройки хранятся на сервере только для учётных записей; при выключенной аутентификации они остаются в браузере."
+        )
     update_preferences(session, user_owner(user), payload.model_dump(exclude_unset=True))
     return read_preferences(session, user)
 
@@ -49,7 +52,12 @@ def update_global_preferences(payload: GlobalPreferencesUpdate, request: Request
     update_preferences(session, OWNER_GLOBAL, patch)
     if "organization_name" in patch:
         name = patch["organization_name"]
-        audit(session, "preferences", OWNER_GLOBAL, AuditAction.UPDATE,
-              f"Название организации: «{name}»" if name else "Название организации сброшено к значению по умолчанию")
+        audit(
+            session,
+            "preferences",
+            OWNER_GLOBAL,
+            AuditAction.UPDATE,
+            f"Название организации: «{name}»" if name else "Название организации сброшено к значению по умолчанию",
+        )
         session.commit()
     return read_preferences(session, user)

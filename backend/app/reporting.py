@@ -8,16 +8,49 @@ from openpyxl.styles import Alignment
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .models import (
-    Building, Connection, ConnectionType, Container, CryptoProtectionMeans, Department,
-    DeployedSoftware, DeviceInterface, DeviceModel, DeviceSubinterface, DeviceType, EmbeddedOperatingSystem,
-    IPAddress, ISDepartment, ISPlacementAsset, ISProtocol,
-    InformationSystem, InformationSystemSource, InterfaceType, InterfaceVLAN,
-    Manufacturer, OpenPort, OperatingSystem, PhysicalDevice, PhysicalDeviceVLAN, PlacementAsset,
-    ProtocolPortCatalog, Room, SoftwareAsset, StructuralUnit, SupportMethod, SupportOrganization, VLAN,
+    Building,
+    Connection,
+    ConnectionType,
+    Container,
+    CryptoProtectionMeans,
+    Department,
+    DeployedSoftware,
+    DeviceInterface,
+    DeviceModel,
+    DeviceSubinterface,
+    DeviceType,
+    EmbeddedOperatingSystem,
+    IPAddress,
+    ISDepartment,
+    ISPlacementAsset,
+    ISProtocol,
+    InformationSystem,
+    InformationSystemSource,
+    InterfaceType,
+    InterfaceVLAN,
+    Manufacturer,
+    OpenPort,
+    OperatingSystem,
+    PhysicalDevice,
+    PhysicalDeviceVLAN,
+    PlacementAsset,
+    ProtocolPortCatalog,
+    Room,
+    SoftwareAsset,
+    StructuralUnit,
+    SupportMethod,
+    SupportOrganization,
+    VLAN,
     VirtualMachine,
 )
 from .constants import OwnerType
-from .services.computed import ip_label, device_management_ports_and_ips, local_timestamp_suffix, port_label_with_subinterfaces, subinterface_ip_values
+from .services.computed import (
+    ip_label,
+    device_management_ports_and_ips,
+    local_timestamp_suffix,
+    port_label_with_subinterfaces,
+    subinterface_ip_values,
+)
 from .services.device_label import device_label
 from .services.excel_layout import apply_sheet_layout, fit_sheet_size, style_header
 from .services.excel_safety import append_safe_row
@@ -28,20 +61,33 @@ HEADERS1 = [
     "Наименование информационной системы (подситемы/информационного ресурса)",
     "Общее описание информационной системы (подситемы/информационного ресурса)",
     "Назначение использования информационной системы (подсистемы/информационного ресурса) для ИС Организация",
-    "Работники, группы работников или подразделения, которые используют в своей работе информационную систему (подсистему/информационный ресурс)",
+    "Работники, группы работников или подразделения, которые используют в своей работе информационную "
+    "систему (подсистему/информационный ресурс)",
     "Локализация информационной системы (подсистемы/информационного ресурса)",
-    'Оборудование ООО "Организация", на котором размещается информационная ситема (подсистема/информационный ресурс), а также прикладное программное обеспечение или интерфейс взаимодействия с внешней информационной системой.',
-    "Протокол передачи данных, по которому осуществляется взаимодействие информационной системы (подсистемы/информационного ресурса), как внутри ИС Организация, так и при организации внешнего взаимодейтсвия, в том числе с внешними информационными системами",
-    "IP адрес , по которому осуществляется взаимодействие информационной системы (подсистемы/информационного ресурса), как внутри ИС Организация, так и при организации внешнего взаимодейтсвия, в том числе с внешними информационными системами",
-    "Применение сертифицированных программных и/или программно-аппаратных средств криптографической защиты информации, применяемых при осуществлении внешнего взаимодействия, в том числе с внешними информационными системами.",
+    'Оборудование ООО "Организация", на котором размещается информационная ситема (подсистема/информационный '
+    "ресурс), а также прикладное программное обеспечение или интерфейс взаимодействия с внешней информационной "
+    "системой.",
+    "Протокол передачи данных, по которому осуществляется взаимодействие информационной системы "
+    "(подсистемы/информационного ресурса), как внутри ИС Организация, так и при организации внешнего "
+    "взаимодейтсвия, в том числе с внешними информационными системами",
+    "IP адрес , по которому осуществляется взаимодействие информационной системы (подсистемы/информационного "
+    "ресурса), как внутри ИС Организация, так и при организации внешнего взаимодейтсвия, в том числе с внешними "
+    "информационными системами",
+    "Применение сертифицированных программных и/или программно-аппаратных средств криптографической защиты "
+    "информации, применяемых при осуществлении внешнего взаимодействия, в том числе с внешними информационными "
+    "системами.",
     "Признак получения событий в SIEM",
     "Наименование организации, информационная система которой осуществляет взаимодействие и (или) обеспечивает техническую поддержку",
     "Способ оказания технической поддержки",
     "Описание процесса функционирования ИС, особенности организации направления потоков для обеспечения функционирования ИС",
-    "Название физического сервера (ПК, выполняющего роль сервера), на котором установлена информационная система (подсистема/информационный ресурс) или установлена виртуальная машина (контейнер), обеспечивающая (ий) функционирование данной информационной системы (подсистемы/информационного ресурса)",
+    "Название физического сервера (ПК, выполняющего роль сервера), на котором установлена информационная система "
+    "(подсистема/информационный ресурс) или установлена виртуальная машина (контейнер), обеспечивающая (ий) функционирование данной "
+    "информационной системы (подсистемы/информационного ресурса)",
     "IP-адрес физического сервера, на котором установлена информационная система (подсистема/информационный ресурс)",
-    "Наименование виртуальной машины или контейнера, обеспечивающая (ий) функционирование данной информационной системы (подсистемы/информационного ресурса)",
-    "IP-адрес виртуальной машины (контейнера), обеспечивающая (ий) функционирование данной информационной системы (подсистемы/информационного ресурса)",
+    "Наименование виртуальной машины или контейнера, обеспечивающая (ий) функционирование данной "
+    "информационной системы (подсистемы/информационного ресурса)",
+    "IP-адрес виртуальной машины (контейнера), обеспечивающая (ий) функционирование данной "
+    "информационной системы (подсистемы/информационного ресурса)",
 ]
 HEADERS2 = [
     "№",
@@ -56,11 +102,13 @@ HEADERS2 = [
     "Количество физических портов устройства",
     "Адрес расположения устройства",
     "Наименование здания (условное или официальное), в котором располагается устройство",
-    "Помещение, в котором размещается телекоммуникационный шкаф, в котором размещается устройство или место размещения самого устройства в здании",
+    "Помещение, в котором размещается телекоммуникационный шкаф, в котором размещается устройство или "
+    "место размещения самого устройства в здании",
 ]
 HEADERS3 = [
     "№",
-    "Вид физического устройства: серверы, сетевое оборудование, средства защиты информации, рабочий ПК системного/сетевого администратора и рабочий ПК администратора безопасности, за исключением ПК пользователей",
+    "Вид физического устройства: серверы, сетевое оборудование, средства защиты информации, рабочий ПК "
+    "системного/сетевого администратора и рабочий ПК администратора безопасности, за исключением ПК пользователей",
     "Серийный номер устройства",
     "Системное имя устройства, если устройство является управлемым",
     "Наименование и версия операционной системы физического устройства",
@@ -72,7 +120,9 @@ HEADERS3 = [
     "Названия виртуальных локальных вычислительных сетей (VLAN Name)",
     "Физические линии связи с указанием их типа (витая пара, волоконно-оптический кабель и др.)",
     "Сведения о назначении линий связи (передача данных или управление активами информационной системы, средствами защиты информации)",
-    "Вид соседнего подключенного физического устройства, в соответствии с каждым физическим портом серверы, сетевое оборудование, средства защиты информации, рабочий ПК сиcтемного/сетевого администратора и   рабочий ПК, а также ПК пользователей",
+    "Вид соседнего подключенного физического устройства, в соответствии с каждым физическим портом серверы, "
+    "сетевое оборудование, средства защиты информации, рабочий ПК сиcтемного/сетевого администратора и   рабочий "
+    "ПК, а также ПК пользователей",
     "Серийный номер соседнего физического устройства, в том числе ПК пользователей",
     "Системное имя соседнего физического устройства, если устройство является управлемым, в том числе ПК пользователей",
     "Наименование и версия операционной системы соседнего физического устройства",
@@ -91,13 +141,17 @@ HEADERS4 = [
     "Какие программные активы развернуты: 1С, Web-сервер, файловый, AD и т.п.",
 ]
 
+
 def join_values(values):
-    result=[]
+    result = []
     for value in values:
-        if value is None: continue
-        value=str(value).strip()
-        if value and value not in result: result.append(value)
+        if value is None:
+            continue
+        value = str(value).strip()
+        if value and value not in result:
+            result.append(value)
     return "; ".join(result)
+
 
 def os_label(obj):
     """Полное наименование версии ОС/среды: "Имя Версия" без разделителя ";" между ними.
@@ -115,6 +169,7 @@ def os_label(obj):
         return f"{name} {version}"
     return name or version
 
+
 def _open_port_label(p, d: SimpleNamespace) -> str:
     """Текст одного открытого порта для отчёта: 'TCP/443 HTTPS Описание порта'. port/protocol_type
     больше не колонки OpenPort (см. models.py, миграция b7f2c1e5a904) — резолвятся join'ом к
@@ -127,15 +182,19 @@ def _open_port_label(p, d: SimpleNamespace) -> str:
     proto = cat.protocol_type if cat else None
     return join_values([f"{p.transport_protocol}/{port}" if port else p.transport_protocol, proto, p.description])
 
+
 def _open_ports_by_number(ports, d: SimpleNamespace) -> list:
     """Открытые порты владельца по возрастанию номера порта (при равенстве — по транспорту), порты
     без записи справочника — в конце. Порядок записей в БД для этого использовать нельзя: порты ВМ
     обновляются на месте (sync_vm_open_ports), а не пересоздаются при каждом сохранении формы, так
     что порядок вставки перестал совпадать с порядком номеров."""
+
     def sort_key(p):
         cat = d.protocol_catalog.get(p.protocol_catalog_id)
         return (cat is None, cat.port if cat else 0, p.transport_protocol or "")
+
     return sorted(ports, key=sort_key)
+
 
 def interface_port_count_label(ifaces, interface_types):
     """Return a compact count grouped by interface type, e.g. 10 RJ45 + 4 SFP."""
@@ -146,21 +205,25 @@ def interface_port_count_label(ifaces, interface_types):
         counts[name] += 1
     return " + ".join(f"{count} {name}" for name, count in sorted(counts.items(), key=lambda x: x[0].casefold()))
 
+
 def setup_sheet(ws, headers):
     ws.append(headers)
     style_header(ws)
-    ws.freeze_panes="A2"
+    ws.freeze_panes = "A2"
+
 
 def finalize_sheet(ws):
     # Данные — по верхнему краю с переносом. Шапку (строка 1) не трогаем: раньше общий проход затирал её
     # выравнивание по центру, заданное в setup_sheet, и все шапки оказывались прижаты к левому верхнему углу.
     for row in ws.iter_rows(min_row=2):
         for cell in row:
-            cell.alignment=Alignment(vertical="top", wrap_text=True)
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
     # Ширина колонок — по данным, а не по заголовку (заголовки до 300 символов раздували каждую колонку до
     # максимума), высота шапки — по реальному числу строк переноса: заголовки не обрезаются. См. excel_layout.
     fit_sheet_size(ws)
-    if ws.max_row > 1: ws.auto_filter.ref=ws.dimensions
+    if ws.max_row > 1:
+        ws.auto_filter.ref = ws.dimensions
+
 
 def _expand_structural_unit_ids(structural_units: dict, selected_ids: list) -> set:
     """Расширяет выбранные ID структурных единиц их потомками (по parent_id, тот же паттерн
@@ -201,19 +264,24 @@ def _is_source_links(obj, d: SimpleNamespace) -> tuple:
     b7f2c1e5a904, см. models.py). Вынесено из _is_row_values(), чтобы эту же логику мог
     переиспользовать _is_related_device_ids() (фильтр листа 'Перечень ИС' по структурной единице)
     без дублирования и риска разойтись."""
-    linked_devices=[]; linked_vms=[]; linked_containers=[]
+    linked_devices = []
+    linked_vms = []
+    linked_containers = []
     for src in d.source_by_is[obj.id]:
         # owner_id хранит id устройства/ВМ/контейнера в зависимости от source_type (миграция
         # 944bd490d967, см. models.InformationSystemSource) — раньше это были три отдельные колонки.
-        if src.source_type=='device' and src.owner_id in d.device_map:
-            dev=d.device_map[src.owner_id]
-            if dev not in linked_devices: linked_devices.append(dev)
-        elif src.source_type=='vm' and src.owner_id in d.vm_map:
-            v=d.vm_map[src.owner_id]
-            if v not in linked_vms: linked_vms.append(v)
-        elif src.source_type=='container' and src.owner_id in d.container_map:
-            c=d.container_map[src.owner_id]
-            if c not in linked_containers: linked_containers.append(c)
+        if src.source_type == "device" and src.owner_id in d.device_map:
+            dev = d.device_map[src.owner_id]
+            if dev not in linked_devices:
+                linked_devices.append(dev)
+        elif src.source_type == "vm" and src.owner_id in d.vm_map:
+            v = d.vm_map[src.owner_id]
+            if v not in linked_vms:
+                linked_vms.append(v)
+        elif src.source_type == "container" and src.owner_id in d.container_map:
+            c = d.container_map[src.owner_id]
+            if c not in linked_containers:
+                linked_containers.append(c)
     return linked_devices, linked_vms, linked_containers
 
 
@@ -224,13 +292,15 @@ def _is_related_device_ids(obj, d: SimpleNamespace) -> set:
     linked_devices, linked_vms, linked_containers = _is_source_links(obj, d)
     ids = {dev.id for dev in linked_devices}
     for v in linked_vms:
-        if v.physical_device_id: ids.add(v.physical_device_id)
+        if v.physical_device_id:
+            ids.add(v.physical_device_id)
     for c in linked_containers:
         if c.physical_device_id:
             ids.add(c.physical_device_id)
         elif c.virtual_machine_id and c.virtual_machine_id in d.vm_map:
             host_vm = d.vm_map[c.virtual_machine_id]
-            if host_vm.physical_device_id: ids.add(host_vm.physical_device_id)
+            if host_vm.physical_device_id:
+                ids.add(host_vm.physical_device_id)
     return ids
 
 
@@ -261,7 +331,11 @@ def _load_device_catalogs(session: Session, d: SimpleNamespace) -> None:
     справочники ИС (способ поддержки, СКЗИ, размещение) и типы интерфейсов."""
     # Устройства без системного имени — первыми: NULL в SQLite сортируется первым, в PostgreSQL последним, а порядок листов
     # должен быть одинаковым на обоих (отсюда явное «IS NULL DESC», а не полагание на умолчание СУБД).
-    d.devices = session.scalars(select(PhysicalDevice).order_by(PhysicalDevice.system_name.is_(None).desc(), PhysicalDevice.system_name, PhysicalDevice.serial_number)).all()
+    d.devices = session.scalars(
+        select(PhysicalDevice).order_by(
+            PhysicalDevice.system_name.is_(None).desc(), PhysicalDevice.system_name, PhysicalDevice.serial_number
+        )
+    ).all()
     d.device_map = _by_id(d.devices)
     d.device_types = _by_id(session.scalars(select(DeviceType)).all())
     d.manufacturers = _by_id(session.scalars(select(Manufacturer)).all())
@@ -284,14 +358,23 @@ def _load_interfaces_and_addresses(session: Session, d: SimpleNamespace) -> None
     в _arrange_subinterfaces, когда загружен справочник VLAN."""
     d.interfaces = session.scalars(select(DeviceInterface).order_by(DeviceInterface.name)).all()
     d.iface_map = _by_id(d.interfaces)
-    d.interface_ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE).order_by(IPAddress.ip_address)).all()
+    d.interface_ips = session.scalars(
+        select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE).order_by(IPAddress.ip_address)
+    ).all()
     d.ips_by_iface = _group_by(d.interface_ips, lambda x: x.owner_id)
     d.ifaces_by_device = _group_by(d.interfaces, lambda x: x.physical_device_id)
     # Подинтерфейсы портов (models.DeviceSubinterface) и их IP (owner_type='device_subinterface'); открытые порты
     # подинтерфейсов лежат в общем d.open_ports_by_owner под ключом ('device_subinterface', id).
     d.subinterfaces = session.scalars(select(DeviceSubinterface).order_by(DeviceSubinterface.name)).all()
-    d.ips_by_sub = _group_by(session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE).order_by(IPAddress.ip_address)).all(), lambda x: x.owner_id)
-    d.vmips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.VIRTUAL_MACHINE).order_by(IPAddress.ip_address)).all()
+    d.ips_by_sub = _group_by(
+        session.scalars(
+            select(IPAddress).where(IPAddress.owner_type == OwnerType.DEVICE_SUBINTERFACE).order_by(IPAddress.ip_address)
+        ).all(),
+        lambda x: x.owner_id,
+    )
+    d.vmips = session.scalars(
+        select(IPAddress).where(IPAddress.owner_type == OwnerType.VIRTUAL_MACHINE).order_by(IPAddress.ip_address)
+    ).all()
     d.vmips_by_vm = _group_by(d.vmips, lambda x: x.owner_id)
     d.source_ips = session.scalars(select(IPAddress).where(IPAddress.owner_type == OwnerType.INFORMATION_SYSTEM_SOURCE)).all()
     d.ips_by_source = _group_by(d.source_ips, lambda x: x.owner_id)
@@ -338,6 +421,7 @@ def _load_vlans(session: Session, d: SimpleNamespace) -> None:
 
 def _arrange_subinterfaces(d: SimpleNamespace) -> None:
     """Подинтерфейсы по портам (порядок: по номеру VLAN, затем по имени) и по устройствам (в порядке портов)."""
+
     def order(sub):
         vlan = d.vlan_map.get(sub.vlan_id)
         return (vlan.vlan_id if vlan else 0, (sub.name or "").casefold())
@@ -357,7 +441,7 @@ def _load_software(session: Session, d: SimpleNamespace) -> None:
     for link in d.deployed_software:
         if link.software_asset_id not in d.software:
             continue
-        target = d.software_by_vm if link.owner_type == 'virtual_machine' else d.software_by_device
+        target = d.software_by_vm if link.owner_type == "virtual_machine" else d.software_by_device
         target[link.owner_id].append(d.software[link.software_asset_id])
 
 
@@ -446,7 +530,9 @@ def _management_ip_labels(devices: list, d: SimpleNamespace) -> list:
     """IP управления устройств: адреса портов с ролью «Управление», затем адреса управляющих подинтерфейсов."""
     labels = []
     for dev in devices:
-        labels += [ip_label(ip) for iface in d.ifaces_by_device.get(dev.id, []) if iface.is_management for ip in d.ips_by_iface.get(iface.id, [])]
+        labels += [
+            ip_label(ip) for iface in d.ifaces_by_device.get(dev.id, []) if iface.is_management for ip in d.ips_by_iface.get(iface.id, [])
+        ]
         # Управление может висеть на подинтерфейсе порта (например, Gi0/0.99) — его IP это тоже IP управления устройства.
         labels += [ip_label(ip) for sub in d.subs_by_device.get(dev.id, []) if sub.is_management for ip in d.ips_by_sub.get(sub.id, [])]
     return labels
@@ -478,45 +564,78 @@ def _is_row_values(obj, d: SimpleNamespace) -> list:
     support = d.support_map.get(obj.support_organization_id)
     support_method = d.support_methods.get(obj.support_method_id)
     return [
-        obj.name, obj.description or "", obj.purpose or "", _is_departments_text(obj, d), obj.localization or "",
-        join_values(equipment), join_values([_is_protocol_label(p, d) for p in d.protocol_by_is[obj.id]]), join_values(source_ips + vm_ips),
-        _is_crypto_text(obj, d), _yes_no(obj.siem_enabled), support.name if support else "", support_method.name if support_method else "",
-        obj.process_description or "", join_values([device_label(dev) for dev in physical_devices]), join_values(_management_ip_labels(physical_devices, d)),
-        join_values([v.name for v in linked_vms] + [c.name for c in linked_containers]), join_values(vm_ips),
+        obj.name,
+        obj.description or "",
+        obj.purpose or "",
+        _is_departments_text(obj, d),
+        obj.localization or "",
+        join_values(equipment),
+        join_values([_is_protocol_label(p, d) for p in d.protocol_by_is[obj.id]]),
+        join_values(source_ips + vm_ips),
+        _is_crypto_text(obj, d),
+        _yes_no(obj.siem_enabled),
+        support.name if support else "",
+        support_method.name if support_method else "",
+        obj.process_description or "",
+        join_values([device_label(dev) for dev in physical_devices]),
+        join_values(_management_ip_labels(physical_devices, d)),
+        join_values([v.name for v in linked_vms] + [c.name for c in linked_containers]),
+        join_values(vm_ips),
     ]
 
 
 def _populate_sheet1(ws1, d: SimpleNamespace) -> None:
     """Лист 'Перечень ИС': все привязанные источники плюс детали протоколов/IP."""
-    for n,obj in enumerate(d.systems,1):
+    for n, obj in enumerate(d.systems, 1):
         append_safe_row(ws1, [n, *_is_row_values(obj, d)])
 
 
 def _device_row_values(dev, d: SimpleNamespace) -> list:
     """Значения одной строки листа 'Инвентаризац. физ. устройств ИС' (без №) — см. _is_row_values
     про переиспользование в конструкторе отчётов."""
-    all_ifaces=d.ifaces_by_device.get(dev.id,[])
-    mgmt_ifaces=[i for i in all_ifaces if i.is_management]
-    mgmt_vlan=[x for x in d.device_vlan_by_device.get(dev.id,[]) if x.is_management]
-    mgmt_subs=[x for x in d.subs_by_device.get(dev.id,[]) if x.is_management]
-    mgmt_port_names,mgmt_ip_values=device_management_ports_and_ips(
-        mgmt_ifaces,d.ips_by_iface,mgmt_vlan,d.vlan_map,vlan_label_with_name=False,
-        management_subinterfaces=mgmt_subs,ips_by_subinterface=d.ips_by_sub,port_name_by_id={i.id:i.name for i in all_ifaces})
-    mgmt_ports=join_values(mgmt_port_names)
-    mgmt_ips=join_values(mgmt_ip_values)
-    serial=dev.serial_number or ""; sysname=dev.system_name or ""
-    os_names=os_label(d.embedded_os.get(dev.embedded_os_id))
-    manufacturer_names=d.manufacturers.get(dev.manufacturer_id).name if d.manufacturers.get(dev.manufacturer_id) else ''
-    model_names=d.models.get(dev.model_id).model if d.models.get(dev.model_id) else ''
-    addresses=d.buildings.get(dev.building_id).address if d.buildings.get(dev.building_id) else ''
-    building_names=d.buildings.get(dev.building_id).name if d.buildings.get(dev.building_id) else ''
-    room_names=d.rooms.get(dev.room_id).name if d.rooms.get(dev.room_id) else ''
-    return [manufacturer_names,model_names,serial,sysname,os_names,mgmt_ports,mgmt_ips,"Да" if dev.siem_enabled else "Нет",interface_port_count_label(all_ifaces, d.interface_types),addresses,building_names,room_names]
+    all_ifaces = d.ifaces_by_device.get(dev.id, [])
+    mgmt_ifaces = [i for i in all_ifaces if i.is_management]
+    mgmt_vlan = [x for x in d.device_vlan_by_device.get(dev.id, []) if x.is_management]
+    mgmt_subs = [x for x in d.subs_by_device.get(dev.id, []) if x.is_management]
+    mgmt_port_names, mgmt_ip_values = device_management_ports_and_ips(
+        mgmt_ifaces,
+        d.ips_by_iface,
+        mgmt_vlan,
+        d.vlan_map,
+        vlan_label_with_name=False,
+        management_subinterfaces=mgmt_subs,
+        ips_by_subinterface=d.ips_by_sub,
+        port_name_by_id={i.id: i.name for i in all_ifaces},
+    )
+    mgmt_ports = join_values(mgmt_port_names)
+    mgmt_ips = join_values(mgmt_ip_values)
+    serial = dev.serial_number or ""
+    sysname = dev.system_name or ""
+    os_names = os_label(d.embedded_os.get(dev.embedded_os_id))
+    manufacturer_names = d.manufacturers.get(dev.manufacturer_id).name if d.manufacturers.get(dev.manufacturer_id) else ""
+    model_names = d.models.get(dev.model_id).model if d.models.get(dev.model_id) else ""
+    addresses = d.buildings.get(dev.building_id).address if d.buildings.get(dev.building_id) else ""
+    building_names = d.buildings.get(dev.building_id).name if d.buildings.get(dev.building_id) else ""
+    room_names = d.rooms.get(dev.room_id).name if d.rooms.get(dev.room_id) else ""
+    return [
+        manufacturer_names,
+        model_names,
+        serial,
+        sysname,
+        os_names,
+        mgmt_ports,
+        mgmt_ips,
+        "Да" if dev.siem_enabled else "Нет",
+        interface_port_count_label(all_ifaces, d.interface_types),
+        addresses,
+        building_names,
+        room_names,
+    ]
 
 
 def _populate_sheet2(ws2, d: SimpleNamespace) -> None:
     """Лист 'Инвентаризац. физ. устройств ИС': одна строка на физическое устройство."""
-    for n,dev in enumerate(d.devices,1):
+    for n, dev in enumerate(d.devices, 1):
         append_safe_row(ws2, [n, *_device_row_values(dev, d)])
 
 
@@ -555,12 +674,23 @@ class _ConnectionRows:
         if key in self._open_info_cache:
             return self._open_info_cache[key]
         d = self.d
-        ports = [p for iid in iface_ids for p in d.open_ports_by_owner.get(('device_interface', iid), [])]
+        ports = [p for iid in iface_ids for p in d.open_ports_by_owner.get(("device_interface", iid), [])]
         # Подинтерфейсы порта выводятся внутри строки порта: открытые порты подинтерфейса — с его именем
         # («Gi0/0.10: TCP/443 HTTPS»), чтобы было видно, на каком логическом интерфейсе порт открыт.
-        sub_ports = [(sub, p) for iid in iface_ids for sub in d.subs_by_iface.get(iid, []) for p in d.open_ports_by_owner.get(('device_subinterface', sub.id), [])]
+        sub_ports = [
+            (sub, p)
+            for iid in iface_ids
+            for sub in d.subs_by_iface.get(iid, [])
+            for p in d.open_ports_by_owner.get(("device_subinterface", sub.id), [])
+        ]
         open_text = join_values([_open_port_label(p, d) for p in ports] + [f"{sub.name}: {_open_port_label(p, d)}" for sub, p in sub_ports])
-        proto_text = join_values([d.protocol_catalog[p.protocol_catalog_id].protocol_type for p in ports + [p for _, p in sub_ports] if p.protocol_catalog_id in d.protocol_catalog])
+        proto_text = join_values(
+            [
+                d.protocol_catalog[p.protocol_catalog_id].protocol_type
+                for p in ports + [p for _, p in sub_ports]
+                if p.protocol_catalog_id in d.protocol_catalog
+            ]
+        )
         self._open_info_cache[key] = (open_text, proto_text)
         return open_text, proto_text
 
@@ -570,7 +700,9 @@ class _ConnectionRows:
         mgmt_ifaces = [i for i in d.ifaces_by_device.get(device.id, []) if i.is_management]
         mgmt_vlan = [x for x in d.device_vlan_by_device.get(device.id, []) if x.is_management]
         mgmt_subs = [x for x in d.subs_by_device.get(device.id, []) if x.is_management]
-        _, ip_values = device_management_ports_and_ips(mgmt_ifaces, d.ips_by_iface, mgmt_vlan, d.vlan_map, management_subinterfaces=mgmt_subs, ips_by_subinterface=d.ips_by_sub)
+        _, ip_values = device_management_ports_and_ips(
+            mgmt_ifaces, d.ips_by_iface, mgmt_vlan, d.vlan_map, management_subinterfaces=mgmt_subs, ips_by_subinterface=d.ips_by_sub
+        )
         return ip_values
 
     def port_label(self, iface):
@@ -578,7 +710,9 @@ class _ConnectionRows:
 
     def port_ip_values(self, iface):
         d = self.d
-        return [ip_label(x) for x in d.ips_by_iface.get(iface.id, [])] + subinterface_ip_values(d.subs_by_iface.get(iface.id, []), d.ips_by_sub)
+        return [ip_label(x) for x in d.ips_by_iface.get(iface.id, [])] + subinterface_ip_values(
+            d.subs_by_iface.get(iface.id, []), d.ips_by_sub
+        )
 
     def port_vlans(self, iface):
         """VLAN порта плюс VLAN его подинтерфейсов (без повторов): подинтерфейс на VLAN 10 — это VLAN 10 на линии."""
@@ -606,7 +740,11 @@ class _ConnectionRows:
 
     def purpose_text(self, iface):
         """Назначение порта; роли его подинтерфейсов — с именем подинтерфейса («Gi0/0.99: Управление активами»)."""
-        parts = [self.link_purpose_label(iface)] + [f"{sub.name}: {self.link_purpose_label(sub)}" for sub in self.d.subs_by_iface.get(iface.id, []) if self.link_purpose_label(sub) != "-"]
+        parts = [self.link_purpose_label(iface)] + [
+            f"{sub.name}: {self.link_purpose_label(sub)}"
+            for sub in self.d.subs_by_iface.get(iface.id, [])
+            if self.link_purpose_label(sub) != "-"
+        ]
         return join_values([x for x in parts if x != "-"]) or "-"
 
     # --- ячейки строки -----------------------------------------------------------------------------------------
@@ -614,7 +752,12 @@ class _ConnectionRows:
     def device_cells(self, device) -> list:
         """Вид, серийный номер, системное имя и ОС устройства — одинаково для владельца строки и для соседа."""
         device_type = self.d.device_types.get(device.device_type_id)
-        return [device_type.name if device_type else "", device.serial_number, device.system_name or "", os_label(self.d.embedded_os.get(device.embedded_os_id))]
+        return [
+            device_type.name if device_type else "",
+            device.serial_number,
+            device.system_name or "",
+            os_label(self.d.embedded_os.get(device.embedded_os_id)),
+        ]
 
     def connected_row(self, own_iface, own_device, neighbor_iface, neighbor_device, connection_type) -> list:
         own_ips = join_values(self.port_ip_values(own_iface))
@@ -624,10 +767,18 @@ class _ConnectionRows:
         own_vlans = self.port_vlans(own_iface)
         vlan_rows = own_vlans if own_vlans else self.port_vlans(neighbor_iface)
         return [
-            0, *self.device_cells(own_device), self.port_label(own_iface), own_ips or self.NO_ADDRESS, open_text, proto_text,
-            join_values([str(v.vlan_id) for v in vlan_rows]), join_values([v.name for v in vlan_rows]),
-            connection_type.name if connection_type else "", self.purpose_text(own_iface),
-            *self.device_cells(neighbor_device), neighbor_ips or self.NO_ADDRESS,
+            0,
+            *self.device_cells(own_device),
+            self.port_label(own_iface),
+            own_ips or self.NO_ADDRESS,
+            open_text,
+            proto_text,
+            join_values([str(v.vlan_id) for v in vlan_rows]),
+            join_values([v.name for v in vlan_rows]),
+            connection_type.name if connection_type else "",
+            self.purpose_text(own_iface),
+            *self.device_cells(neighbor_device),
+            neighbor_ips or self.NO_ADDRESS,
         ]
 
     def disconnected_row(self, own_device, iface_group) -> list:
@@ -636,8 +787,21 @@ class _ConnectionRows:
         own_vlans = [v for i in iface_group for v in self.port_vlans(i)]
         purposes = join_values([self.purpose_text(i) for i in iface_group if self.purpose_text(i) != "-"]) or "-"
         return [
-            0, *self.device_cells(own_device), join_values([self.port_label(i) for i in iface_group]), own_ips or self.NO_ADDRESS, open_text, proto_text,
-            join_values([str(v.vlan_id) for v in own_vlans]), join_values([v.name for v in own_vlans]), "", purposes, "", "", "", "", "",
+            0,
+            *self.device_cells(own_device),
+            join_values([self.port_label(i) for i in iface_group]),
+            own_ips or self.NO_ADDRESS,
+            open_text,
+            proto_text,
+            join_values([str(v.vlan_id) for v in own_vlans]),
+            join_values([v.name for v in own_vlans]),
+            "",
+            purposes,
+            "",
+            "",
+            "",
+            "",
+            "",
         ]
 
     # --- набор строк -------------------------------------------------------------------------------------------
@@ -714,24 +878,28 @@ def _connection_row_values_list(d: SimpleNamespace) -> list:
     """Пронумерованные строки листа 'Организация подключений' (первый элемент каждой строки — №)
     без привязки к устройству — контракт, на который опирается конструктор отчётов
     (services/report_registry_rows.py), поэтому форму результата менять нельзя."""
-    return [row for _,row in _connection_rows_by_device(d)]
+    return [row for _, row in _connection_rows_by_device(d)]
 
 
 # Колонки листа 'Организация подключений' (номера с 1), описывающие само устройство-владельца строки:
 # вид, серийный номер, системное имя, ОС. У устройства с несколькими портами они повторяются в каждой
 # строке порта, и в отчёте объединяются по вертикали на весь блок устройства.
-SHEET3_DEVICE_COLUMNS=(2,3,4,5)
+SHEET3_DEVICE_COLUMNS = (2, 3, 4, 5)
 
 
 def _populate_sheet3(ws3, d: SimpleNamespace) -> list:
     """Лист 'Организация подключений': по строке на порт. Возвращает блоки строк листа — по одному
     на устройство, в виде (первая строка, последняя строка): по ним build_report объединяет данные
     устройства и обводит блок рамкой."""
-    spans=[]; previous=object()
-    for device_id,row in _connection_rows_by_device(d):
+    spans = []
+    previous = object()
+    for device_id, row in _connection_rows_by_device(d):
         append_safe_row(ws3, row)
-        if device_id==previous: spans[-1]=(spans[-1][0], ws3.max_row)
-        else: spans.append((ws3.max_row, ws3.max_row)); previous=device_id
+        if device_id == previous:
+            spans[-1] = (spans[-1][0], ws3.max_row)
+        else:
+            spans.append((ws3.max_row, ws3.max_row))
+            previous = device_id
     return spans
 
 
@@ -739,11 +907,28 @@ def _vm_row_values(v, d: SimpleNamespace) -> list:
     """Значения одной строки листа 'Организация управления ВМ' — см. _is_row_values про
     переиспользование в конструкторе отчётов. Хост/гипервизор берётся из ОС физического хоста;
     IP администрирования — все management-IP ВМ."""
-    host=d.device_map.get(v.physical_device_id); hyp=d.operating_systems.get(host.operating_system_id) if host and host.operating_system_id else d.operating_systems.get(v.hypervisor_os_id)
-    ips=d.vmips_by_vm.get(v.id,[]); containers_for_vm=[c for c in d.containers if c.virtual_machine_id==v.id]
-    openp=_open_ports_by_number(d.open_ports_by_owner.get(('virtual_machine',v.id),[]), d)
-    admin_ips=join_values([ip_label(x) for x in ips if x.is_management])
-    return [v.name,os_label(d.operating_systems.get(v.operating_system_id)),join_values([c.name for c in containers_for_vm]),device_label(host),os_label(hyp),v.purpose or "",join_values([ip_label(x) for x in ips]),join_values([_open_port_label(p, d) for p in openp]),admin_ips,join_values([s.name for s in d.software_by_vm.get(v.id,[])])]
+    host = d.device_map.get(v.physical_device_id)
+    hyp = (
+        d.operating_systems.get(host.operating_system_id)
+        if host and host.operating_system_id
+        else d.operating_systems.get(v.hypervisor_os_id)
+    )
+    ips = d.vmips_by_vm.get(v.id, [])
+    containers_for_vm = [c for c in d.containers if c.virtual_machine_id == v.id]
+    openp = _open_ports_by_number(d.open_ports_by_owner.get(("virtual_machine", v.id), []), d)
+    admin_ips = join_values([ip_label(x) for x in ips if x.is_management])
+    return [
+        v.name,
+        os_label(d.operating_systems.get(v.operating_system_id)),
+        join_values([c.name for c in containers_for_vm]),
+        device_label(host),
+        os_label(hyp),
+        v.purpose or "",
+        join_values([ip_label(x) for x in ips]),
+        join_values([_open_port_label(p, d) for p in openp]),
+        admin_ips,
+        join_values([s.name for s in d.software_by_vm.get(v.id, [])]),
+    ]
 
 
 def _populate_sheet4(ws4, d: SimpleNamespace) -> None:
@@ -753,8 +938,7 @@ def _populate_sheet4(ws4, d: SimpleNamespace) -> None:
         append_safe_row(ws4, _vm_row_values(v, d))
 
 
-def build_report(session: Session, report_dir: Path, only_is: Optional[str] = None,
-                  structural_unit_ids: Optional[list] = None) -> Path:
+def build_report(session: Session, report_dir: Path, only_is: Optional[str] = None, structural_unit_ids: Optional[list] = None) -> Path:
     """structural_unit_ids — необязательный список id структурных единиц (см. models.StructuralUnit):
     если задан, все 4 листа ограничиваются оборудованием, размещённым в этих единицах (и их
     вложенных, см. _expand_structural_unit_ids) — устройствами (лист 2), их портами/связями (лист 3,
@@ -762,11 +946,16 @@ def build_report(session: Session, report_dir: Path, only_is: Optional[str] = No
     (лист 4) и информационными системами, у которых есть хотя бы один такой физический источник
     (лист 1, см. _is_related_device_ids). None или пустой список — без ограничения (все устройства),
     как и раньше."""
-    wb=Workbook()
-    ws1=wb.active; ws1.title="Перечень ИС"; setup_sheet(ws1,HEADERS1)
-    ws2=wb.create_sheet("Инвентаризац. физ. устройств ИС"); setup_sheet(ws2,HEADERS2)
-    ws3=wb.create_sheet("Организация подключений"); setup_sheet(ws3,HEADERS3)
-    ws4=wb.create_sheet("Организация управления ВМ"); setup_sheet(ws4,HEADERS4)
+    wb = Workbook()
+    ws1 = wb.active
+    ws1.title = "Перечень ИС"
+    setup_sheet(ws1, HEADERS1)
+    ws2 = wb.create_sheet("Инвентаризац. физ. устройств ИС")
+    setup_sheet(ws2, HEADERS2)
+    ws3 = wb.create_sheet("Организация подключений")
+    setup_sheet(ws3, HEADERS3)
+    ws4 = wb.create_sheet("Организация управления ВМ")
+    setup_sheet(ws4, HEADERS4)
 
     # Load the registry in batches. This avoids the old N+1 pattern and guarantees that
     # information entered in the UI is represented in the report.
@@ -774,10 +963,11 @@ def build_report(session: Session, report_dir: Path, only_is: Optional[str] = No
 
     _populate_sheet1(ws1, data)
     _populate_sheet2(ws2, data)
-    device_spans=_populate_sheet3(ws3, data)
+    device_spans = _populate_sheet3(ws3, data)
     _populate_sheet4(ws4, data)
 
-    for ws in wb.worksheets: finalize_sheet(ws)
+    for ws in wb.worksheets:
+        finalize_sheet(ws)
 
     # Оформление (см. services/excel_layout.py): шапка и каждая запись — ИС (лист 1), устройство
     # (лист 2), ВМ (лист 4) — обведены рамкой, шапка закреплена. На листе 3 запись — устройство с
@@ -788,7 +978,7 @@ def build_report(session: Session, report_dir: Path, only_is: Optional[str] = No
     apply_sheet_layout(ws2)
     apply_sheet_layout(ws3, spans=device_spans, merge_columns=SHEET3_DEVICE_COLUMNS)
     apply_sheet_layout(ws4)
-    report_dir.mkdir(parents=True,exist_ok=True)
-    path=report_dir/f"Инвентаризация_ИС_{local_timestamp_suffix()}.xlsx"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    path = report_dir / f"Инвентаризация_ИС_{local_timestamp_suffix()}.xlsx"
     wb.save(path)
     return path

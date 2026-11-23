@@ -8,6 +8,7 @@ SONiC в EMBEDDED_OS_DEFAULTS задан с version='' (пустая строк�
 
 Запуск: pip install -r backend/requirements-dev.txt && pytest backend/tests/test_embedded_os_seeding.py -v
 """
+
 from __future__ import annotations
 
 from sqlalchemy import select

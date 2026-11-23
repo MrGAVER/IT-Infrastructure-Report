@@ -1,4 +1,5 @@
 """Учётные записи: поиск, создание, изменение, удаление, смена собственного пароля, защита последнего администратора."""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -20,7 +21,7 @@ from .sessions import revoke_all_sessions, revoke_all_sessions_except
 
 def find_user_by_username(session: Session, username: str) -> Optional[User]:
     """Регистронезависимый поиск на стороне Python, а не через SQL lower() — тот же принцип, что
-    в миграциях/бэкфиллах справочников (SQLite lower() не умеет в кириллицу; см. память проекта).
+    в миграциях/бэкфиллах справочников (SQLite lower() не умеет в кириллицу).
     Таблица пользователей на практике маленькая (единицы-десятки учётных записей), полный перебор
     дешевле, чем заводить ради этого объёма регистронезависимый индекс."""
     normalized = username.strip().casefold()
@@ -50,9 +51,7 @@ def lock_active_admins(session: Session) -> list[User]:
     предложение): гонка там и так невозможна — SQLite сериализует писателей на уровне файла БД
     целиком, а не по строкам. Полноценный эффект блокировки нужен и проявляется только на
     PostgreSQL при нескольких одновременно пишущих процессах/инстансах backend."""
-    return list(session.scalars(
-        select(User).where(User.role == UserRole.ADMIN, User.is_active.is_(True)).with_for_update()
-    ).all())
+    return list(session.scalars(select(User).where(User.role == UserRole.ADMIN, User.is_active.is_(True)).with_for_update()).all())
 
 
 def ensure_not_last_admin(session: Session, user: User) -> None:
@@ -65,10 +64,13 @@ def ensure_not_last_admin(session: Session, user: User) -> None:
         return
     remaining_others = sum(1 for admin in lock_active_admins(session) if admin.id != user.id)
     if remaining_others == 0:
-        raise HTTPException(400, {
-            "message": "Нельзя удалить или лишить прав последнего активного администратора.",
-            "code": ErrorCode.LAST_ADMIN_ACCOUNT,
-        })
+        raise HTTPException(
+            400,
+            {
+                "message": "Нельзя удалить или лишить прав последнего активного администратора.",
+                "code": ErrorCode.LAST_ADMIN_ACCOUNT,
+            },
+        )
 
 
 def create_user(session: Session, *, username: str, password: str, role: str) -> User:
@@ -90,9 +92,13 @@ def create_user(session: Session, *, username: str, password: str, role: str) ->
 
 
 def update_user(
-    session: Session, user: User, *,
-    username: Optional[str] = None, password: Optional[str] = None,
-    role: Optional[str] = None, is_active: Optional[bool] = None,
+    session: Session,
+    user: User,
+    *,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    role: Optional[str] = None,
+    is_active: Optional[bool] = None,
 ) -> User:
     if role is not None and role not in UserRole.ALL:
         raise HTTPException(422, f"Недопустимая роль: {role!r}")
@@ -149,7 +155,12 @@ def delete_user(session: Session, user: User) -> None:
 
 
 def change_own_password(
-    session: Session, user: User, *, current_password: str, new_password: str, keep_token: Optional[str] = None,
+    session: Session,
+    user: User,
+    *,
+    current_password: str,
+    new_password: str,
+    keep_token: Optional[str] = None,
 ) -> User:
     """Самостоятельная смена ПОЛЬЗОВАТЕЛЕМ СВОЕГО пароля — доступна любой роли, включая viewer
     (см. ROLE_CHECK_EXEMPT_PATHS), в отличие от update_user (смена ЧУЖОГО пароля — только admin).
@@ -185,7 +196,10 @@ def change_own_password(
 def serialize_user(user: User) -> dict:
     """Публичное представление пользователя — намеренно без password_hash/failed_attempts."""
     return {
-        "id": user.id, "username": user.username, "role": user.role, "is_active": user.is_active,
+        "id": user.id,
+        "username": user.username,
+        "role": user.role,
+        "is_active": user.is_active,
         "last_login_at": iso_utc(user.last_login_at),
         "locked": bool(user.locked_until and user.locked_until > naive_utc_now()),
         "created_at": iso_utc(user.created_at),

@@ -7,6 +7,7 @@
 
 Запуск: pytest backend/tests/test_request_errors.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -38,7 +39,10 @@ def _error(type_: str, loc: tuple, msg: str = "english text", **ctx) -> dict:
         (_error("too_long", ("body", "ids"), max_length=1), "Поле «ids»: максимальное количество — 1 элемент"),
         (_error("too_short", ("body", "ids"), min_length=1), "Поле «ids»: значение не должно быть пустым"),
         (_error("too_short", ("body", "ids"), min_length=2), "Поле «ids»: минимальное количество — 2 элемента"),
-        (_error("literal_error", ("body", "mode"), expected="'access' or 'trunk'"), "Поле «mode»: допустимые значения — 'access' или 'trunk'"),
+        (
+            _error("literal_error", ("body", "mode"), expected="'access' or 'trunk'"),
+            "Поле «mode»: допустимые значения — 'access' или 'trunk'",
+        ),
         (_error("literal_error", ("body", "mode")), "Поле «mode»: недопустимое значение"),
         (_error("json_invalid", ("body", 1)), "Тело запроса не является корректным JSON"),
         (_error("missing", ("body", "items", 2, "id")), "Поле «items.2.id»: значение обязательно"),
@@ -50,15 +54,23 @@ def test_common_pydantic_errors_are_translated(error, expected):
 
 
 def test_a_validator_message_passes_through_unchanged():
-    error = _error("value_error", ("body", "name"), msg="Value error, Укажите название диаграммы", error=ValueError("Укажите название диаграммы"))
+    error = _error(
+        "value_error", ("body", "name"), msg="Value error, Укажите название диаграммы", error=ValueError("Укажите название диаграммы")
+    )
     assert describe_error(error) == "Укажите название диаграммы"
 
 
 def test_an_unknown_error_type_keeps_the_field_and_the_pydantic_text():
-    assert describe_error(_error("url_scheme", ("body", "site"), msg="URL scheme should be 'http'")) == "Поле «site»: URL scheme should be 'http'"
+    assert (
+        describe_error(_error("url_scheme", ("body", "site"), msg="URL scheme should be 'http'"))
+        == "Поле «site»: URL scheme should be 'http'"
+    )
 
 
-@pytest.mark.parametrize(("count", "word"), [(1, "символ"), (2, "символа"), (4, "символа"), (5, "символов"), (11, "символов"), (12, "символов"), (21, "символ"), (22, "символа")])
+@pytest.mark.parametrize(
+    ("count", "word"),
+    [(1, "символ"), (2, "символа"), (4, "символа"), (5, "символов"), (11, "символов"), (12, "символов"), (21, "символ"), (22, "символа")],
+)
 def test_character_count_uses_the_right_word_form(count, word):
     assert describe_error(_error("string_too_long", ("body", "f"), max_length=count)).endswith(f"{count} {word}")
 
@@ -73,6 +85,7 @@ def test_messages_are_deduplicated_and_capped():
 
 
 # --- Через настоящее приложение: другие эндпоинты с моделями и параметрами запроса ------------------------------------
+
 
 def test_login_validation_error_does_not_echo_the_submitted_value(client):
     secret = "секрет-пароль-123"

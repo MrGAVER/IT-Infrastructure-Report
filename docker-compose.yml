@@ -12,6 +12,35 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+  # Резервная копия PostgreSQL ПЕРЕД обновлением образа. Не запускается сама (профиль backup):
+  #   docker compose --profile backup run --rm db-backup
+  # Часть миграций необратима, а приложение применяет их при каждом старте контейнера: без копии вернуться к прежней версии нельзя.
+  # Файл pg_dump (формат custom, восстанавливается pg_restore) пишется в том appdata, каталог db-backups; хранятся пять последних.
+  # Для SQLite копию при старте делает сам образ (docker-entrypoint.sh).
+  db-backup:
+    profiles: ["backup"]
+    image: postgres:16-alpine
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER:-infra}
+      PGDATABASE: ${POSTGRES_DB:-infra_registry}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Задайте POSTGRES_PASSWORD в .env (см. .env.example)}
+    volumes:
+      - appdata:/backup
+    entrypoint: ["sh", "-c"]
+    # `$$` — экранирование для compose: в контейнер попадает одиночный `$`.
+    command:
+      - |
+        set -eu
+        mkdir -p /backup/db-backups
+        target="/backup/db-backups/$${PGDATABASE}.$$(date +%Y%m%d-%H%M%S).dump"
+        pg_dump --format=custom --file="$${target}.tmp"
+        mv "$${target}.tmp" "$${target}"
+        ls -1t /backup/db-backups/*.dump | tail -n +6 | xargs -r rm --
+        echo "Резервная копия базы: $${target}"
   app:
     build:
       context: .

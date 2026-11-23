@@ -2,6 +2,7 @@
 
 Самоописывающийся формат хеша и выбор hashlib.pbkdf2_hmac вместо bcrypt/argon2 объяснены в докстринге пакета
 (services/auth/__init__.py) и в hash_password."""
+
 from __future__ import annotations
 
 import base64
@@ -57,17 +58,26 @@ def needs_rehash(stored: str) -> bool:
 
 def validate_password_strength(password: str, *, username: Optional[str] = None) -> None:
     if len(password) < AUTH_MIN_PASSWORD_LENGTH:
-        raise HTTPException(422, {
-            "message": f"Пароль должен быть не короче {AUTH_MIN_PASSWORD_LENGTH} символов.",
-            "code": ErrorCode.WEAK_PASSWORD,
-        })
+        raise HTTPException(
+            422,
+            {
+                "message": f"Пароль должен быть не короче {AUTH_MIN_PASSWORD_LENGTH} символов.",
+                "code": ErrorCode.WEAK_PASSWORD,
+            },
+        )
     if username and password.casefold() == username.strip().casefold():
-        raise HTTPException(422, {
-            "message": "Пароль не должен совпадать с именем пользователя.",
-            "code": ErrorCode.WEAK_PASSWORD,
-        })
+        raise HTTPException(
+            422,
+            {
+                "message": "Пароль не должен совпадать с именем пользователя.",
+                "code": ErrorCode.WEAK_PASSWORD,
+            },
+        )
     if not (any(c.isalpha() for c in password) and any(c.isdigit() for c in password)):
-        raise HTTPException(422, {
-            "message": "Пароль должен содержать и буквы, и цифры.",
-            "code": ErrorCode.WEAK_PASSWORD,
-        })
+        raise HTTPException(
+            422,
+            {
+                "message": "Пароль должен содержать и буквы, и цифры.",
+                "code": ErrorCode.WEAK_PASSWORD,
+            },
+        )

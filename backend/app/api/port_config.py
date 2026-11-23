@@ -1,8 +1,9 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+from ..constants import MAX_PAGE_OFFSET, MAX_SEARCH_LENGTH
 from ..db import get_db
-from ..services.connection_query import ConnectionQuery, MAX_SEARCH_LENGTH, list_connections
+from ..services.connection_query import ConnectionQuery, list_connections
 from ..services.connection_review import approve_port_config, preview_port_config, revoke_port_config_approval, set_port_role
 from ..services.port_config import PortConfigStatus
 from ..services.port_edit import apply_port_config
@@ -11,15 +12,15 @@ from .port_config_schemas import ApprovePortConfigRequest, CascadeApplyRequest, 
 
 # Записывающие методы защищены общей мидлварью авторизации (viewer получает 403) — отдельной
 # проверки роли здесь не нужно.
-router = APIRouter(prefix='/api/v1', tags=['Connections'])
+router = APIRouter(prefix="/api/v1", tags=["Connections"])
 
 
-@router.get('/connections')
+@router.get("/connections")
 def connections_page(
     q: str | None = Query(None, max_length=MAX_SEARCH_LENGTH),
     is_active: bool | None = None,
     port_config_status: PortConfigStatus | None = None,
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_PAGE_OFFSET),
     limit: int = Query(25, ge=1, le=200),
     session: Session = Depends(get_db),
 ):
@@ -30,13 +31,13 @@ def connections_page(
     return list_connections(session, ConnectionQuery(q=q, is_active=is_active, status=port_config_status), offset=offset, limit=limit)
 
 
-@router.put('/interfaces/{interface_id}/port-role')
+@router.put("/interfaces/{interface_id}/port-role")
 def update_port_role(interface_id: str, body: PortRoleUpdate, session: Session = Depends(get_db)):
     """Точечно меняет роль порта (управление / передача данных), не трогая остальные его настройки."""
     return set_port_role(interface_id, body.model_dump(), session)
 
 
-@router.put('/interfaces/{interface_id}/port-config')
+@router.put("/interfaces/{interface_id}/port-config")
 def update_port_config(interface_id: str, body: PortConfigUpdate, session: Session = Depends(get_db)):
     """Правка порта с дашборда: роль и/или набор VLAN одной операцией. Тело: {role?, vlan_ids?, mode?} —
     vlan_ids это ПОЛНЫЙ набор (id записей справочника VLAN); mode — не смена режима, а проверка, что набор
@@ -45,7 +46,7 @@ def update_port_config(interface_id: str, body: PortConfigUpdate, session: Sessi
     return apply_port_config(interface_id, body.request, session)  # тело уже разобрано моделью — второй раз не разбирается
 
 
-@router.post('/interfaces/{interface_id}/vlan-mode-cascade/preview')
+@router.post("/interfaces/{interface_id}/vlan-mode-cascade/preview")
 def vlan_mode_cascade_preview(interface_id: str, body: CascadePreviewRequest, session: Session = Depends(get_db)):
     """Предпросмотр каскадной смены режима порта (access/trunk): затронутые группы и порты, VLAN,
     которые будут сняты, предупреждения о последствиях и hash плана. Ничего не записывает.
@@ -61,7 +62,7 @@ def vlan_mode_cascade_preview(interface_id: str, body: CascadePreviewRequest, se
     return preview_vlan_mode_cascade(interface_id, body.model_dump(exclude_unset=True), session)
 
 
-@router.post('/interfaces/{interface_id}/vlan-mode-cascade')
+@router.post("/interfaces/{interface_id}/vlan-mode-cascade")
 def vlan_mode_cascade_apply(interface_id: str, body: CascadeApplyRequest, session: Session = Depends(get_db)):
     """Применяет план из предпросмотра: тело {mode, edited?, port?, plan_hash, confirm: true} (mode, edited и
     port те же, что при предпросмотре). Если данные изменились после предпросмотра — 409. С `port` режим со
@@ -70,7 +71,7 @@ def vlan_mode_cascade_apply(interface_id: str, body: CascadeApplyRequest, sessio
     return apply_vlan_mode_cascade(interface_id, body.model_dump(exclude_unset=True), session)
 
 
-@router.get('/connections/port-config/preview')
+@router.get("/connections/port-config/preview")
 def preview(
     source_interface_id: str = Query(..., max_length=64),
     destination_interface_id: str = Query(..., max_length=64),
@@ -83,12 +84,12 @@ def preview(
     return preview_port_config(source_interface_id, destination_interface_id, session, connection_id=connection_id, is_active=is_active)
 
 
-@router.post('/connections/port-config/approve')
+@router.post("/connections/port-config/approve")
 def approve(body: ApprovePortConfigRequest, session: Session = Depends(get_db)):
     """Одобряет текущее расхождение конфигурации портов: у перечисленных подключений (`connection_ids`) или у всех найденных (`match`)."""
     return approve_port_config(body.model_dump(exclude_unset=True), session)
 
 
-@router.delete('/connections/{connection_id}/port-config/approval')
+@router.delete("/connections/{connection_id}/port-config/approval")
 def revoke_approval(connection_id: str, session: Session = Depends(get_db)):
     return revoke_port_config_approval(connection_id, session)

@@ -1,15 +1,17 @@
 """ИА-01 (код-ревью r3): экспорт `.vsdx` не должен снова стать квадратичным по числу узлов.
 
-Раньше копирование фигур (`copy_shape → set_max_ids`) обходило всю страницу на каждую копию: 80 узлов — 6 с, 120 — 13 с, показатель роста ≈ 1,84.
+Раньше копирование фигур (`copy_shape → set_max_ids`) обходило всю страницу на каждую копию: 80 узлов — 6 с, 120 — 13 с,
+показатель роста ≈ 1,84.
 `_ShapeTemplate` убрал обход — рост линейный, ≈ 15 мс на узел (замер: 100 узлов — 1,5 с, 400 — 6,2 с, 24 засечки порта на узел). Потолок
-`MAX_VSDX_NODES` и таймаут рендера (`services/vsdx_process.py`) подобраны именно под этот рост: вернись квадратичность, 1000 узлов перестали бы
-укладываться в 60 с.
+`MAX_VSDX_NODES` и таймаут рендера (`services/vsdx_process.py`) подобраны именно под этот рост: вернись квадратичность, 1000 узлов
+перестали бы укладываться в 60 с.
 
 Пороги заданы с большим запасом относительно замера: тест ловит возврат к квадратичному росту, а не шум CI-раннера.
-- отношение времени 400 узлов к времени 100 узлов: линейный рост даёт ≈ 4, квадратичный — 13 и больше (на прежнем коде, коммит 4303d4c, замерено 19:
-  100 узлов — 5,5 с, 400 — 105,7 с); порог 8 отделяет их с запасом в обе стороны;
+- отношение времени 400 узлов к времени 100 узлов: линейный рост даёт ≈ 4, квадратичный — 13 и больше (на прежнем коде, коммит
+  4303d4c, замерено 19: 100 узлов — 5,5 с, 400 — 105,7 с); порог 8 отделяет их с запасом в обе стороны;
 - 400 узлов за 25 с (замер ≈ 6 с; на прежнем коде — 105,7 с).
-Тест роста проверен красным на прежнем коде (до `_ShapeTemplate`, коммит 4303d4c); второй предел прежний код превышает в четыре раза по тому же замеру.
+Тест роста проверен красным на прежнем коде (до `_ShapeTemplate`, коммит 4303d4c); второй предел прежний код превышает в четыре
+раза по тому же замеру.
 """
 
 from __future__ import annotations
@@ -31,9 +33,18 @@ MAX_LARGE_SECONDS = 25.0
 
 def _chain_graph(nodes: int) -> dict:
     """Цепочка из `nodes` коммутаторов, каждый связан со следующим; раскладка — сетка по 20 узлов в строке."""
-    icon = {"mode": "generated", "shape": "switch", "color": "#4f7cff", "glyph": '<rect x="2" y="6" width="20" height="9"/>', "port_ticks": PORT_TICKS}
+    icon = {
+        "mode": "generated",
+        "shape": "switch",
+        "color": "#4f7cff",
+        "glyph": '<rect x="2" y="6" width="20" height="9"/>',
+        "port_ticks": PORT_TICKS,
+    }
     return {
-        "nodes": [{"id": f"dev-{i}", "type": "device", "label": f"sw-{i}", "x": (i % 20) * 300, "y": (i // 20) * 200, "icon": icon} for i in range(nodes)],
+        "nodes": [
+            {"id": f"dev-{i}", "type": "device", "label": f"sw-{i}", "x": (i % 20) * 300, "y": (i // 20) * 200, "icon": icon}
+            for i in range(nodes)
+        ],
         "edges": [
             {
                 "id": f"conn-{i}",
@@ -69,7 +80,11 @@ def timings() -> dict[int, float]:
 @pytest.mark.slow
 def test_vsdx_export_time_grows_linearly_with_the_number_of_nodes(timings):
     ratio = timings[LARGE_NODES] / timings[SMALL_NODES]
-    assert ratio < MAX_GROWTH_RATIO, f"{LARGE_NODES} узлов — {timings[LARGE_NODES]:.2f} с, {SMALL_NODES} — {timings[SMALL_NODES]:.2f} с: в {ratio:.1f} раза при {LARGE_NODES // SMALL_NODES}-кратном росте числа узлов (линейный рост ≈ 4, лимит {MAX_GROWTH_RATIO:g}); похоже на возврат квадратичного роста"
+    assert ratio < MAX_GROWTH_RATIO, (
+        f"{LARGE_NODES} узлов — {timings[LARGE_NODES]:.2f} с, {SMALL_NODES} — {timings[SMALL_NODES]:.2f} с: в "
+        f"{ratio:.1f} раза при {LARGE_NODES // SMALL_NODES}-кратном росте числа узлов (линейный рост ≈ 4, лимит "
+        f"{MAX_GROWTH_RATIO:g}); похоже на возврат квадратичного роста"
+    )
 
 
 @pytest.mark.slow

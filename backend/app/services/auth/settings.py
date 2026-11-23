@@ -1,6 +1,7 @@
 """Настройки аутентификации: переключатель «включена / выключена» и кэш этого флага для middleware.
 
 Не путать с app.config: здесь только строка AuthSettings в БД и её чтение."""
+
 from __future__ import annotations
 
 import time
@@ -34,7 +35,7 @@ def get_or_create_auth_settings(session: Session) -> AuthSettings:
     return row
 
 
-# Кэш флага «аутентификация включена» для middleware (ревью 2.158.0, П-5). Раньше _authorize на КАЖДЫЙ запрос к /api/*
+# Кэш флага «аутентификация включена» для middleware. Раньше _authorize на КАЖДЫЙ запрос к /api/*
 # читал настройки из БД — даже в режиме без аутентификации (по умолчанию), где больше ничего из БД не нужно. Здесь —
 # (момент чтения, значение) с коротким TTL. Переключение через set_auth_enabled сбрасывает кэш сразу, поэтому в том же
 # процессе оно действует немедленно.
@@ -73,11 +74,16 @@ def reset_auth_enabled_cache() -> None:
 def set_auth_enabled(session: Session, enabled: bool, *, actor: Optional[User] = None) -> AuthSettings:
     settings_row = get_or_create_auth_settings(session)
     if enabled and not settings_row.enabled and len(lock_active_admins(session)) == 0:
-        raise HTTPException(400, {
-            "message": "Нельзя включить аутентификацию: сначала создайте хотя бы одного активного "
-                       "пользователя с ролью «Администратор» (раздел «Пользователи» в настройках).",
-            "code": ErrorCode.AUTH_REQUIRES_ADMIN,
-        })
+        raise HTTPException(
+            400,
+            {
+                "message": (
+                    "Нельзя включить аутентификацию: сначала создайте хотя бы одного активного пользователя с ролью "
+                    "«Администратор» (раздел «Пользователи» в настройках)."
+                ),
+                "code": ErrorCode.AUTH_REQUIRES_ADMIN,
+            },
+        )
     if settings_row.enabled != enabled:
         settings_row.enabled = enabled
         session.commit()

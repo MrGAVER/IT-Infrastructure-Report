@@ -10,6 +10,7 @@
 
 Запуск: pytest backend/tests/test_integrity_owner_names.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -33,7 +34,14 @@ def data(db_session):
     sub = insert_row(connection, "device_subinterfaces", parent_interface_id=port, name="Gi0/1.10")
     sub_other = insert_row(connection, "device_subinterfaces", parent_interface_id=port_other, name="Gi0/2.20")
     return {
-        "device": device, "nameless": nameless, "broken": broken, "other": other, "port": port, "port_other": port_other, "sub": sub, "sub_other": sub_other,
+        "device": device,
+        "nameless": nameless,
+        "broken": broken,
+        "other": other,
+        "port": port,
+        "port_other": port_other,
+        "sub": sub,
+        "sub_other": sub_other,
         "vm": insert_row(connection, "virtual_machines", name="vm-app"),
         "group": insert_row(connection, "interface_groups", name="Серверные"),
         "system": insert_row(connection, "information_systems", name="ЕАИС ТО"),
@@ -56,7 +64,9 @@ def _selects(statements: list[str]) -> int:
         (OwnerType.DEVICE_SUBINTERFACE, "sub", "srv-01 / Gi0/1.10", 3),
     ],
 )
-def test_each_owner_type_gets_its_name_with_a_fixed_number_of_queries(db_session, sql_log, data, owner_type, key, expected_name, expected_queries):
+def test_each_owner_type_gets_its_name_with_a_fixed_number_of_queries(
+    db_session, sql_log, data, owner_type, key, expected_name, expected_queries
+):
     sql_log.clear()
     names = _owner_names(db_session, {(owner_type, data[key])})
     assert names == {(owner_type, data[key]): expected_name}
@@ -64,7 +74,9 @@ def test_each_owner_type_gets_its_name_with_a_fixed_number_of_queries(db_session
 
 
 def test_device_without_name_and_serial_is_labelled_by_id(db_session, data):
-    assert _owner_names(db_session, {(OwnerType.PHYSICAL_DEVICE, data["broken"])}) == {(OwnerType.PHYSICAL_DEVICE, data["broken"]): data["broken"]}
+    assert _owner_names(db_session, {(OwnerType.PHYSICAL_DEVICE, data["broken"])}) == {
+        (OwnerType.PHYSICAL_DEVICE, data["broken"]): data["broken"]
+    }
 
 
 def test_queries_depend_on_owner_types_not_on_rows(db_session, sql_log, data):
@@ -72,8 +84,12 @@ def test_queries_depend_on_owner_types_not_on_rows(db_session, sql_log, data):
     sql_log.clear()
     names = _owner_names(
         db_session,
-        {(OwnerType.DEVICE_INTERFACE, data["port"]), (OwnerType.DEVICE_INTERFACE, data["port_other"]),
-         (OwnerType.DEVICE_SUBINTERFACE, data["sub"]), (OwnerType.DEVICE_SUBINTERFACE, data["sub_other"])},
+        {
+            (OwnerType.DEVICE_INTERFACE, data["port"]),
+            (OwnerType.DEVICE_INTERFACE, data["port_other"]),
+            (OwnerType.DEVICE_SUBINTERFACE, data["sub"]),
+            (OwnerType.DEVICE_SUBINTERFACE, data["sub_other"]),
+        },
     )
     assert names == {
         (OwnerType.DEVICE_INTERFACE, data["port"]): "srv-01 / Gi0/1",
@@ -86,15 +102,22 @@ def test_queries_depend_on_owner_types_not_on_rows(db_session, sql_log, data):
 
 def test_all_owner_types_together(db_session, sql_log, data):
     owners = {
-        (OwnerType.VIRTUAL_MACHINE, data["vm"]), (INTERFACE_GROUP_OWNER, data["group"]), (INFORMATION_SYSTEM_OWNER, data["system"]),
-        (OwnerType.PHYSICAL_DEVICE, data["device"]), (OwnerType.DEVICE_INTERFACE, data["port"]), (OwnerType.DEVICE_SUBINTERFACE, data["sub"]),
+        (OwnerType.VIRTUAL_MACHINE, data["vm"]),
+        (INTERFACE_GROUP_OWNER, data["group"]),
+        (INFORMATION_SYSTEM_OWNER, data["system"]),
+        (OwnerType.PHYSICAL_DEVICE, data["device"]),
+        (OwnerType.DEVICE_INTERFACE, data["port"]),
+        (OwnerType.DEVICE_SUBINTERFACE, data["sub"]),
     }
     sql_log.clear()
     names = _owner_names(db_session, owners)
     assert names == {
-        (OwnerType.VIRTUAL_MACHINE, data["vm"]): "vm-app", (INTERFACE_GROUP_OWNER, data["group"]): "Серверные",
-        (INFORMATION_SYSTEM_OWNER, data["system"]): "ЕАИС ТО", (OwnerType.PHYSICAL_DEVICE, data["device"]): "srv-01",
-        (OwnerType.DEVICE_INTERFACE, data["port"]): "srv-01 / Gi0/1", (OwnerType.DEVICE_SUBINTERFACE, data["sub"]): "srv-01 / Gi0/1.10",
+        (OwnerType.VIRTUAL_MACHINE, data["vm"]): "vm-app",
+        (INTERFACE_GROUP_OWNER, data["group"]): "Серверные",
+        (INFORMATION_SYSTEM_OWNER, data["system"]): "ЕАИС ТО",
+        (OwnerType.PHYSICAL_DEVICE, data["device"]): "srv-01",
+        (OwnerType.DEVICE_INTERFACE, data["port"]): "srv-01 / Gi0/1",
+        (OwnerType.DEVICE_SUBINTERFACE, data["sub"]): "srv-01 / Gi0/1.10",
     }
     assert _selects(sql_log) == 1 + 1 + 1 + 1 + 2 + 3
 

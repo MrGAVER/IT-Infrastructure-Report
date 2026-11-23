@@ -11,6 +11,7 @@ generic.py (список, создание, правка) ничего не зн
                → after_update → аудит (+ строки из after_update) → commit → to_dict
     список:    ordering (порядок строк) → enrich_rows (обогащение строк связанными данными)
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
@@ -19,11 +20,37 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ...models import AuditLog, Connection, DeviceInterface, DeviceStackMember, InformationSystem, ISProtocol, OpenPort, PhysicalDevice, VirtualMachine, VLAN, VLANDomainDevice
-from ..serialization import enrich_connections, enrich_devices, enrich_information_systems, enrich_interfaces, enrich_open_port, enrich_open_ports, serialize
+from ...models import (
+    AuditLog,
+    Connection,
+    DeviceInterface,
+    DeviceStackMember,
+    InformationSystem,
+    ISProtocol,
+    OpenPort,
+    PhysicalDevice,
+    VirtualMachine,
+    VLAN,
+    VLANDomainDevice,
+)
+from ..serialization import (
+    enrich_connections,
+    enrich_devices,
+    enrich_information_systems,
+    enrich_interfaces,
+    enrich_open_port,
+    enrich_open_ports,
+    serialize,
+)
 from .owned_rows import _validate_is_protocol_number_is_free, _validate_open_port_catalog, _validate_open_port_number_is_free
 from .stack_vlan_settings import apply_stack_settings_to_device
-from .vlan_domains import _auto_assign_new_domain_vlan_to_domain_devices, _stale_group_subinterfaces_on_vlan, _stale_subinterfaces_on_vlan, _unassign_moved_vlan_from_former_domain_devices, assign_domain_vlans_to_device
+from .vlan_domains import (
+    _auto_assign_new_domain_vlan_to_domain_devices,
+    _stale_group_subinterfaces_on_vlan,
+    _stale_subinterfaces_on_vlan,
+    _unassign_moved_vlan_from_former_domain_devices,
+    assign_domain_vlans_to_device,
+)
 
 _Data = dict[str, Any]
 
@@ -37,7 +64,7 @@ def _default_ordering(model: type) -> tuple[Any, ...]:
     """Без ORDER BY порядок строк при offset/limit не гарантирован (на PostgreSQL он может меняться между запросами),
     и соседние страницы дублировали или пропускали записи. Старые — первыми; id — детерминированный тай-брейк для
     строк с равным временем создания."""
-    return tuple(col for col in (getattr(model, 'created_at', None), getattr(model, 'id', None)) if col is not None)
+    return tuple(col for col in (getattr(model, "created_at", None), getattr(model, "id", None)) if col is not None)
 
 
 def _serialize_rows(rows: Sequence[Any], session: Session) -> list[_Data]:
@@ -104,16 +131,16 @@ def _interface_ordering(model: type) -> tuple[Any, ...]:
 
 def _set_vm_hypervisor_os(data: _Data, session: Session) -> None:
     """ВМ на физическом хосте: ОС гипервизора берётся из ОС хоста (или сбрасывается, если у хоста её нет)."""
-    host_id = data.get('physical_device_id')
+    host_id = data.get("physical_device_id")
     if host_id:
         host = session.get(PhysicalDevice, host_id)
-        data['hypervisor_os_id'] = host.operating_system_id if host and host.operating_system_id else None
+        data["hypervisor_os_id"] = host.operating_system_id if host and host.operating_system_id else None
 
 
 def _copy_vm_hypervisor_os(obj: VirtualMachine, proposed: _Data) -> None:
     # hypervisor_os_id вычисляется в prepare и в payload не приходит — в объект его переносим отдельно.
-    if 'physical_device_id' in proposed:
-        obj.hypervisor_os_id = proposed.get('hypervisor_os_id')
+    if "physical_device_id" in proposed:
+        obj.hypervisor_os_id = proposed.get("hypervisor_os_id")
 
 
 # --- открытые порты и протоколы ИС ----------------------------------------------------------------
@@ -134,7 +161,7 @@ def _validate_changed_open_port(proposed: _Data, before: _Data, session: Session
     _validate_open_port_catalog(proposed, session)
     # Уникальность номера — только когда меняется сам порт или владелец: правка описания строки, у которой дубль появился
     # раньше этого правила, не должна блокироваться (дубли чинят отдельно — GET /integrity/open-port-duplicates).
-    if _changed(proposed, before, ('protocol_catalog_id', 'owner_type', 'owner_id')):
+    if _changed(proposed, before, ("protocol_catalog_id", "owner_type", "owner_id")):
         _validate_open_port_number_is_free(proposed, session, item_id)
 
 
@@ -147,7 +174,7 @@ def _validate_new_is_protocol(data: _Data, session: Session) -> None:
 def _validate_changed_is_protocol(proposed: _Data, before: _Data, session: Session, item_id: str) -> None:
     _validate_open_port_catalog(proposed, session)
     # Как у открытых портов: правка только описания записи с уже существующим дублем не блокируется.
-    if _changed(proposed, before, ('protocol_catalog_id', 'information_system_id')):
+    if _changed(proposed, before, ("protocol_catalog_id", "information_system_id")):
         _validate_is_protocol_number_is_free(proposed, session, item_id)
 
 
@@ -170,23 +197,25 @@ def _stack_member_after_create(obj: DeviceStackMember, session: Session) -> None
 
 
 def _listed(items: list[str]) -> str:
-    return '; '.join(items[:_AUDIT_LIST_LIMIT]) + ('…' if len(items) > _AUDIT_LIST_LIMIT else '')
+    return "; ".join(items[:_AUDIT_LIST_LIMIT]) + ("…" if len(items) > _AUDIT_LIST_LIMIT else "")
 
 
 def _vlan_move_audit_notes(vlan: VLAN, unassigned_devices: int, session: Session) -> list[str]:
     """Строки аудита о последствиях переноса VLAN в другой домен; пусто, если ни с одного устройства VLAN не снят."""
     if not unassigned_devices:
         return []
-    notes = [f'VLAN снят с устройств прежнего домена: {unassigned_devices}']
+    notes = [f"VLAN снят с устройств прежнего домена: {unassigned_devices}"]
     # Подинтерфейсы на этом VLAN при снятии не удаляются (у них свои IP и открытые порты) — фиксируем, какие остались без
     # разрешённого VLAN: в форме устройства их придётся перенести на другой VLAN или удалить.
     stale = _stale_subinterfaces_on_vlan(str(vlan.id), session)
     if stale:
-        notes.append(f'Подинтерфейсы остались на VLAN, не разрешённом устройству ({len(stale)}): ' + _listed(stale))
+        notes.append(f"Подинтерфейсы остались на VLAN, не разрешённом устройству ({len(stale)}): " + _listed(stale))
     # То же для шаблонов подинтерфейсов групп портов: связи VLAN с группами сняты, а шаблоны на этом VLAN остались.
     stale_groups = _stale_group_subinterfaces_on_vlan(str(vlan.id), session)
     if stale_groups:
-        notes.append(f'Подинтерфейсы групп портов остались на VLAN, которого у группы больше нет ({len(stale_groups)}): ' + _listed(stale_groups))
+        notes.append(
+            f"Подинтерфейсы групп портов остались на VLAN, которого у группы больше нет ({len(stale_groups)}): " + _listed(stale_groups)
+        )
     return notes
 
 
@@ -194,9 +223,9 @@ def _vlan_after_update(vlan: VLAN, payload: _Data, before: _Data, session: Sessi
     """Перенос VLAN в другой домен: снимает его с устройств прежнего домена, которых нет в новом, и назначает устройствам нового."""
     # Только когда domain_id реально менялся в этом запросе: правка другого поля (например, описания) не должна при каждом
     # сохранении заново проверять привязку к устройствам домена, в котором VLAN и так давно значится.
-    if 'domain_id' not in payload:
+    if "domain_id" not in payload:
         return []
-    unassigned_devices = _unassign_moved_vlan_from_former_domain_devices(vlan, before.get('domain_id'), session)
+    unassigned_devices = _unassign_moved_vlan_from_former_domain_devices(vlan, before.get("domain_id"), session)
     _auto_assign_new_domain_vlan_to_domain_devices(vlan, session)
     return _vlan_move_audit_notes(vlan, unassigned_devices, session)
 
@@ -209,7 +238,12 @@ HOOKS: dict[type, ResourceHooks] = {
     PhysicalDevice: ResourceHooks(enrich_rows=enrich_devices),
     Connection: ResourceHooks(enrich_rows=enrich_connections),
     InformationSystem: ResourceHooks(enrich_rows=enrich_information_systems),
-    OpenPort: ResourceHooks(enrich_rows=enrich_open_ports, validate_create=_validate_new_open_port, validate_update=_validate_changed_open_port, to_dict=enrich_open_port),
+    OpenPort: ResourceHooks(
+        enrich_rows=enrich_open_ports,
+        validate_create=_validate_new_open_port,
+        validate_update=_validate_changed_open_port,
+        to_dict=enrich_open_port,
+    ),
     ISProtocol: ResourceHooks(validate_create=_validate_new_is_protocol, validate_update=_validate_changed_is_protocol),
     VirtualMachine: ResourceHooks(prepare=_set_vm_hypervisor_os, apply_derived=_copy_vm_hypervisor_os),
     VLAN: ResourceHooks(after_create=_vlan_after_create, after_update=_vlan_after_update),

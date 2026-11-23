@@ -1,20 +1,17 @@
 """Заголовки безопасности ответов: базовый набор против MIME-sniffing и кликджекинга и Content-Security-Policy.
 
-Добавляются в двух местах:
+Ставит их один слой — SecurityHeadersMiddleware, САМЫЙ внешний в приложении (main.py): заголовки получает любой ответ, в том числе
+сформированный внутренними слоями — 400 проверки Host, 403 проверки клиента и origin, 413 предела тела запроса, 401/403 шлюза
+доступа. Раньше их дополнительно ставил сам шлюз (with_security_headers) — дублирование убрано вместе с переходом шлюза на
+чистый ASGI.
 
-* SecurityHeadersMiddleware — САМЫЙ внешний слой приложения (main.py): заголовки получает любой ответ, в том числе сформированный
-внутренними
-  слоями до auth_gate_middleware — 400 проверки Host, 403 проверки клиента и origin, 413 предела тела запроса. Раньше такие ответы уходили
-  без заголовков, потому что их ставил только auth_gate_middleware, стоящий внутри этих слоёв;
-* with_security_headers — прежний интерфейс для services/auth/gate.py (ответ уже получен, правится его объект).
-
-Оба пути идут через apply_security_headers с ``setdefault``: уже выставленный заголовок (обработчиком, обратным прокси или первым из двух
-слоёв)
+apply_security_headers пишет через ``setdefault``: заголовок, уже выставленный обработчиком или обратным прокси,
 не перезаписывается и не дублируется.
 
-Пример: ``app.add_middleware(SecurityHeadersMiddleware)`` — после install_http_security(...): последний добавленный слой в Starlette самый
-внешний.
+Пример: ``app.add_middleware(SecurityHeadersMiddleware)`` — после install_http_security(...): последний добавленный слой
+в Starlette самый внешний.
 """
+
 from __future__ import annotations
 
 from starlette.datastructures import MutableHeaders
@@ -33,6 +30,9 @@ _SECURITY_HEADERS = {
 # страницы документации, а данных реестра на них нет.
 _CSP_EXEMPT_PATHS = frozenset({"/docs", "/redoc", "/docs/oauth2-redirect", "/openapi.json"})
 
+# Ответы API несут данные реестра; статические файлы интерфейса (/assets/…) кэшируются как обычно.
+_NO_STORE_PREFIX = "/api/"
+
 
 def apply_security_headers(headers: MutableHeaders, path: str = "") -> None:
     """Дописывает недостающие заголовки безопасности; уже стоящие не трогает (регистр имени не важен)."""
@@ -43,16 +43,14 @@ def apply_security_headers(headers: MutableHeaders, path: str = "") -> None:
     # (см. config.CSP_POLICY) — например, когда её выставляет обратный прокси.
     if CSP_POLICY and path not in _CSP_EXEMPT_PATHS:
         headers.setdefault("Content-Security-Policy", CSP_POLICY)
-
-
-def with_security_headers(response, path: str = ""):
-    """Прежний интерфейс для gate.py: правит заголовки готового ответа и возвращает его же."""
-    apply_security_headers(response.headers, path)
-    return response
+    # Данные реестра не должны оседать в кэше браузера и промежуточных прокси — на общем компьютере их потом откроет следующий
+    # пользователь. setdefault: ответ, у которого обработчик сам задал Cache-Control, остаётся как есть.
+    if path.startswith(_NO_STORE_PREFIX):
+        headers.setdefault("Cache-Control", "no-store")
 
 
 class SecurityHeadersMiddleware:
-    """Самый внешний слой: заголовки получают и ответы, сформированные внутренними middleware (400/403/413)."""
+    """Самый внешний слой: заголовки получают и ответы, сформированные внутренними middleware (400/401/403/413)."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app

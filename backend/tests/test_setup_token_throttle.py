@@ -9,6 +9,7 @@
 
 Запуск: pytest backend/tests/test_setup_token_throttle.py -v
 """
+
 from __future__ import annotations
 
 import pytest
@@ -37,8 +38,11 @@ def clock(monkeypatch) -> FakeClock:
     fake = FakeClock()
     monkeypatch.setattr(guards_module, "SETUP_TOKEN", TOKEN)
     monkeypatch.setattr(
-        guards_module, "setup_token_throttle",
-        LoginThrottle(free_attempts=FREE, base_delay=guards_module.SETUP_TOKEN_BASE_DELAY, max_delay=guards_module.SETUP_TOKEN_MAX_DELAY, clock=fake),
+        guards_module,
+        "setup_token_throttle",
+        LoginThrottle(
+            free_attempts=FREE, base_delay=guards_module.SETUP_TOKEN_BASE_DELAY, max_delay=guards_module.SETUP_TOKEN_MAX_DELAY, clock=fake
+        ),
     )
     return fake
 
@@ -150,4 +154,3 @@ def test_without_a_configured_token_nothing_is_counted(client_factory, monkeypat
     for _ in range(FREE * 3):
         assert _guess(remote).status_code == 403  # токена нет — сравнивать и считать нечего; остаётся обычный отказ по адресу
     assert len(guards_module.setup_token_throttle) == 0
-

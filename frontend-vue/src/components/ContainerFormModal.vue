@@ -6,7 +6,7 @@
 // формы, не персистится само по себе: при сохранении в payload попадает только тот из двух FK,
 // что соответствует выбранному типу, второй всегда null.
 import { computed, reactive, ref, watch, useId } from 'vue'
-import { createResource, updateResource } from '../api/client'
+import { createResource } from '../api/client'
 import type { Container, Device } from '../api/types'
 import { useCatalogsStore } from '../stores/catalogs'
 import { useDevicesStore } from '../stores/devices'
@@ -14,6 +14,7 @@ import { useVMsStore } from '../stores/vms'
 import { filterHostDevices } from '../utils/deviceFilters'
 import BaseModal from './BaseModal.vue'
 import { useReadOnlyForm } from '../composables/useReadOnlyForm'
+import { useStaleRecordGuard } from '../composables/useStaleRecordGuard'
 
 // Роль без права записи (viewer) видит карточку в режиме просмотра: поля отключены, кнопки «Сохранить» нет.
 const { readOnly } = useReadOnlyForm()
@@ -26,6 +27,7 @@ const titleId = useId()
 const catalogs = useCatalogsStore()
 const devicesStore = useDevicesStore()
 const vmsStore = useVMsStore()
+const stale = useStaleRecordGuard({ resource: 'containers', record: () => props.container, close: () => emit('close') })
 const saving = ref(false)
 const errorMessage = ref<string | null>(null)
 const isEdit = computed(() => props.container !== null)
@@ -103,9 +105,8 @@ async function submit() {
   saving.value = true
   try {
     const payload = toPayload()
-    const saved = isEdit.value
-      ? await updateResource<Container>('containers', props.container!.id, payload)
-      : await createResource<Container>('containers', payload)
+    const saved = isEdit.value ? await stale.update<Container>(props.container!.id, payload) : await createResource<Container>('containers', payload)
+    if (!saved) return // при конфликте версий пользователь отказался сохранять
     emit('saved', saved)
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось сохранить контейнер'

@@ -12,6 +12,7 @@ tests/test_connection_query.py (роли × режимы × наборы VLAN ×
     page = list_connections(session, ConnectionQuery(q="коммутатор", status=PortConfigStatus.MISMATCH), offset=0, limit=25)
     page["total"], page["summary"]["mismatch"], page["items"][0]["port_config_status"]
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -74,6 +75,7 @@ def _vlan_fingerprint_sql(iface: Any) -> ColumnElement[int]:
     подзапрос по индексу interface_vlans.interface_id (у порта с «Все VLAN» — по VLAN его устройства, см.
     ниже). Считается лениво: только там, где выражение реально вычисляется (страница без фильтра по
     статусу его не касается). Формулу менять только вместе с Python-версией."""
+
     def big(value: int) -> ColumnElement[int]:
         return literal(value, type_=BigInteger)  # явный BIGINT: без неявного приведения параметров в PostgreSQL
 
@@ -98,11 +100,7 @@ def _vlan_fingerprint_sql(iface: Any) -> ColumnElement[int]:
     # работает только на один: без явного .correlate(iface) порт попадает в их FROM и перемножается со всеми
     # портами реестра — отпечаток «Все VLAN» тогда один и тот же у любого порта (расхождения не находятся).
     device = aliased(PhysicalDevice)
-    own = (
-        select(PhysicalDeviceVLAN.vlan_id)
-        .where(PhysicalDeviceVLAN.physical_device_id == iface.physical_device_id)
-        .correlate(iface)
-    )
+    own = select(PhysicalDeviceVLAN.vlan_id).where(PhysicalDeviceVLAN.physical_device_id == iface.physical_device_id).correlate(iface)
     typed = (
         select(DeviceTypeVLAN.vlan_id)
         .join(device, device.device_type_id == DeviceTypeVLAN.device_type_id)
@@ -150,7 +148,10 @@ class _Joined:
             # IS NOT NULL первым: у подавляющего большинства подключений одобрения нет, и сравнение подписи (а в ней отпечатки
             # VLAN обоих портов) вычислять незачем — NULL == подпись и так не истина. AND в SQL вычисляется слева направо с
             # прерыванием, поэтому для неодобренных подключений четыре из шести вычислений отпечатка отпадают.
-            (and_(Connection.port_config_approved_signature.is_not(None), Connection.port_config_approved_signature == self.signature), _text(PortConfigStatus.APPROVED.value)),
+            (
+                and_(Connection.port_config_approved_signature.is_not(None), Connection.port_config_approved_signature == self.signature),
+                _text(PortConfigStatus.APPROVED.value),
+            ),
             else_=_text(PortConfigStatus.MISMATCH.value),
         )
 
@@ -169,6 +170,7 @@ class _Joined:
         result: list[ColumnElement[bool]] = []
         needle = (query.q or "").strip().lower()
         if needle:
+
             def contains(column: Any) -> ColumnElement[bool]:
                 return func.lower(column).contains(needle, autoescape=True)  # % и _ из поиска — обычные символы
 
@@ -176,9 +178,13 @@ class _Joined:
             # тип линии, режим порта (trunk / access) и подпись роли порта («управление»,
             # «передача данных»).
             matches = [
-                contains(device_label_expr(self.src_device)), contains(self.src.name),
-                contains(device_label_expr(self.dst_device)), contains(self.dst.name),
-                contains(ConnectionType.name), contains(self.src_mode), contains(self.dst_mode),
+                contains(device_label_expr(self.src_device)),
+                contains(self.src.name),
+                contains(device_label_expr(self.dst_device)),
+                contains(self.dst.name),
+                contains(ConnectionType.name),
+                contains(self.src_mode),
+                contains(self.dst_mode),
             ]
             roles = [role.value for role in PortRole if needle in PORT_ROLE_LABELS[role].lower()]
             if roles:

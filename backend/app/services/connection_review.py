@@ -6,6 +6,7 @@
 статус сверки пары портов ДО сохранения, чтобы правила не дублировались на клиенте. Каждая операция — одна
 транзакция с записью в журнал аудита.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -65,7 +66,13 @@ def set_port_role(interface_id: str, payload: dict[str, Any], session: Session) 
     before = port_role(iface)
     after = role_from_flags(is_management, is_data_transfer)
     write_port_role(iface, after, session)
-    audit(session, "interfaces", iface.id, AuditAction.UPDATE, f"Роль порта «{iface.name}»: {PORT_ROLE_LABELS[before]} → {PORT_ROLE_LABELS[after]}")
+    audit(
+        session,
+        "interfaces",
+        iface.id,
+        AuditAction.UPDATE,
+        f"Роль порта «{iface.name}»: {PORT_ROLE_LABELS[before]} → {PORT_ROLE_LABELS[after]}",
+    )
     session.commit()
     session.refresh(iface)
     return enrich_interfaces([iface], session)[0]
@@ -138,9 +145,12 @@ def _approve_connections(connections: Sequence[Connection], session: Session) ->
             conn.port_config_approved_signature = approval_signature(source, destination)
             facets = ", ".join(_FACET_LABELS[f] for f in config_differences(source, destination))
             audit(
-                session, "connections", conn.id, AuditAction.UPDATE,
-                f"Одобрено расхождение конфигурации портов ({facets}): "
-                f"{_describe(names[conn.source_interface_id], source)}; {_describe(names[conn.destination_interface_id], destination)}",
+                session,
+                "connections",
+                conn.id,
+                AuditAction.UPDATE,
+                f"Одобрено расхождение конфигурации портов ({facets}): {_describe(names[conn.source_interface_id], source)}; "
+                f"{_describe(names[conn.destination_interface_id], destination)}",
             )
             covered.append(conn)
             newly_approved += 1
@@ -187,7 +197,8 @@ def parse_approve_request(payload: Any) -> ApproveSelection:
     """Разбор тела одобрения — чистая проверка формы, без обращения к БД (её же вызывает модель запроса
     `ApprovePortConfigRequest`, api/port_config_schemas.py, поэтому правила живут только здесь).
 
-    Ровно одно из `connection_ids` / `match`. Возвращает ApproveByIds (уникальные id в порядке прихода) либо ApproveByMatch (условия поиска)."""
+    Ровно одно из `connection_ids` / `match`. Возвращает ApproveByIds (уникальные id в порядке прихода) либо ApproveByMatch
+    (условия поиска)."""
     if not isinstance(payload, dict):
         raise HTTPException(422, "Тело запроса должно быть объектом")
     has_ids, has_match = "connection_ids" in payload, "match" in payload
@@ -231,7 +242,7 @@ def approve_port_config(payload: dict[str, Any], session: Session) -> dict[str, 
     ids = select_connection_ids(session, selection.query)
     approved = 0
     for start in range(0, len(ids), _APPROVE_CHUNK):
-        chunk = session.scalars(select(Connection).where(Connection.id.in_(ids[start:start + _APPROVE_CHUNK]))).all()
+        chunk = session.scalars(select(Connection).where(Connection.id.in_(ids[start : start + _APPROVE_CHUNK]))).all()
         approved += _approve_connections(chunk, session)[2]
     session.commit()
     return {"items": [], "skipped_ids": [], "approved_count": approved}

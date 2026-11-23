@@ -9,6 +9,7 @@ CORS и подмену Host (п. 2), действовать без следа в
 
 Запуск: pytest backend/tests/test_code_review_security.py -v
 """
+
 from __future__ import annotations
 
 import base64
@@ -113,7 +114,13 @@ class TestWeakSetupToken:
     выключена, любой, кто достаёт до порта, создавал администратора и закрывал реестр от владельца. Теперь такой токен не пускает
     никого — ни с верным заголовком, ни без него; остаётся прямой localhost без прокси-заголовков, как при незаданном токене."""
 
-    WEAK_TOKENS = ["change_me_long_random_string", "change_me", "  CHANGE_ME  ", "short-token-1", "a" * (app_config.MIN_SETUP_TOKEN_LENGTH - 1)]
+    WEAK_TOKENS = [
+        "change_me_long_random_string",
+        "change_me",
+        "  CHANGE_ME  ",
+        "short-token-1",
+        "a" * (app_config.MIN_SETUP_TOKEN_LENGTH - 1),
+    ]
 
     @pytest.mark.parametrize("weak", WEAK_TOKENS)
     def test_a_remote_client_is_denied_even_with_the_exact_weak_token(self, client_factory, monkeypatch, weak):
@@ -127,13 +134,21 @@ class TestWeakSetupToken:
 
     def test_the_denial_explains_why_but_never_echoes_the_token(self, client_factory, monkeypatch):
         monkeypatch.setattr(guards_module, "SETUP_TOKEN", "change_me_long_random_string")
-        message = client_factory("203.0.113.7").post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": "change_me_long_random_string"}).json()["detail"]["message"]
+        message = (
+            client_factory("203.0.113.7")
+            .post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": "change_me_long_random_string"})
+            .json()["detail"]["message"]
+        )
         assert "слишком слаб" in message and "заглушк" in message and "openssl rand -hex 24" in message
         assert "change_me_long_random_string" not in message
 
     def test_an_ordinary_denial_does_not_blame_the_token(self, client_factory, monkeypatch):
         monkeypatch.setattr(guards_module, "SETUP_TOKEN", STRONG_SETUP_TOKEN)
-        message = client_factory("203.0.113.7").post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": "wrong"}).json()["detail"]["message"]
+        message = (
+            client_factory("203.0.113.7")
+            .post("/api/v1/auth/users", json=ADMIN, headers={"X-Setup-Token": "wrong"})
+            .json()["detail"]["message"]
+        )
         assert "слишком слаб" not in message
 
     def test_direct_localhost_still_works_like_with_no_token_at_all(self, client, monkeypatch):
@@ -219,7 +234,9 @@ class TestCorsAndHost:
 # ---------------------------------------------------------------------------
 def _audit_rows(db_session, entity_type: str) -> list[AuditLog]:
     db_session.expire_all()
-    return list(db_session.scalars(select(AuditLog).where(AuditLog.entity_type == entity_type).order_by(AuditLog.created_at, AuditLog.id)).all())
+    return list(
+        db_session.scalars(select(AuditLog).where(AuditLog.entity_type == entity_type).order_by(AuditLog.created_at, AuditLog.id)).all()
+    )
 
 
 class TestAuditActor:
@@ -299,7 +316,9 @@ SAFE_ICONS = [
     "",
     '<svg viewBox="0 0 24 24"><rect width="24" height="24" fill="#4f7cff"/></svg>',
     '<svg><circle cx="5" cy="5" r="5" class="on-hover"/></svg>',
-    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><linearGradient id="g"><stop offset="0" stop-color="#000"/></linearGradient></defs><use xlink:href="#g"/><path d="M0 0L5 5" fill="url(#g)"/><text>on = off</text></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><linearGradient '
+    'id="g"><stop offset="0" stop-color="#000"/></linearGradient></defs><use xlink:href="#g"/><path d="M0 0L5 5" '
+    'fill="url(#g)"/><text>on = off</text></svg>',
     '<?xml version="1.0" encoding="UTF-8"?><svg><g><title>Коммутатор</title><polygon points="0,0 5,5 0,5"/></g></svg>',
     '<rect width="10" height="10"/><circle r="3"/>',  # голый фрагмент из нескольких элементов
 ]
@@ -325,8 +344,16 @@ def test_svg_validator_is_reached_through_the_catalog_api(client):
 def test_svg_export_embeds_a_custom_icon_as_an_image_not_as_raw_markup():
     marker = 'class="custom-mark"'
     graph = {
-        "nodes": [{"id": "n1", "type": "device", "label": "sw", "x": 0, "y": 0,
-                   "icon": {"mode": "custom", "svg_markup": f'<circle r="5" {marker}/>'}}],
+        "nodes": [
+            {
+                "id": "n1",
+                "type": "device",
+                "label": "sw",
+                "x": 0,
+                "y": 0,
+                "icon": {"mode": "custom", "svg_markup": f'<circle r="5" {marker}/>'},
+            }
+        ],
         "edges": [],
     }
     svg = export_svg(graph)

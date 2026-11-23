@@ -9,6 +9,7 @@
 реальная работа с ORM-метаданными через inspect(), которую сложно достоверно замокать).
 Если зависимости недоступны, модуль импортирует их лениво и тест будет пропущен (skip), а не упадёт.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -18,6 +19,7 @@ APP_DIR = Path(__file__).resolve().parent.parent / "app"
 
 try:
     import sys
+
     sys.path.insert(0, str(APP_DIR.parent))
     from sqlalchemy import create_engine, event
     from sqlalchemy.orm import sessionmaker
@@ -25,6 +27,7 @@ try:
     from app.services.crud import delete_resource, sync_information_system_details
     from app.services.crud.deletion import _find_referencing_counts
     from fastapi import HTTPException
+
     DEPS_AVAILABLE = True
 except ImportError:
     DEPS_AVAILABLE = False
@@ -47,7 +50,8 @@ class ReferentialIntegrityTestCase(unittest.TestCase):
         # category_id обязателен на DeviceType (диаграмма топологии сети, см. app/models.py) —
         # категория как таковая безразлична этим тестам, им нужна только валидная ссылка.
         category = DeviceCategory(name="Тестовая категория")
-        self.session.add(category); self.session.flush()
+        self.session.add(category)
+        self.session.flush()
         self.category_id = category.id
 
     def tearDown(self):
@@ -55,9 +59,11 @@ class ReferentialIntegrityTestCase(unittest.TestCase):
 
     def test_referenced_device_type_cannot_be_deleted(self):
         dt = DeviceType(name="Сервер", category_id=self.category_id)
-        self.session.add(dt); self.session.flush()
+        self.session.add(dt)
+        self.session.flush()
         dev = PhysicalDevice(device_type_id=dt.id, serial_number="SN1")
-        self.session.add(dev); self.session.commit()
+        self.session.add(dev)
+        self.session.commit()
 
         refs = _find_referencing_counts(DeviceType, dt.id, self.session)
         names = dict(refs)
@@ -73,7 +79,8 @@ class ReferentialIntegrityTestCase(unittest.TestCase):
 
     def test_unreferenced_device_type_can_be_deleted(self):
         dt = DeviceType(name="Неиспользуемый тип", category_id=self.category_id)
-        self.session.add(dt); self.session.commit()
+        self.session.add(dt)
+        self.session.commit()
 
         refs = _find_referencing_counts(DeviceType, dt.id, self.session)
         self.assertEqual(refs, [])
@@ -112,15 +119,22 @@ class InformationSystemSourceFKTestCase(unittest.TestCase):
 
     def test_empty_string_owner_id_in_source_is_normalized_to_null(self):
         isys = InformationSystem(name="ИС для теста FK")
-        self.session.add(isys); self.session.commit()
+        self.session.add(isys)
+        self.session.commit()
 
         payload = {
-            "departments": [], "protocols": [],
-            "sources": [{
-                "source_type": "manual", "owner_id": "",
-                "ips": [{"ip_address": "10.0.0.5"}], "purpose": "", "role": "",
-                "external_interaction": False,
-            }],
+            "departments": [],
+            "protocols": [],
+            "sources": [
+                {
+                    "source_type": "manual",
+                    "owner_id": "",
+                    "ips": [{"ip_address": "10.0.0.5"}],
+                    "purpose": "",
+                    "role": "",
+                    "external_interaction": False,
+                }
+            ],
             "placement_assets": [],
         }
         result = sync_information_system_details(isys.id, payload, self.session)

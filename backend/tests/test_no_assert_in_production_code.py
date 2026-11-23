@@ -8,6 +8,7 @@
 
 Запуск: pytest backend/tests/test_no_assert_in_production_code.py -v
 """
+
 from __future__ import annotations
 
 import ast
@@ -52,7 +53,10 @@ def test_a_sheet_with_the_wrong_number_of_widths_is_rejected_with_a_clear_messag
 def test_the_default_template_still_builds_all_four_sheets():
     config = report_seed_templates.default_registry_template_config()
     assert [sheet["title"] for sheet in config["sheets"]] == [
-        "Перечень ИС", "Инвентаризац. физ. устройств ИС", "Организация подключений", "Организация управления ВМ",
+        "Перечень ИС",
+        "Инвентаризац. физ. устройств ИС",
+        "Организация подключений",
+        "Организация управления ВМ",
     ]
 
 

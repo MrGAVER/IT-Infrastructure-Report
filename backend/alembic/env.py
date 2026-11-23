@@ -3,12 +3,12 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 from app.models import Base
 from app.alembic_filters import make_include_object
-from app.config import DATABASE_URL
+from app.config import APP_DATA_DIR, DATABASE_URL, ensure_data_dirs
 from app.db import register_sqlite_adapters
 
 config = context.config
 if config.config_file_name is not None:
-    # Код-ревью (тест-изоляция): fileConfig() по умолчанию disable_existing_loggers=True —
+    # Тест-изоляция: fileConfig() по умолчанию disable_existing_loggers=True —
     # отключает НАВСЕГДА (logger.disabled=True) любой уже созданный к этому моменту логгер,
     # не упомянутый в alembic.ini явно (там сконфигурированы только root/sqlalchemy/alembic).
     # test_migrations_diagram.py вызывает command.upgrade()/downgrade() (а значит, и этот env.py)
@@ -20,6 +20,7 @@ if config.config_file_name is not None:
     # как отдельный CLI-процесс).
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 target_metadata = Base.metadata
+ensure_data_dirs(APP_DATA_DIR)  # app.config при импорте каталоги не создаёт, а SQLite-файл по умолчанию лежит в каталоге данных
 register_sqlite_adapters()  # миграции передают date/datetime драйверу напрямую: без явных адаптеров Python 3.12+ предупреждает
 
 
@@ -28,8 +29,7 @@ def _url():
 
 
 def run_migrations_offline():
-    context.configure(url=_url(), target_metadata=target_metadata, literal_binds=True,
-                      dialect_opts={"paramstyle": "named"})
+    context.configure(url=_url(), target_metadata=target_metadata, literal_binds=True, dialect_opts={"paramstyle": "named"})
     with context.begin_transaction():
         context.run_migrations()
 

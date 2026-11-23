@@ -7,6 +7,7 @@
 
 Запуск: pytest backend/tests/test_diagram_schemas.py -v
 """
+
 from __future__ import annotations
 
 import json
@@ -71,7 +72,10 @@ LAYOUT_ERRORS = [
     ({"node_positions": [1]}, "node_positions должен быть объектом {id: {x, y}} (не более 5000 узлов)"),
     ({"node_positions": {"n1": {"x": "a", "y": 1}}}, "Некорректная позиция узла «n1»: ожидается {x: число, y: число}"),
     ({"node_positions": {}, "viewport": "wide"}, "viewport должен быть объектом с числовыми полями pan_x, pan_y, x, y, zoom или null"),
-    ({"node_positions": {}, "viewport": {"zoom": "2"}}, "viewport должен быть объектом с числовыми полями pan_x, pan_y, x, y, zoom или null"),
+    (
+        {"node_positions": {}, "viewport": {"zoom": "2"}},
+        "viewport должен быть объектом с числовыми полями pan_x, pan_y, x, y, zoom или null",
+    ),
     ({"node_positions": {}, "viewport": {"foo": 1}}, "viewport должен быть объектом с числовыми полями pan_x, pan_y, x, y, zoom или null"),
 ]
 
@@ -104,6 +108,7 @@ def test_a_body_that_is_not_an_object_or_not_json_gets_a_readable_message(client
 
 
 # --- OpenAPI описывает тела -------------------------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     ("path", "method", "schema"),
@@ -138,6 +143,7 @@ def test_openapi_lists_the_threshold_maximum_for_both_threshold_fields():
 
 # --- Поведение на корректных запросах не изменилось -----------------------------------------------------------------------
 
+
 def test_create_applies_defaults_and_ignores_unknown_fields(client):
     created = _create(client, "  Модели  умолчания ", id="forged", created_at="1999-01-01", unknown=[1])
     assert created["name"] == "Модели умолчания"
@@ -160,7 +166,9 @@ def test_description_must_be_a_string_or_null(client):
 
 def test_layout_keeps_integers_as_integers(client, db_session):
     diagram = _create(client, "Модели целые")
-    response = client.put(f"{API}/{diagram['id']}/layout", json={"node_positions": {"n": {"x": 1, "y": 2.5}}, "viewport": {"zoom": 2, "pan_x": 0}})
+    response = client.put(
+        f"{API}/{diagram['id']}/layout", json={"node_positions": {"n": {"x": 1, "y": 2.5}}, "viewport": {"zoom": 2, "pan_x": 0}}
+    )
     assert response.status_code == 200
     db_session.expire_all()
     stored = db_session.query(DiagramLayout).filter_by(saved_diagram_id=diagram["id"]).one()
@@ -190,6 +198,7 @@ def test_group_key_longer_than_the_limit_is_still_rejected_after_the_lookup(clie
 
 # --- Что стало строже --------------------------------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("value", ["false", "0", "", 1, None])
 def test_is_collapsed_must_be_a_real_boolean(client, db_session, value):
     # Раньше bool("false") был True: строка «false» сворачивала группу.
@@ -199,10 +208,13 @@ def test_is_collapsed_must_be_a_real_boolean(client, db_session, value):
     assert db_session.query(DiagramGroupState).filter_by(saved_diagram_id=diagram["id"]).count() == 0
 
 
-@pytest.mark.parametrize("body", [
-    {"node_positions": {"n": {"x": HUGE_INT, "y": 1}}},
-    {"node_positions": {}, "viewport": {"zoom": HUGE_INT}},
-])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"node_positions": {"n": {"x": HUGE_INT, "y": 1}}},
+        {"node_positions": {}, "viewport": {"zoom": HUGE_INT}},
+    ],
+)
 def test_an_integer_too_large_for_a_float_is_a_422_not_a_500(client, body):
     # math.isfinite(10**400) бросает OverflowError: раньше такой запрос заканчивался 500.
     diagram = _create(client, "Модели переполнение")
@@ -245,7 +257,9 @@ OUT_OF_RANGE_THRESHOLDS = [
 @pytest.mark.parametrize("value", OUT_OF_RANGE_THRESHOLDS)
 def test_create_rejects_a_collapse_threshold_above_the_maximum(client, db_session, value):
     before = db_session.query(SavedDiagram).count()
-    response = client.post(API, content=json.dumps({"name": "Порог выше границы", "collapse_threshold": value}), headers={"content-type": "application/json"})
+    response = client.post(
+        API, content=json.dumps({"name": "Порог выше границы", "collapse_threshold": value}), headers={"content-type": "application/json"}
+    )
     _assert_422(response, f"collapse_threshold не должен превышать {MAX_COLLAPSE_THRESHOLD}")
     assert db_session.query(SavedDiagram).count() == before
 
@@ -253,7 +267,9 @@ def test_create_rejects_a_collapse_threshold_above_the_maximum(client, db_sessio
 @pytest.mark.parametrize("value", OUT_OF_RANGE_THRESHOLDS)
 def test_group_state_rejects_a_custom_threshold_above_the_maximum(client, db_session, value):
     diagram = _create(client, "Порог группы выше границы")
-    response = client.put(f"{API}/{diagram['id']}/groups/g1", content=json.dumps({"custom_threshold": value}), headers={"content-type": "application/json"})
+    response = client.put(
+        f"{API}/{diagram['id']}/groups/g1", content=json.dumps({"custom_threshold": value}), headers={"content-type": "application/json"}
+    )
     _assert_422(response, f"custom_threshold не должен превышать {MAX_COLLAPSE_THRESHOLD}")
     assert db_session.query(DiagramGroupState).filter_by(saved_diagram_id=diagram["id"]).count() == 0
 

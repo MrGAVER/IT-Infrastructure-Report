@@ -41,6 +41,7 @@
 Рёбра, у которых устройство хотя бы одного конца не входит в текущий scope_filter, не строятся —
 на диаграмме физически нет второго узла, к которому их подключить.
 """
+
 from __future__ import annotations
 
 import json
@@ -53,9 +54,24 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import (
-    Building, Connection, ConnectionType, DeviceCategory, DeviceInterface, DeviceModel, DeviceSubinterface, DeviceType,
-    DiagramGroupState, DiagramIcon, IPAddress, InterfaceVLAN, Manufacturer, PhysicalDevice,
-    PhysicalDeviceVLAN, SavedDiagram, StructuralUnit, VLAN,
+    Building,
+    Connection,
+    ConnectionType,
+    DeviceCategory,
+    DeviceInterface,
+    DeviceModel,
+    DeviceSubinterface,
+    DeviceType,
+    DiagramGroupState,
+    DiagramIcon,
+    IPAddress,
+    InterfaceVLAN,
+    Manufacturer,
+    PhysicalDevice,
+    PhysicalDeviceVLAN,
+    SavedDiagram,
+    StructuralUnit,
+    VLAN,
 )
 from ..constants import OwnerType
 from .timeutil import utcnow_naive
@@ -159,7 +175,9 @@ class GraphContext:
         # (подинтерфейс на VLAN 10 — это VLAN 10 на линии). Порядок — по номеру VLAN, затем по имени.
         self.subinterfaces_by_interface: dict[str, list[DeviceSubinterface]] = defaultdict(list)
         subinterfaces = session.scalars(select(DeviceSubinterface)).all()
-        subinterfaces.sort(key=lambda sub: (self.vlans[sub.vlan_id].vlan_id if sub.vlan_id in self.vlans else 0, sub.name.casefold(), sub.id))
+        subinterfaces.sort(
+            key=lambda sub: (self.vlans[sub.vlan_id].vlan_id if sub.vlan_id in self.vlans else 0, sub.name.casefold(), sub.id)
+        )
         for sub in subinterfaces:
             self.subinterfaces_by_interface[sub.parent_interface_id].append(sub)
         self.subinterface_ips_by_subinterface: dict[str, list[IPAddress]] = defaultdict(list)
@@ -178,7 +196,9 @@ class GraphContext:
                 self.interface_vlan_ids_by_interface[link.interface_id].append(link.vlan_id)
         if all_vlans_ids:
             for interface_id, vlan_ids in effective_vlan_ids(session, all_vlans_ids).items():
-                self.interface_vlan_ids_by_interface[interface_id] = sorted(vlan_ids, key=lambda v: (self.vlans[v].vlan_id if v in self.vlans else 0, v))
+                self.interface_vlan_ids_by_interface[interface_id] = sorted(
+                    vlan_ids, key=lambda v: (self.vlans[v].vlan_id if v in self.vlans else 0, v)
+                )
 
         self.connections = list(session.scalars(select(Connection)).all())
 
@@ -398,7 +418,13 @@ def _build_ip_addresses(device: PhysicalDevice, ctx: GraphContext) -> list[dict]
                 if address in seen:
                     continue
                 seen.add(address)
-                addresses.append({"address": address, "purpose": f"{sub.name}: {ip.purpose}" if ip.purpose else sub.name, "is_management": ip.is_management})
+                addresses.append(
+                    {
+                        "address": address,
+                        "purpose": f"{sub.name}: {ip.purpose}" if ip.purpose else sub.name,
+                        "is_management": ip.is_management,
+                    }
+                )
     for link in ctx.device_vlans_by_device.get(device.id, []):
         if not link.ip_address:
             continue
@@ -512,9 +538,7 @@ def _grid_position(index: int) -> dict:
     return {"x": (index % GRID_COLUMNS) * GRID_STEP_X, "y": (index // GRID_COLUMNS) * GRID_STEP_Y}
 
 
-def build_graph(
-    session: Session, saved_diagram: SavedDiagram, *, node_positions: Optional[dict] = None, persist: bool = True
-) -> dict:
+def build_graph(session: Session, saved_diagram: SavedDiagram, *, node_positions: Optional[dict] = None, persist: bool = True) -> dict:
     """Точка входа: собирает {"nodes": [...], "edges": [...]} для GET /diagrams/{id} (раздел 4.4/7
     ТЗ). `node_positions` — уже распарсенный DiagramLayout.node_positions текущей диаграммы (пусто при первой генерации).
 

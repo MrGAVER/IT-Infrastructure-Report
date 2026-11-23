@@ -1,5 +1,6 @@
 """Общие помощники тестов миграций: вставка строк в схему ЛЮБОЙ ревизии (test_migrations_postgres.py,
 test_migrations_drop_entity_status.py). Тесты в репозитории самодостаточны, но эта вставка нужна обоим и не зависит от СУБД."""
+
 from __future__ import annotations
 
 import uuid
@@ -49,7 +50,11 @@ def insert_row(connection, table: str, **values) -> str | None:
     """INSERT одной строки; id и обязательные колонки без значения по умолчанию заполняются заглушками, а обязательные
     внешние ключи — новой родительской строкой. Возвращает id вставленной строки."""
     inspector = sa.inspect(connection)
-    foreign = {fk["constrained_columns"][0]: fk["referred_table"] for fk in inspector.get_foreign_keys(table) if len(fk["constrained_columns"]) == 1}
+    foreign = {
+        fk["constrained_columns"][0]: fk["referred_table"]
+        for fk in inspector.get_foreign_keys(table)
+        if len(fk["constrained_columns"]) == 1
+    }
     row = dict(values)
     for column in inspector.get_columns(table):
         name = column["name"]

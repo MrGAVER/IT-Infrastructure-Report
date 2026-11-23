@@ -5,6 +5,7 @@
 невидимый «апостроф» Excel. Здесь проверяется и объект ячейки, и сам файл (XML), потому что угроза — именно тег <f>.
 Запуск: pytest backend/tests/test_excel_safety.py -v
 """
+
 from __future__ import annotations
 
 import io
@@ -17,7 +18,7 @@ from openpyxl.cell import WriteOnlyCell
 
 from app.services.excel_safety import append_safe_row, guard_text_cell, needs_text_guard
 
-TRIGGERS = ["=HYPERLINK(\"http://evil\")", "=1+1", "+7 495 000-00-00", "-core-sw", "-2+3+cmd|' /C calc'!A0", "@SUM(A1)", "\t=cmd", "\r=cmd"]
+TRIGGERS = ['=HYPERLINK("http://evil")', "=1+1", "+7 495 000-00-00", "-core-sw", "-2+3+cmd|' /C calc'!A0", "@SUM(A1)", "\t=cmd", "\r=cmd"]
 
 
 def _saved(workbook) -> bytes:
@@ -91,13 +92,17 @@ class TestWorksheetRow:
 class TestSavedFile:
     def test_the_file_holds_text_without_a_formula_tag_and_without_an_apostrophe(self):
         workbook = openpyxl.Workbook()
-        append_safe_row(workbook.active, ["=HYPERLINK(\"http://evil\")", "+7 495", "ordinary"])
+        append_safe_row(workbook.active, ['=HYPERLINK("http://evil")', "+7 495", "ordinary"])
         data = _saved(workbook)
 
         sheet_xml = _xml(data, "xl/worksheets/sheet1.xml")
         assert "<f>" not in sheet_xml and "<f " not in sheet_xml  # угроза — именно тег формулы
         # openpyxl хранит строки как inlineStr: значение целиком, без апострофа, у опасных ячеек — стиль с quotePrefix
-        assert re.search(r'<c r="A1" s="\d+" t="inlineStr"><is><t>=HYPERLINK\(&quot;http://evil&quot;\)</t></is></c>|<c r="A1" s="\d+" t="inlineStr"><is><t>=HYPERLINK\("http://evil"\)</t></is></c>', sheet_xml)
+        assert re.search(
+            r'<c r="A1" s="\d+" t="inlineStr"><is><t>=HYPERLINK\(&quot;http://evil&quot;\)</t></is></c>|<c r="A1" s="\d+" '
+            r't="inlineStr"><is><t>=HYPERLINK\("http://evil"\)</t></is></c>',
+            sheet_xml,
+        )
         assert "<t>'" not in sheet_xml
         assert re.search(r'<c r="B1" s="\d+" t="inlineStr"><is><t>\+7 495</t></is></c>', sheet_xml)
         assert re.search(r'<c r="C1" t="inlineStr">', sheet_xml)  # обычный текст без стиля-защиты
@@ -122,7 +127,7 @@ class TestSavedFile:
         workbook = openpyxl.Workbook(write_only=True)
         sheet = workbook.create_sheet()
         cells = []
-        for value in ["=HYPERLINK(\"http://evil\")", "plain"]:
+        for value in ['=HYPERLINK("http://evil")', "plain"]:
             cell = WriteOnlyCell(sheet, value=value)
             guard_text_cell(cell)
             cells.append(cell)
@@ -131,5 +136,9 @@ class TestSavedFile:
 
         assert "<f>" not in _xml(data, "xl/worksheets/sheet1.xml")
         reloaded = openpyxl.load_workbook(io.BytesIO(data)).active
-        assert (reloaded["A1"].value, reloaded["A1"].data_type, bool(reloaded["A1"].quotePrefix)) == ("=HYPERLINK(\"http://evil\")", "s", True)
+        assert (reloaded["A1"].value, reloaded["A1"].data_type, bool(reloaded["A1"].quotePrefix)) == (
+            '=HYPERLINK("http://evil")',
+            "s",
+            True,
+        )
         assert (reloaded["B1"].value, bool(reloaded["B1"].quotePrefix)) == ("plain", False)

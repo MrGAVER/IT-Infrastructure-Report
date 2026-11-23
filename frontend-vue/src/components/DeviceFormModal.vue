@@ -76,6 +76,7 @@ const { saving, submit } = useDeviceSave(draft, {
   reviewNeighbors: (initial) => interfacesEditor.value?.reviewNeighborMismatches(initial),
   expandVlanEditor: () => vlanEditor.value?.expand(),
   onSaved: (device) => emit('saved', device),
+  close: () => emit('close'),
 })
 </script>
 

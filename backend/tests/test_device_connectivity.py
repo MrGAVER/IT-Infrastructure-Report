@@ -1,6 +1,7 @@
 """GET /devices/{id}/free-interfaces и /devices/{id}/interface-connections
 (services/device_connectivity.py): занятость портов и подключения устройства считает сервер, а не клиент
 по общим спискам с потолком в 1000 записей."""
+
 from __future__ import annotations
 
 from app.models import Connection
@@ -40,7 +41,16 @@ def _connection_type(client) -> dict:
 
 
 def _connect(client, a: dict, b: dict, *, active: bool = True, description: str | None = None) -> dict:
-    r = client.post(f"{API}/resources/connections", json={"source_interface_id": a["id"], "destination_interface_id": b["id"], "connection_type_id": _connection_type(client)["id"], "is_active": active, "description": description})
+    r = client.post(
+        f"{API}/resources/connections",
+        json={
+            "source_interface_id": a["id"],
+            "destination_interface_id": b["id"],
+            "connection_type_id": _connection_type(client)["id"],
+            "is_active": active,
+            "description": description,
+        },
+    )
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -118,11 +128,15 @@ def test_pagination_returns_consistent_pages_and_validates_the_limit(client):
 
 
 def test_free_interfaces_report_the_all_vlans_flag_only_for_trunk_ports(client):
-    dev, _ = _with_configured_ports(client, "SW-ALLV", [
-        {"name": "t-all", "vlan_mode": "trunk", "all_vlans": True},
-        {"name": "t-set", "vlan_mode": "trunk"},
-        {"name": "a-one", "vlan_mode": "access"},
-    ])
+    dev, _ = _with_configured_ports(
+        client,
+        "SW-ALLV",
+        [
+            {"name": "t-all", "vlan_mode": "trunk", "all_vlans": True},
+            {"name": "t-set", "vlan_mode": "trunk"},
+            {"name": "a-one", "vlan_mode": "access"},
+        ],
+    )
 
     by_name = {x["name"]: x for x in _free(client, dev["id"]).json()["items"]}
 
@@ -142,28 +156,34 @@ def test_interface_connections_describe_the_peer_port_and_device(client):
 
     items = client.get(f"{API}/devices/{dev['id']}/interface-connections").json()["items"]
 
-    assert items == [{
-        "interface_id": ports["eth0"]["id"],
-        "connection_id": conn["id"],
-        "connection_type_id": conn["connection_type_id"],
-        "description": "патч-корд №5",
-        "peer_interface_id": theirs["Gi0/1"]["id"],
-        "peer_interface_name": "Gi0/1",
-        "peer_device_id": peer_dev["id"],
-        "peer_device_name": "sw-core",
-        "peer_is_management": theirs["Gi0/1"]["is_management"],
-        "peer_is_data_transfer": theirs["Gi0/1"]["is_data_transfer"],
-        "peer_vlan_mode": theirs["Gi0/1"]["vlan_mode"],
-        "peer_all_vlans": False,
-    }]
+    assert items == [
+        {
+            "interface_id": ports["eth0"]["id"],
+            "connection_id": conn["id"],
+            "connection_type_id": conn["connection_type_id"],
+            "description": "патч-корд №5",
+            "peer_interface_id": theirs["Gi0/1"]["id"],
+            "peer_interface_name": "Gi0/1",
+            "peer_device_id": peer_dev["id"],
+            "peer_device_name": "sw-core",
+            "peer_is_management": theirs["Gi0/1"]["is_management"],
+            "peer_is_data_transfer": theirs["Gi0/1"]["is_data_transfer"],
+            "peer_vlan_mode": theirs["Gi0/1"]["vlan_mode"],
+            "peer_all_vlans": False,
+        }
+    ]
 
 
 def test_interface_connections_report_the_all_vlans_flag_of_the_peer_port(client):
     dev, ports = _with_ports(client, "SRV-PALL", ["eth0", "eth1"])
-    _, theirs = _with_configured_ports(client, "SW-PALL", [
-        {"name": "t-all", "vlan_mode": "trunk", "all_vlans": True},
-        {"name": "t-set", "vlan_mode": "trunk"},
-    ])
+    _, theirs = _with_configured_ports(
+        client,
+        "SW-PALL",
+        [
+            {"name": "t-all", "vlan_mode": "trunk", "all_vlans": True},
+            {"name": "t-set", "vlan_mode": "trunk"},
+        ],
+    )
     _connect(client, ports["eth0"], theirs["t-all"])
     _connect(client, ports["eth1"], theirs["t-set"])
 
@@ -189,7 +209,9 @@ def test_a_cable_between_two_ports_of_the_same_device_is_reported_for_both_ports
 
     items = client.get(f"{API}/devices/{dev['id']}/interface-connections").json()["items"]
 
-    assert sorted((x["interface_id"], x["peer_interface_id"]) for x in items) == sorted([(ports["eth0"]["id"], ports["eth1"]["id"]), (ports["eth1"]["id"], ports["eth0"]["id"])])
+    assert sorted((x["interface_id"], x["peer_interface_id"]) for x in items) == sorted(
+        [(ports["eth0"]["id"], ports["eth1"]["id"]), (ports["eth1"]["id"], ports["eth0"]["id"])]
+    )
     assert {x["peer_device_id"] for x in items} == {dev["id"]}
 
 

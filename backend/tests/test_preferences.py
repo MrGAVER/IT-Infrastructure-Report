@@ -4,6 +4,7 @@
 аутентификация стартует выключенной: личных настроек на сервере тогда нет (их хранит браузер), а общие
 (название организации) работают. Личные настройки проверяются с включённой аутентификацией.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -31,7 +32,9 @@ def _headers(token: str) -> dict:
 
 
 def _add_viewer(client, admin_token: str, username: str = "viewer1") -> str:
-    r = client.post("/api/v1/auth/users", json={"username": username, "password": "Viewer1234", "role": "viewer"}, headers=_headers(admin_token))
+    r = client.post(
+        "/api/v1/auth/users", json={"username": username, "password": "Viewer1234", "role": "viewer"}, headers=_headers(admin_token)
+    )
     assert r.status_code == 201, r.text
     return _login(client, username, "Viewer1234")
 
@@ -154,7 +157,10 @@ class TestAuthenticatedMode:
         client.put("/api/v1/preferences/user", json={"color_scheme": "copper", "page_sizes": {"devices": 50}}, headers=_headers(admin))
         client.put("/api/v1/preferences/user", json={"color_scheme": "indigo"}, headers=_headers(viewer))
 
-        assert client.get("/api/v1/preferences", headers=_headers(admin)).json()["user"] == {"color_scheme": "copper", "page_sizes": {"devices": 50}}
+        assert client.get("/api/v1/preferences", headers=_headers(admin)).json()["user"] == {
+            "color_scheme": "copper",
+            "page_sizes": {"devices": 50},
+        }
         assert client.get("/api/v1/preferences", headers=_headers(viewer)).json()["user"] == {"color_scheme": "indigo"}
 
     def test_viewer_can_change_own_personal_settings(self, client):

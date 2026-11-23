@@ -6,6 +6,7 @@ PUT /api/v1/vms/{id}/ip-addresses и PUT /api/v1/vms/{id}/deployed-software.
 id (services/crud/owned_rows.py:_sync_owned_rows) — id и дата создания сохраняются, любая ошибка откатывает весь
 запрос, а в журнал аудита попадает только реальное изменение.
 """
+
 from __future__ import annotations
 
 from sqlalchemy import select
@@ -41,11 +42,15 @@ def _sync_software(client, vm_id: str, rows: list[dict] | None):
 
 
 def _stored(client, resource: str, vm_id: str) -> list[dict]:
-    return client.get(f"{API}/resources/{resource}", params={"owner_type": "virtual_machine", "owner_id": vm_id, "limit": 1000}).json()["items"]
+    return client.get(f"{API}/resources/{resource}", params={"owner_type": "virtual_machine", "owner_id": vm_id, "limit": 1000}).json()[
+        "items"
+    ]
 
 
 def _audit(db_session, vm_id: str, label: str) -> list[str]:
-    rows = db_session.scalars(select(AuditLog).where(AuditLog.entity_type == "vms", AuditLog.entity_id == vm_id, AuditLog.details.like(f"{label}:%"))).all()
+    rows = db_session.scalars(
+        select(AuditLog).where(AuditLog.entity_type == "vms", AuditLog.entity_id == vm_id, AuditLog.details.like(f"{label}:%"))
+    ).all()
     return [r.details for r in rows]
 
 
@@ -84,7 +89,11 @@ class TestSyncVmIpAddresses:
         vm = _vm(client)
         first = {i["ip_address"]: i for i in _sync_ips(client, vm["id"], [_ip("10.0.0.1"), _ip("10.0.0.2")]).json()["items"]}
 
-        r = _sync_ips(client, vm["id"], [_ip("10.0.0.1", id=first["10.0.0.1"]["id"], prefix_length="16", purpose="админ", is_management=True), _ip("10.0.0.3")])
+        r = _sync_ips(
+            client,
+            vm["id"],
+            [_ip("10.0.0.1", id=first["10.0.0.1"]["id"], prefix_length="16", purpose="админ", is_management=True), _ip("10.0.0.3")],
+        )
 
         assert r.status_code == 200, r.text
         by_ip = {i["ip_address"]: i for i in r.json()["items"]}
@@ -120,7 +129,9 @@ class TestSyncVmIpAddressesValidation:
         r = _sync_ips(client, vm["id"], [_ip("10.0.0.2"), _ip("не ip адрес")])
 
         assert r.status_code == 422, r.text
-        assert [i["ip_address"] for i in _stored(client, "ip-addresses", vm["id"])] == ["10.0.0.1"]  # откат: 10.0.0.2 не создан, 10.0.0.1 не удалён
+        assert [i["ip_address"] for i in _stored(client, "ip-addresses", vm["id"])] == [
+            "10.0.0.1"
+        ]  # откат: 10.0.0.2 не создан, 10.0.0.1 не удалён
 
     def test_invalid_prefix_and_too_long_purpose_are_rejected(self, client):
         vm = _vm(client)
@@ -153,7 +164,9 @@ class TestSyncVmDeployedSoftware:
     def test_creates_edits_in_place_and_deletes_missing(self, client):
         vm = _vm(client)
         one_c, nginx, ad = _asset(client, "1С:Предприятие"), _asset(client, "nginx"), _asset(client, "Active Directory")
-        first = {i["software_asset_id"]: i for i in _sync_software(client, vm["id"], [_sw(one_c, version="8.3.20"), _sw(nginx)]).json()["items"]}
+        first = {
+            i["software_asset_id"]: i for i in _sync_software(client, vm["id"], [_sw(one_c, version="8.3.20"), _sw(nginx)]).json()["items"]
+        }
         assert len(first) == 2
 
         r = _sync_software(client, vm["id"], [_sw(one_c, id=first[one_c["id"]]["id"], version="8.3.24"), _sw(ad)])
@@ -220,7 +233,9 @@ class TestSyncVmNestedListsAudit:
         first = {i["ip_address"]: i for i in _sync_ips(client, vm["id"], [_ip("10.0.0.1"), _ip("10.0.0.2")]).json()["items"]}
         assert _audit(db_session, vm["id"], "IP-адреса") == ["IP-адреса: добавлено 2, изменено 0, удалено 0"]
 
-        _sync_ips(client, vm["id"], [_ip("10.0.0.1", id=first["10.0.0.1"]["id"]), _ip("10.0.0.2", id=first["10.0.0.2"]["id"])])  # без правок
+        _sync_ips(
+            client, vm["id"], [_ip("10.0.0.1", id=first["10.0.0.1"]["id"]), _ip("10.0.0.2", id=first["10.0.0.2"]["id"])]
+        )  # без правок
         assert len(_audit(db_session, vm["id"], "IP-адреса")) == 1
 
         _sync_ips(client, vm["id"], [_ip("10.0.0.1", id=first["10.0.0.1"]["id"], purpose="админ")])

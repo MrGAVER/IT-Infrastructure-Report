@@ -2,6 +2,7 @@
 
 Запуск: pytest backend/tests/test_migrations_audit_log_indexes.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -41,7 +42,10 @@ def test_upgrade_creates_the_indexes_and_keeps_existing_entries(alembic_config):
     command.upgrade(cfg, PRE_REVISION)
     assert _audit_indexes(db_path) == set()
     conn = sqlite3.connect(str(db_path))
-    conn.execute("INSERT INTO audit_log (id, entity_type, entity_id, action, details, created_at, updated_at) VALUES ('a', 'devices', 'd', 'CREATE', 'x', '2026-01-01', '2026-01-01')")
+    conn.execute(
+        "INSERT INTO audit_log (id, entity_type, entity_id, action, details, created_at, updated_at) VALUES ('a', "
+        "'devices', 'd', 'CREATE', 'x', '2026-01-01', '2026-01-01')"
+    )
     conn.commit()
     conn.close()
 

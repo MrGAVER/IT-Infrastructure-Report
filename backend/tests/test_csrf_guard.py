@@ -7,6 +7,7 @@ Origin либо с `Sec-Fetch-Site: cross-site` получают 403 `CROSS_ORIG
 
 Запуск: pytest backend/tests/test_csrf_guard.py -v
 """
+
 from __future__ import annotations
 
 import logging
@@ -249,7 +250,9 @@ class TestForwardedHost:
 
     def test_own_host_still_works_when_proxy_is_trusted(self):
         client = TestClient(_make_app(trust_forwarded_host=True), base_url="http://localhost:8000")
-        assert client.post("/api/v1/thing", headers={"Origin": "http://localhost:8000", "X-Forwarded-Host": "reestr.corp"}).status_code == 200
+        assert (
+            client.post("/api/v1/thing", headers={"Origin": "http://localhost:8000", "X-Forwarded-Host": "reestr.corp"}).status_code == 200
+        )
 
     @pytest.mark.parametrize(
         ("value", "expected"),

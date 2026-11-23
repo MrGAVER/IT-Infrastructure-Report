@@ -5,6 +5,7 @@
 
 Запуск: pytest backend/tests/test_report_cleanup.py -v
 """
+
 from __future__ import annotations
 
 import logging
@@ -23,7 +24,9 @@ API = "/api/v1"
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
-def _make_reports(directory: Path, count: int, *, prefix: str = "r", suffix: str = ".xlsx", newest_age: float = 0.0, step: float = 10.0) -> list[Path]:
+def _make_reports(
+    directory: Path, count: int, *, prefix: str = "r", suffix: str = ".xlsx", newest_age: float = 0.0, step: float = 10.0
+) -> list[Path]:
     """count файлов; i-й тем старше, чем меньше i (r00 — самый старый). Возраст в секундах от «сейчас»."""
     now = time.time()
     paths = []
@@ -52,13 +55,20 @@ class TestAuditSubdirectory:
     def test_audit_reports_count_toward_the_quota_together_with_the_root_files(self, tmp_path):
         (tmp_path / "audit").mkdir()
         now = time.time()
-        for age, directory, name in [(50, tmp_path, "root_old.xlsx"), (40, tmp_path / "audit", "audit_old.xlsx"), (30, tmp_path, "root_new.xlsx"), (20, tmp_path / "audit", "audit_new.xlsx")]:
+        for age, directory, name in [
+            (50, tmp_path, "root_old.xlsx"),
+            (40, tmp_path / "audit", "audit_old.xlsx"),
+            (30, tmp_path, "root_new.xlsx"),
+            (20, tmp_path / "audit", "audit_new.xlsx"),
+        ]:
             path = directory / name
             path.write_bytes(b"x")
             os.utime(path, (now - age, now - age))
         removed = cleanup_old_reports(tmp_path, max_age_days=30, max_files=2)
         assert removed == 2
-        assert _names(tmp_path) == ["root_new.xlsx"] and _names(tmp_path / "audit") == ["audit_new.xlsx"], "самые старые удалены и в корне, и в подкаталоге"
+        assert _names(tmp_path) == ["root_new.xlsx"] and _names(tmp_path / "audit") == ["audit_new.xlsx"], (
+            "самые старые удалены и в корне, и в подкаталоге"
+        )
 
     def test_stale_audit_reports_are_removed_by_age(self, tmp_path):
         (tmp_path / "audit").mkdir()
@@ -249,7 +259,8 @@ class TestThrottle:
 
     def test_directories_are_throttled_independently(self, tmp_path, clock):
         one, two = tmp_path / "one", tmp_path / "two"
-        one.mkdir(); two.mkdir()
+        one.mkdir()
+        two.mkdir()
         a, b = self._stale(one, "a.xlsx"), self._stale(two, "b.xlsx")
         assert cleanup_before_new_report(one) == 1
         assert cleanup_before_new_report(two) == 1 and not a.exists() and not b.exists()
@@ -293,9 +304,22 @@ class TestEndpointsKeepTheQuota:
     def test_all_three_generating_endpoints_respect_a_small_quota(self, client, report_dir, monkeypatch):
         monkeypatch.setattr(report_cleanup, "REPORT_MAX_FILES", 3)
         monkeypatch.setattr(report_cleanup, "REPORT_RETENTION_DAYS", 0)
-        config = {"sheets": [{"title": "Лист1", "columns": [{"width": 25}], "rows": [{
-            "height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"},
-            "cells": [{"col": 0, "kind": "field", "path": "name"}]}]}]}
+        config = {
+            "sheets": [
+                {
+                    "title": "Лист1",
+                    "columns": [{"width": 25}],
+                    "rows": [
+                        {
+                            "height": 18,
+                            "repeat": True,
+                            "data_source": {"root_entity": "information-systems"},
+                            "cells": [{"col": 0, "kind": "field", "path": "name"}],
+                        }
+                    ],
+                }
+            ]
+        }
         template = client.post(f"{API}/report-templates", json={"name": "Квота А-10", "config": config}).json()["id"]
         for _ in range(3):
             assert client.post(f"{API}/reports/inventory").status_code == 200
@@ -321,7 +345,14 @@ class TestConfig:
         env.pop("INFRA_REGISTRY_REPORT_MAX_FILES", None)
         if value is not None:
             env["INFRA_REGISTRY_REPORT_MAX_FILES"] = value
-        return subprocess.run([sys.executable, "-c", "import app.config as c; print(c.REPORT_MAX_FILES)"], env=env, capture_output=True, text=True, cwd=tmp_path, timeout=120)
+        return subprocess.run(
+            [sys.executable, "-c", "import app.config as c; print(c.REPORT_MAX_FILES)"],
+            env=env,
+            capture_output=True,
+            text=True,
+            cwd=tmp_path,
+            timeout=120,
+        )
 
     @pytest.mark.parametrize(("value", "expected"), [(None, "200"), ("", "200"), ("   ", "200"), ("50", "50"), ("0", "0")])
     def test_values(self, tmp_path, value, expected):

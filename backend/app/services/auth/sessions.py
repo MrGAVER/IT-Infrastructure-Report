@@ -2,6 +2,7 @@
 
 В БД хранится только sha256-хеш токена (AuthSession.token_hash); сам токен виден клиенту один раз — в ответе на вход.
 Причины выбора непрозрачных токенов вместо JWT — в докстринге пакета (services/auth/__init__.py)."""
+
 from __future__ import annotations
 
 import hashlib
@@ -14,9 +15,11 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ...config import AUTH_SESSION_TTL_HOURS
+from ...constants import MAX_SESSIONS_PER_USER
 from ...models import AuthSession, User
 from ..timeutil import iso_utc
 from ._common import naive_utc_now
+
 
 def _generate_token() -> str:
     return secrets.token_urlsafe(32)
@@ -35,6 +38,8 @@ def create_session(session: Session, user: User, *, request: Optional[Request] =
     сейчас удаляется явно лишь при logout или при попытке использовать именно этот истёкший
     токен (resolve_session) — большинство сессий тихо истекают, и это неизбежно копится."""
     cleanup_expired_sessions(session)
+    # место под новую сессию: после входа у пользователя не больше MAX_SESSIONS_PER_USER
+    _trim_user_sessions(session, user.id, keep=MAX_SESSIONS_PER_USER - 1)
     token = _generate_token()
     row = AuthSession(
         token_hash=_hash_token(token),
@@ -46,6 +51,23 @@ def create_session(session: Session, user: User, *, request: Optional[Request] =
     session.add(row)
     session.commit()
     return token
+
+
+def _trim_user_sessions(session: Session, user_id: str, *, keep: int) -> int:
+    """Оставляет у пользователя не более `keep` самых новых сессий, остальные удаляет; возвращает число удалённых.
+
+    Порядок — по времени создания, при равенстве по id, чтобы результат был детерминированным. Без коммита: его делает вызывающий
+    create_session вместе с добавлением новой строки, и обрезка с входом либо проходят обе, либо ни одна."""
+    surplus = session.scalars(
+        select(AuthSession.id)
+        .where(AuthSession.user_id == user_id)
+        .order_by(AuthSession.created_at.desc(), AuthSession.id.desc())
+        .offset(max(keep, 0))
+    ).all()
+    if not surplus:
+        return 0
+    session.execute(delete(AuthSession).where(AuthSession.id.in_(surplus)))
+    return len(surplus)
 
 
 def cleanup_expired_sessions(session: Session) -> int:
@@ -107,15 +129,21 @@ def revoke_session_by_id(session: Session, user_id: str, session_id: str) -> boo
 
 
 def list_active_sessions(session: Session, user_id: str) -> list[AuthSession]:
-    return list(session.scalars(
-        select(AuthSession).where(AuthSession.user_id == user_id, AuthSession.expires_at >= naive_utc_now())
-        .order_by(AuthSession.created_at.desc())
-    ).all())
+    return list(
+        session.scalars(
+            select(AuthSession)
+            .where(AuthSession.user_id == user_id, AuthSession.expires_at >= naive_utc_now())
+            .order_by(AuthSession.created_at.desc())
+        ).all()
+    )
 
 
 def serialize_session(row: AuthSession, *, current_token: Optional[str] = None) -> dict:
     return {
-        "id": row.id, "created_at": iso_utc(row.created_at),
-        "expires_at": iso_utc(row.expires_at), "user_agent": row.user_agent, "ip_address": row.ip_address,
+        "id": row.id,
+        "created_at": iso_utc(row.created_at),
+        "expires_at": iso_utc(row.expires_at),
+        "user_agent": row.user_agent,
+        "ip_address": row.ip_address,
         "current": bool(current_token) and row.token_hash == _hash_token(current_token),
     }

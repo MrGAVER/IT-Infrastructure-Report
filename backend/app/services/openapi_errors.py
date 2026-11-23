@@ -1,4 +1,4 @@
-"""Описание форматов ошибок в схеме OpenAPI (код-ревью, BE-02).
+"""Описание форматов ошибок в схеме OpenAPI.
 
 Приложение отвечает на ошибки не так, как FastAPI по умолчанию, а схема OpenAPI описывала умолчания:
 
@@ -16,6 +16,7 @@
     install_error_formats(app, max_body_bytes=MAX_REQUEST_BODY_BYTES)
     app.openapi()["components"]["schemas"]["HTTPValidationError"]["properties"]["detail"]["type"]  # "string"
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -102,10 +103,16 @@ def apply_error_formats(schema: dict[str, Any], max_body_bytes: int) -> dict[str
         if operations:
             schemas[TOO_LARGE_SCHEMA] = too_large_schema()
         for operation in operations:
-            operation.setdefault("responses", {}).setdefault("413", {
-                "description": f"Тело запроса больше {describe_limit(max_body_bytes)} (INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES); тело не разбирается.",
-                "content": {"application/json": {"schema": {"$ref": _SCHEMA_REF_PREFIX + TOO_LARGE_SCHEMA}}},
-            })
+            operation.setdefault("responses", {}).setdefault(
+                "413",
+                {
+                    "description": (
+                        f"Тело запроса больше {describe_limit(max_body_bytes)} (INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES); тело "
+                        "не разбирается."
+                    ),
+                    "content": {"application/json": {"schema": {"$ref": _SCHEMA_REF_PREFIX + TOO_LARGE_SCHEMA}}},
+                },
+            )
     return schema
 
 

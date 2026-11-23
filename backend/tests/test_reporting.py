@@ -7,6 +7,7 @@
 Каждый тест соответствует конкретному дефекту, который был найден и исправлен в ходе разработки
 (см. историю правок), чтобы такие регрессии больше не проходили незамеченными.
 """
+
 from __future__ import annotations
 
 import sys
@@ -49,9 +50,13 @@ class Sheet1InformationSystems(ReportingTestCase):
         dep = C["Department"](id="dep1", name="Бухгалтерия")
         isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)
         isdep = C["ISDepartment"](id="isd1", information_system_id="is1", department_id="dep1")
-        self.table.update({
-            "InformationSystem": [isys], "Department": [dep], "ISDepartment": [isdep],
-        })
+        self.table.update(
+            {
+                "InformationSystem": [isys],
+                "Department": [dep],
+                "ISDepartment": [isdep],
+            }
+        )
         wb = self.build(Path("/tmp/test_reports_1"))
         rows = self.sheet_rows(wb, "Перечень ИС")
         self.assertEqual(rows[1][4], "Бухгалтерия")
@@ -63,15 +68,22 @@ class Sheet1InformationSystems(ReportingTestCase):
         iface = C["DeviceInterface"](id="if1", physical_device_id="d1", is_management=True)
         dev_ip = C["IPAddress"](id="ip1", owner_type="device_interface", owner_id="if1", ip_address="10.0.0.5", prefix_length=24)
         vm = C["VirtualMachine"](id="v1", name="VM1", physical_device_id="d1", purpose="")
-        vm_ip = C["IPAddress"](id="vip1", owner_type="virtual_machine", owner_id="v1", ip_address="10.0.1.5", prefix_length=24, is_management=True)
+        vm_ip = C["IPAddress"](
+            id="vip1", owner_type="virtual_machine", owner_id="v1", ip_address="10.0.1.5", prefix_length=24, is_management=True
+        )
         isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)
         src_dev = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", owner_id="d1")
         src_vm = C["InformationSystemSource"](id="src2", information_system_id="is1", source_type="vm", owner_id="v1")
-        self.table.update({
-            "InformationSystem": [isys], "PhysicalDevice": [dev], "DeviceInterface": [iface],
-            "IPAddress": [dev_ip, vm_ip], "VirtualMachine": [vm],
-            "InformationSystemSource": [src_dev, src_vm],
-        })
+        self.table.update(
+            {
+                "InformationSystem": [isys],
+                "PhysicalDevice": [dev],
+                "DeviceInterface": [iface],
+                "IPAddress": [dev_ip, vm_ip],
+                "VirtualMachine": [vm],
+                "InformationSystemSource": [src_dev, src_vm],
+            }
+        )
         wb = self.build(Path("/tmp/test_reports_2"))
         rows = self.sheet_rows(wb, "Перечень ИС")
         ip_col = rows[1][8]
@@ -84,10 +96,13 @@ class Sheet1InformationSystems(ReportingTestCase):
         dev = C["PhysicalDevice"](id="d1", serial_number="SN1", system_name="NEW-SRV")
         isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)
         src = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", owner_id="d1", role="server")
-        self.table.update({
-            "InformationSystem": [isys], "PhysicalDevice": [dev],
-            "InformationSystemSource": [src],
-        })
+        self.table.update(
+            {
+                "InformationSystem": [isys],
+                "PhysicalDevice": [dev],
+                "InformationSystemSource": [src],
+            }
+        )
         wb = self.build(Path("/tmp/test_reports_12"))
         rows = self.sheet_rows(wb, "Перечень ИС")
         header = rows[0]
@@ -171,7 +186,9 @@ class Sheet2PhysicalDevices(ReportingTestCase):
         C = self.C
         dev = C["PhysicalDevice"](id="d1", serial_number="SN1")
         vlan = C["VLAN"](id="vl1", vlan_id=100, name="Mgmt")
-        dev_vlan = C["PhysicalDeviceVLAN"](id="dv1", physical_device_id="d1", vlan_id="vl1", is_management=True, ip_address="10.10.10.5", prefix_length=24)
+        dev_vlan = C["PhysicalDeviceVLAN"](
+            id="dv1", physical_device_id="d1", vlan_id="vl1", is_management=True, ip_address="10.10.10.5", prefix_length=24
+        )
         self.table.update({"PhysicalDevice": [dev], "VLAN": [vlan], "PhysicalDeviceVLAN": [dev_vlan]})
         wb = self.build(Path("/tmp/test_reports_5"))
         rows = self.sheet_rows(wb, "Инвентаризац. физ. устройств ИС")
@@ -198,11 +215,15 @@ class Sheet3Connections(ReportingTestCase):
         # к чередованию строк устройств в отчете вместо группировки.
         conn1 = C["Connection"](id="c1", source_interface_id="if1", destination_interface_id="if2", connection_type_id="ct1")
         conn2 = C["Connection"](id="c2", source_interface_id="if4", destination_interface_id="if3", connection_type_id="ct1")
-        self.table.update({
-            "DeviceType": [dt_server, dt_switch], "PhysicalDevice": [dev1, dev2],
-            "DeviceInterface": [if1, if2, if3, if4], "ConnectionType": [ct],
-            "Connection": [conn1, conn2],
-        })
+        self.table.update(
+            {
+                "DeviceType": [dt_server, dt_switch],
+                "PhysicalDevice": [dev1, dev2],
+                "DeviceInterface": [if1, if2, if3, if4],
+                "ConnectionType": [ct],
+                "Connection": [conn1, conn2],
+            }
+        )
         return dev1, dev2
 
     def test_rows_are_grouped_by_device_not_interleaved(self):
@@ -223,7 +244,10 @@ class Sheet3Connections(ReportingTestCase):
         rows = self.sheet_rows(wb, "Организация подключений")[1:]
         header = self.sheet_rows(wb, "Организация подключений")[0]
         port_idx = header.index("Номер физического или логического порта")
-        purpose_idx = header.index("Сведения о назначении линий связи (передача данных или управление активами информационной системы, средствами защиты информации)")
+        purpose_idx = header.index(
+            "Сведения о назначении линий связи (передача данных или управление активами информационной системы, "
+            "средствами защиты информации)"
+        )
         by_port = {r[port_idx]: r[purpose_idx] for r in rows}
         self.assertEqual(by_port["eth0"], "Передача данных")
         self.assertEqual(by_port["eth1"], "Управление активами")
@@ -260,7 +284,9 @@ class Sheet3Connections(ReportingTestCase):
         C = self.C
         dev1, dev2 = self._two_devices_two_connections()
         vlan = C["VLAN"](id="vl1", vlan_id=100, name="Mgmt")
-        dev_vlan = C["PhysicalDeviceVLAN"](id="dv1", physical_device_id="d1", vlan_id="vl1", is_management=True, ip_address="10.10.10.5", prefix_length=24)
+        dev_vlan = C["PhysicalDeviceVLAN"](
+            id="dv1", physical_device_id="d1", vlan_id="vl1", is_management=True, ip_address="10.10.10.5", prefix_length=24
+        )
         self.table.update({"VLAN": [vlan], "PhysicalDeviceVLAN": [dev_vlan]})
         wb = self.build(Path("/tmp/test_reports_10"))
         rows = self.sheet_rows(wb, "Организация подключений")[1:]
@@ -282,7 +308,9 @@ class Sheet3Connections(ReportingTestCase):
         cat_ssh = C["ProtocolPortCatalog"](id="cat-ssh", port=22, protocol_type="SSH")
         cat_snmp = C["ProtocolPortCatalog"](id="cat-snmp", port=161, protocol_type="SNMP")
         p1 = C["OpenPort"](id="op1", owner_type="device_interface", owner_id="if1", protocol_catalog_id="cat-ssh", transport_protocol="TCP")
-        p2 = C["OpenPort"](id="op2", owner_type="device_interface", owner_id="if1", protocol_catalog_id="cat-snmp", transport_protocol="UDP")
+        p2 = C["OpenPort"](
+            id="op2", owner_type="device_interface", owner_id="if1", protocol_catalog_id="cat-snmp", transport_protocol="UDP"
+        )
         self.table.update({"ProtocolPortCatalog": [cat_ssh, cat_snmp], "OpenPort": [p1, p2]})
         wb = self.build(Path("/tmp/test_reports_11"))
         rows = self.sheet_rows(wb, "Организация подключений")[1:]
@@ -310,7 +338,9 @@ class Sheet3Connections(ReportingTestCase):
         C = self.C
         self._two_devices_two_connections()
         cat_ssh = C["ProtocolPortCatalog"](id="cat-ssh", port=22, protocol_type="SSH")
-        legacy = C["OpenPort"](id="op-legacy", owner_type="physical_device", owner_id="d1", protocol_catalog_id="cat-ssh", transport_protocol="TCP")
+        legacy = C["OpenPort"](
+            id="op-legacy", owner_type="physical_device", owner_id="d1", protocol_catalog_id="cat-ssh", transport_protocol="TCP"
+        )
         self.table.update({"ProtocolPortCatalog": [cat_ssh], "OpenPort": [legacy]})
         wb = self.build(Path("/tmp/test_reports_11b"))
         rows = self.sheet_rows(wb, "Организация подключений")[1:]
@@ -353,9 +383,13 @@ class Sheet4VirtualMachines(ReportingTestCase):
         sw2 = C["SoftwareAsset"](id="sw2", name="Web-сервер Nginx")
         link1 = C["DeployedSoftware"](id="l1", owner_type="virtual_machine", owner_id="v1", software_asset_id="sw1")
         link2 = C["DeployedSoftware"](id="l2", owner_type="virtual_machine", owner_id="v1", software_asset_id="sw2")
-        self.table.update({
-            "VirtualMachine": [vm], "SoftwareAsset": [sw1, sw2], "DeployedSoftware": [link1, link2],
-        })
+        self.table.update(
+            {
+                "VirtualMachine": [vm],
+                "SoftwareAsset": [sw1, sw2],
+                "DeployedSoftware": [link1, link2],
+            }
+        )
         wb = self.build(Path("/tmp/test_reports_15"))
         rows = self.sheet_rows(wb, "Организация управления ВМ")[1:]
         header = self.sheet_rows(wb, "Организация управления ВМ")[0]
@@ -375,10 +409,15 @@ class Sheet4VirtualMachines(ReportingTestCase):
         link = C["DeployedSoftware"](id="l1", owner_type="physical_device", owner_id="d1", software_asset_id="sw1")
         isys = C["InformationSystem"](id="is1", name="ИС", crypto_protection_enabled=False)
         src = C["InformationSystemSource"](id="src1", information_system_id="is1", source_type="device", owner_id="d1")
-        self.table.update({
-            "PhysicalDevice": [dev], "SoftwareAsset": [sw], "DeployedSoftware": [link],
-            "InformationSystem": [isys], "InformationSystemSource": [src],
-        })
+        self.table.update(
+            {
+                "PhysicalDevice": [dev],
+                "SoftwareAsset": [sw],
+                "DeployedSoftware": [link],
+                "InformationSystem": [isys],
+                "InformationSystemSource": [src],
+            }
+        )
         wb = self.build(Path("/tmp/test_reports_16"))
         rows = self.sheet_rows(wb, "Перечень ИС")
         header = rows[0]
@@ -414,9 +453,13 @@ class StructuralUnitFiltering(ReportingTestCase):
         b2 = C["Building"](id="b2", name="Здание Б", structural_unit_id="su2")
         dev1 = C["PhysicalDevice"](id="d1", serial_number="SN-A", system_name="dev-a", building_id="b1")
         dev2 = C["PhysicalDevice"](id="d2", serial_number="SN-B", system_name="dev-b", building_id="b2")
-        self.table.update({
-            "StructuralUnit": [su1, su2], "Building": [b1, b2], "PhysicalDevice": [dev1, dev2],
-        })
+        self.table.update(
+            {
+                "StructuralUnit": [su1, su2],
+                "Building": [b1, b2],
+                "PhysicalDevice": [dev1, dev2],
+            }
+        )
         return dev1, dev2
 
     def _device_serials(self, wb):

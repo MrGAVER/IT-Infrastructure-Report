@@ -12,6 +12,7 @@
 
 Запуск: pip install -r backend/requirements-dev.txt && pytest backend/tests/test_migrations_diagram.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -90,8 +91,7 @@ def test_device_types_category_id_backfilled_and_not_null_in_ddl(alembic_config)
     assert columns["category_id"]["notnull"] == 1, "category_id должен быть NOT NULL в реальном DDL"
 
     rows = conn.execute(
-        "SELECT dt.name AS type_name, dc.name AS category_name FROM device_types dt "
-        "JOIN device_categories dc ON dt.category_id = dc.id"
+        "SELECT dt.name AS type_name, dc.name AS category_name FROM device_types dt JOIN device_categories dc ON dt.category_id = dc.id"
     ).fetchall()
     by_type = {r["type_name"]: r["category_name"] for r in rows}
     assert by_type["Сервер"] == "Серверы и СХД"
@@ -142,16 +142,61 @@ def test_destructive_cleanup_cascades_fully_and_spares_unrelated_device(alembic_
     server_type = get_or_create_named("device_types", "Сервер")
 
     switch, server = _uid(), _uid()
-    insert("physical_devices", id=switch, device_type_id=net_type, serial_number="SW-1", system_name="sw-01", siem_enabled=0, created_at=now, updated_at=now)
-    insert("physical_devices", id=server, device_type_id=server_type, serial_number="SRV-1", system_name="srv-01", siem_enabled=0, created_at=now, updated_at=now)
+    insert(
+        "physical_devices",
+        id=switch,
+        device_type_id=net_type,
+        serial_number="SW-1",
+        system_name="sw-01",
+        siem_enabled=0,
+        created_at=now,
+        updated_at=now,
+    )
+    insert(
+        "physical_devices",
+        id=server,
+        device_type_id=server_type,
+        serial_number="SRV-1",
+        system_name="srv-01",
+        siem_enabled=0,
+        created_at=now,
+        updated_at=now,
+    )
 
     iface_sw, iface_srv = _uid(), _uid()
-    insert("device_interfaces", id=iface_sw, physical_device_id=switch, name="Gi0/1", is_management=1, is_data_transfer=0, created_at=now, updated_at=now)
-    insert("device_interfaces", id=iface_srv, physical_device_id=server, name="eth0", is_management=0, is_data_transfer=1, created_at=now, updated_at=now)
+    insert(
+        "device_interfaces",
+        id=iface_sw,
+        physical_device_id=switch,
+        name="Gi0/1",
+        is_management=1,
+        is_data_transfer=0,
+        created_at=now,
+        updated_at=now,
+    )
+    insert(
+        "device_interfaces",
+        id=iface_srv,
+        physical_device_id=server,
+        name="eth0",
+        is_management=0,
+        is_data_transfer=1,
+        created_at=now,
+        updated_at=now,
+    )
 
     conn_type = get_or_create_named("connection_types", "Витая пара")
     connection = _uid()
-    insert("connections", id=connection, source_interface_id=iface_sw, destination_interface_id=iface_srv, connection_type_id=conn_type, is_active=1, created_at=now, updated_at=now)
+    insert(
+        "connections",
+        id=connection,
+        source_interface_id=iface_sw,
+        destination_interface_id=iface_srv,
+        connection_type_id=conn_type,
+        is_active=1,
+        created_at=now,
+        updated_at=now,
+    )
 
     vlan_domain = _uid()
     insert("vlan_domains", id=vlan_domain, name="Домен", source_device_id=switch, auto_sync=0, created_at=now, updated_at=now)
@@ -171,16 +216,69 @@ def test_destructive_cleanup_cascades_fully_and_spares_unrelated_device(alembic_
     container_on_device, container_on_vm = _uid(), _uid()
     insert("containers", id=container_on_device, name="ctr-on-switch", physical_device_id=switch, created_at=now, updated_at=now)
     insert("containers", id=container_on_vm, name="ctr-on-vm", virtual_machine_id=vm, created_at=now, updated_at=now)
-    insert("open_ports", id=_uid(), owner_type="physical_device", owner_id=switch, transport_protocol="TCP", port=22, created_at=now, updated_at=now)
-    insert("open_ports", id=_uid(), owner_type="virtual_machine", owner_id=vm, transport_protocol="TCP", port=80, created_at=now, updated_at=now)
+    insert(
+        "open_ports",
+        id=_uid(),
+        owner_type="physical_device",
+        owner_id=switch,
+        transport_protocol="TCP",
+        port=22,
+        created_at=now,
+        updated_at=now,
+    )
+    insert(
+        "open_ports",
+        id=_uid(),
+        owner_type="virtual_machine",
+        owner_id=vm,
+        transport_protocol="TCP",
+        port=80,
+        created_at=now,
+        updated_at=now,
+    )
 
     isys = _uid()
-    insert("information_systems", id=isys, name="ИС на удаляемом типе", type="ИС", siem_enabled=0, crypto_protection_enabled=0, status="active", created_at=now, updated_at=now)
+    insert(
+        "information_systems",
+        id=isys,
+        name="ИС на удаляемом типе",
+        type="ИС",
+        siem_enabled=0,
+        crypto_protection_enabled=0,
+        status="active",
+        created_at=now,
+        updated_at=now,
+    )
     insert("information_system_devices", id=_uid(), information_system_id=isys, physical_device_id=switch, created_at=now, updated_at=now)
     insert("information_system_vms", id=_uid(), information_system_id=isys, virtual_machine_id=vm, created_at=now, updated_at=now)
-    insert("information_system_containers", id=_uid(), information_system_id=isys, container_id=container_on_device, created_at=now, updated_at=now)
-    insert("information_system_sources", id=_uid(), information_system_id=isys, source_type="device", physical_device_id=switch, external_interaction=0, created_at=now, updated_at=now)
-    insert("information_system_ips", id=_uid(), information_system_id=isys, ip_address="10.0.0.1", external_interaction=0, physical_device_id=switch, created_at=now, updated_at=now)
+    insert(
+        "information_system_containers",
+        id=_uid(),
+        information_system_id=isys,
+        container_id=container_on_device,
+        created_at=now,
+        updated_at=now,
+    )
+    insert(
+        "information_system_sources",
+        id=_uid(),
+        information_system_id=isys,
+        source_type="device",
+        physical_device_id=switch,
+        external_interaction=0,
+        created_at=now,
+        updated_at=now,
+    )
+    insert(
+        "information_system_ips",
+        id=_uid(),
+        information_system_id=isys,
+        ip_address="10.0.0.1",
+        external_interaction=0,
+        physical_device_id=switch,
+        created_at=now,
+        updated_at=now,
+    )
     conn.commit()
     conn.close()
 
@@ -193,9 +291,13 @@ def test_destructive_cleanup_cascades_fully_and_spares_unrelated_device(alembic_
 
     assert count("SELECT count(*) FROM device_types WHERE id=?", net_type) == 0
     assert count("SELECT count(*) FROM physical_devices WHERE id=?", switch) == 0
-    assert count("SELECT count(*) FROM physical_devices WHERE id=?", server) == 1, "несвязанное устройство сохраняемого типа не должно пострадать"
+    assert count("SELECT count(*) FROM physical_devices WHERE id=?", server) == 1, (
+        "несвязанное устройство сохраняемого типа не должно пострадать"
+    )
     assert count("SELECT count(*) FROM device_interfaces WHERE id=?", iface_srv) == 1, "интерфейс сохраняемого устройства должен выжить"
-    assert count("SELECT count(*) FROM connections WHERE id=?", connection) == 0, "связь с ОДНИМ концом на удаляемом устройстве удаляется целиком"
+    assert count("SELECT count(*) FROM connections WHERE id=?", connection) == 0, (
+        "связь с ОДНИМ концом на удаляемом устройстве удаляется целиком"
+    )
     assert count("SELECT count(*) FROM interface_vlans") == 0
     assert count("SELECT count(*) FROM physical_device_vlans") == 0
     assert count("SELECT count(*) FROM virtual_machines WHERE id=?", vm) == 0
@@ -234,9 +336,7 @@ def test_categories_migration_upgrade_downgrade_upgrade_cycle(alembic_config):
     command.upgrade(cfg, CATEGORIES_REVISION)
     command.downgrade(cfg, PRE_CATEGORY_REVISION)
     conn = _connect(db_path)
-    table_exists = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='device_categories'"
-    ).fetchone()
+    table_exists = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='device_categories'").fetchone()
     assert table_exists is None
     conn.close()
     command.upgrade(cfg, CATEGORIES_REVISION)
@@ -252,9 +352,7 @@ def test_diagram_icons_migration_creates_table_and_fk_columns(alembic_config):
     cfg, db_path = alembic_config
     command.upgrade(cfg, DIAGRAM_ICONS_REVISION)
     conn = _connect(db_path)
-    assert conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='diagram_icons'"
-    ).fetchone() is not None
+    assert conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='diagram_icons'").fetchone() is not None
     model_cols = {r["name"] for r in conn.execute("PRAGMA table_info(device_models)").fetchall()}
     device_cols = {r["name"] for r in conn.execute("PRAGMA table_info(physical_devices)").fetchall()}
     assert "diagram_icon_id" in model_cols
@@ -263,9 +361,7 @@ def test_diagram_icons_migration_creates_table_and_fk_columns(alembic_config):
 
     command.downgrade(cfg, DEVICE_TYPES_REVISION)
     conn = _connect(db_path)
-    assert conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='diagram_icons'"
-    ).fetchone() is None
+    assert conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='diagram_icons'").fetchone() is None
     conn.close()
     command.upgrade(cfg, DIAGRAM_ICONS_REVISION)
 
@@ -285,13 +381,13 @@ def test_saved_diagrams_migration_creates_tables_with_cascade(alembic_config):
         (now, now),
     )
     conn.execute(
-        "INSERT INTO diagram_layouts (id, saved_diagram_id, node_positions, auto_layout_algorithm, created_at, updated_at) "
-        "VALUES ('l1', 'd1', '{}', 'hierarchical', ?, ?)",
+        "INSERT INTO diagram_layouts (id, saved_diagram_id, node_positions, auto_layout_algorithm, created_at, "
+        "updated_at) VALUES ('l1', 'd1', '{}', 'hierarchical', ?, ?)",
         (now, now),
     )
     conn.execute(
-        "INSERT INTO diagram_group_states (id, saved_diagram_id, group_key, is_collapsed, device_count, created_at, updated_at) "
-        "VALUES ('g1', 'd1', 'structural_unit:1', 1, 25, ?, ?)",
+        "INSERT INTO diagram_group_states (id, saved_diagram_id, group_key, is_collapsed, device_count, created_at, "
+        "updated_at) VALUES ('g1', 'd1', 'structural_unit:1', 1, 25, ?, ?)",
         (now, now),
     )
     conn.commit()
@@ -304,8 +400,6 @@ def test_saved_diagrams_migration_creates_tables_with_cascade(alembic_config):
 
     command.downgrade(cfg, DIAGRAM_ICONS_REVISION)
     conn = _connect(db_path)
-    assert conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='saved_diagrams'"
-    ).fetchone() is None
+    assert conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='saved_diagrams'").fetchone() is None
     conn.close()
     command.upgrade(cfg, SAVED_DIAGRAMS_REVISION)

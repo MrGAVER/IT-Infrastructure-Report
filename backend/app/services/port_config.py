@@ -34,6 +34,7 @@ tests/test_connection_query.py.
     config_differences(server, switch)            # -> [ConfigFacet.ROLE, ConfigFacet.MODE, ConfigFacet.VLANS]
     evaluate_port_config(server, switch, None)    # -> PortConfigStatus.MISMATCH, пока не одобрено
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

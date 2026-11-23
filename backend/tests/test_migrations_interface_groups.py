@@ -6,6 +6,7 @@ group_id добавляется через batch_alter_table (на SQLite это
 
 Запуск: pytest backend/tests/test_migrations_interface_groups.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -66,11 +67,15 @@ def _seed_port_with_vlan(conn: sqlite3.Connection) -> tuple[str, str]:
         (dev_id, device_type_id, dev_id[:12], _now(), _now()),
     )
     conn.execute(
-        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, created_at, updated_at) VALUES (?, ?, 'Gi0/1', 0, 0, 'access', ?, ?)",
+        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, "
+        "created_at, updated_at) VALUES (?, ?, 'Gi0/1', 0, 0, 'access', ?, ?)",
         (iface_id, dev_id, _now(), _now()),
     )
     conn.execute("INSERT INTO vlans (id, vlan_id, name, created_at, updated_at) VALUES (?, 10, 'VLAN 10', ?, ?)", (vlan_id, _now(), _now()))
-    conn.execute("INSERT INTO interface_vlans (id, interface_id, vlan_id, mode, created_at, updated_at) VALUES (?, ?, ?, 'access', ?, ?)", (link_id, iface_id, vlan_id, _now(), _now()))
+    conn.execute(
+        "INSERT INTO interface_vlans (id, interface_id, vlan_id, mode, created_at, updated_at) VALUES (?, ?, ?, 'access', ?, ?)",
+        (link_id, iface_id, vlan_id, _now(), _now()),
+    )
     conn.commit()
     return iface_id, link_id
 

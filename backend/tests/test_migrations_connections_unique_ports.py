@@ -1,9 +1,13 @@
 """
-Тесты миграции e3b7a15c9d42 — частичные уникальные индексы `uq_connections_source_active` и `uq_connections_destination_active`, A-01 (этап 2) код-ревью main @ b375f58.
+Тесты миграции e3b7a15c9d42 — частичные уникальные индексы `uq_connections_source_active` и `uq_connections_destination_active`, A-01 (этап
+2) код-ревью main @ b375f58.
 
-Миграция сначала ищет в данных активные подключения с общим портом в одной роли (источник или назначение) и, если они есть, останавливается с перечнем портов и id
-подключений: НИЧЕГО не удаляя и не меняя — какое из двух подключений настоящее, решает человек. Неактивные подключения индексам не мешают. Сценарии одинаковы для
-SQLite (файл-БД, sqlite_only) и PostgreSQL (временная база на сервере из INFRA_REGISTRY_TEST_DATABASE_URL, postgres_only) — фикстура `database` та же, что у тестов c4a9e2d7b185 (connection_support.scratch_database).
+Миграция сначала ищет в данных активные подключения с общим портом в одной роли (источник или назначение) и, если они есть, останавливается
+с перечнем портов и id подключений: НИЧЕГО не удаляя и не меняя — какое из двух подключений настоящее, решает человек. Неактивные
+подключения индексам не мешают.
+Сценарии одинаковы для SQLite (файл-БД, sqlite_only) и PostgreSQL (временная база на сервере из INFRA_REGISTRY_TEST_DATABASE_URL,
+postgres_only) — фикстура
+`database` та же, что у тестов c4a9e2d7b185 (connection_support.scratch_database).
 
 Запуск: pytest backend/tests/test_migrations_connections_unique_ports.py -v
 """
@@ -51,7 +55,8 @@ def _seed_clean(db: Database) -> list[str]:
 
 
 def _seed_shared_port(db: Database, role: str) -> dict[str, list[str]]:
-    """Два активных подключения с общим портом в роли `role` ('source' | 'destination') и одно обычное; возвращает {'port': [...], 'connections': [...]}."""
+    """Два активных подключения с общим портом в роли `role` ('source' | 'destination') и одно обычное; возвращает {'port': [...],
+    'connections': [...]}."""
     with db.engine.begin() as connection:
         shared, first, second, x, y = (insert_row(connection, "device_interfaces") for _ in range(5))
         _connect(connection, x, y)
@@ -123,7 +128,9 @@ def test_upgrade_stops_on_a_port_shared_by_active_connections_and_changes_nothin
     message = str(caught.value)
     assert ("как источник" if role == "source" else "как назначение") in message
     assert shared["port"][0] in message, "в сообщении — id порта, занятого дважды"
-    assert all(connection_id in message for connection_id in shared["connections"]), "и id обоих подключений, чтобы человек мог выбрать, какое оставить"
+    assert all(connection_id in message for connection_id in shared["connections"]), (
+        "и id обоих подключений, чтобы человек мог выбрать, какое оставить"
+    )
     assert "в БД ничего не изменено" in message
     assert _version(database) == PRE_REVISION, "версия схемы не сдвинулась"
     assert _count(database) == rows, "ничего не удалено и не изменено автоматически"
@@ -137,7 +144,9 @@ def test_upgrade_passes_after_the_duplicate_is_deactivated(database):
         database.migrate(TARGET_REVISION)
 
     with database.engine.begin() as connection:  # человек отключает лишнее подключение (но не удаляет)
-        connection.execute(sa.text("UPDATE connections SET is_active = :off WHERE id = :id"), {"off": False, "id": shared["connections"][1]})
+        connection.execute(
+            sa.text("UPDATE connections SET is_active = :off WHERE id = :id"), {"off": False, "id": shared["connections"][1]}
+        )
     database.migrate(TARGET_REVISION)
 
     assert _version(database) == TARGET_REVISION

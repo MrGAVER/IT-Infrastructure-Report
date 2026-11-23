@@ -1,4 +1,4 @@
-"""Тела запросов роутера ``/api/v1/resources`` (код-ревью main, F-06, этап 2).
+"""Тела запросов роутера ``/api/v1/resources``.
 
 Два вида тел:
 
@@ -23,7 +23,10 @@ from .schema_base import RequestBody
 ResourceBody = Annotated[
     dict[str, Any],
     Body(
-        description=("Поля записи — колонки ресурса из {resource} (список: GET /api/v1/resources/{resource}/schema). Неизвестные колонки игнорируются; типы и правила проверяются по ресурсу, ошибка — 422 с текстом на русском."),
+        description=(
+            "Поля записи — колонки ресурса из {resource} (список: GET /api/v1/resources/{resource}/schema). Неизвестные "
+            "колонки игнорируются; типы и правила проверяются по ресурсу, ошибка — 422 с текстом на русском."
+        ),
     ),
 ]
 
@@ -37,7 +40,9 @@ class InformationSystemDetailsUpdate(RequestBody):
     Строки — объекты; не объекты пропускаются."""
 
     departments: list[Any] = Field(default_factory=list, description="Подразделения ИС.")
-    protocols: list[Any] = Field(default_factory=list, description="Протоколы и порты ИС (строка со ссылкой protocol_catalog_id на справочник).")
+    protocols: list[Any] = Field(
+        default_factory=list, description="Протоколы и порты ИС (строка со ссылкой protocol_catalog_id на справочник)."
+    )
     placement_assets: list[Any] = Field(default_factory=list, description="Размещение: активы, на которых работает ИС.")
     sources: list[Any] = Field(default_factory=list, description="Источники: оборудование, ВМ, контейнеры или IP-адрес вручную.")
 

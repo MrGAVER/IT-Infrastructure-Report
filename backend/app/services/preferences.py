@@ -5,6 +5,7 @@ localStorage браузера — на другом компьютере и по
 они хранятся на сервере. Сервис ничего не знает про HTTP: владельца (owner) определяет роутер
 (api/preferences.py), набор допустимых ключей и значений задают схемы (schemas.*PreferencesUpdate).
 """
+
 from __future__ import annotations
 
 import json
@@ -27,7 +28,6 @@ GLOBAL_KEYS = ("organization_name",)
 USER_KEYS = ("color_scheme", "device_vlan_collapse_rows", "page_sizes")
 # Ключи-словари сливаются с сохранённым значением (null у элемента убирает его), остальные — заменяются.
 MERGED_MAP_KEYS = frozenset({"page_sizes"})
-
 
 
 def user_owner(user: User) -> str:
@@ -75,7 +75,10 @@ def update_preferences(session: Session, owner: str, patch: dict[str, Any]) -> N
     """Применяет частичное изменение (ключи, которых нет в patch, не трогаются). None сбрасывает настройку
     к умолчанию — запись удаляется. Ключи-словари (MERGED_MAP_KEYS) сливаются с сохранённым значением.
     Коммитит сам: вызывается ровно из эндпоинтов настроек."""
-    existing = {row.key: row for row in session.scalars(select(AppPreference).where(AppPreference.owner == owner, AppPreference.key.in_(list(patch)))).all()}
+    existing = {
+        row.key: row
+        for row in session.scalars(select(AppPreference).where(AppPreference.owner == owner, AppPreference.key.in_(list(patch)))).all()
+    }
     for key, value in patch.items():
         row = existing.get(key)
         if key in MERGED_MAP_KEYS and value is not None:

@@ -6,6 +6,7 @@ virtual_machine_id/container_id объединены в owner_id (source_type и
 
 Запуск: pip install -r backend/requirements-dev.txt && pytest backend/tests/test_migrations_information_system_source_owner_id.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -83,21 +84,23 @@ def _insert_information_system(conn: sqlite3.Connection) -> str:
     is_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_systems (id, name, type, status, siem_enabled, crypto_protection_enabled, created_at, updated_at) "
-        "VALUES (?, ?, 'ИС', 'active', 0, 0, ?, ?)",
+        "INSERT INTO information_systems (id, name, type, status, siem_enabled, crypto_protection_enabled, created_at, "
+        "updated_at) VALUES (?, ?, 'ИС', 'active', 0, 0, ?, ?)",
         (is_id, f"ИС {is_id[:8]}", now, now),
     )
     conn.commit()
     return is_id
 
 
-def _insert_source(conn: sqlite3.Connection, is_id: str, source_type: str, *, physical_device_id=None, virtual_machine_id=None, container_id=None) -> str:
+def _insert_source(
+    conn: sqlite3.Connection, is_id: str, source_type: str, *, physical_device_id=None, virtual_machine_id=None, container_id=None
+) -> str:
     source_id = _uid()
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO information_system_sources "
-        "(id, information_system_id, source_type, physical_device_id, virtual_machine_id, container_id, external_interaction, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)",
+        "INSERT INTO information_system_sources (id, information_system_id, source_type, physical_device_id, "
+        "virtual_machine_id, container_id, external_interaction, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, "
+        "?, ?)",
         (source_id, is_id, source_type, physical_device_id, virtual_machine_id, container_id, now, now),
     )
     conn.commit()

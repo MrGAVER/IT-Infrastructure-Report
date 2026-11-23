@@ -11,6 +11,7 @@
 «новые сверху, затем id»: без второго ключа записи с одинаковым временем могли бы «переезжать»
 между страницами при листании.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -71,7 +72,10 @@ def list_audit_log(session: Session, query: AuditQuery, *, offset: int, limit: i
 def summarize_audit_log(session: Session) -> dict[str, Any]:
     """Сколько записей в журнале всего и по каждому действию (`by_action`: CREATE, UPDATE, DELETE,
     SYNC, LOGIN…). Один запрос по индексу action."""
-    counts = {action: int(count) for action, count in session.execute(select(AuditLog.action, func.count(AuditLog.id)).group_by(AuditLog.action)).all()}
+    counts = {
+        action: int(count)
+        for action, count in session.execute(select(AuditLog.action, func.count(AuditLog.id)).group_by(AuditLog.action)).all()
+    }
     return {"total": sum(counts.values()), "by_action": counts}
 
 

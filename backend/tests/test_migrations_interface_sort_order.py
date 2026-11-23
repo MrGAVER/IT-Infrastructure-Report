@@ -5,6 +5,7 @@
 
 Запуск: pytest backend/tests/test_migrations_interface_sort_order.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -64,15 +65,17 @@ def _device(conn: sqlite3.Connection) -> str:
 def _port(conn: sqlite3.Connection, device_id: str, name: str, created_at: str | None = None) -> str:
     port_id = _uid()
     conn.execute(
-        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, all_vlans, created_at, updated_at) "
-        "VALUES (?, ?, ?, 0, 0, 'trunk', 0, ?, ?)",
+        "INSERT INTO device_interfaces (id, physical_device_id, name, is_management, is_data_transfer, vlan_mode, "
+        "all_vlans, created_at, updated_at) VALUES (?, ?, ?, 0, 0, 'trunk', 0, ?, ?)",
         (port_id, device_id, name, created_at or _now(), _now()),
     )
     return port_id
 
 
 def _order(conn: sqlite3.Connection, device_id: str) -> list[str]:
-    rows = conn.execute("SELECT name FROM device_interfaces WHERE physical_device_id=? ORDER BY sort_order, created_at, id", (device_id,)).fetchall()
+    rows = conn.execute(
+        "SELECT name FROM device_interfaces WHERE physical_device_id=? ORDER BY sort_order, created_at, id", (device_id,)
+    ).fetchall()
     return [r["name"] for r in rows]
 
 
@@ -95,7 +98,12 @@ def test_upgrade_sorts_existing_ports_naturally_per_device(alembic_config):
     try:
         assert _order(conn, first) == ["gi0/1", "Gi0/2", "Gi0/10", "Gi0/20", "Mgmt0"]
         assert _order(conn, second) == ["Te1/0/1", "Te1/0/2"]
-        positions = [r["sort_order"] for r in conn.execute("SELECT sort_order FROM device_interfaces WHERE physical_device_id=? ORDER BY sort_order", (first,)).fetchall()]
+        positions = [
+            r["sort_order"]
+            for r in conn.execute(
+                "SELECT sort_order FROM device_interfaces WHERE physical_device_id=? ORDER BY sort_order", (first,)
+            ).fetchall()
+        ]
         assert positions == [0, 1, 2, 3, 4]
     finally:
         conn.close()
@@ -115,7 +123,10 @@ def test_upgrade_breaks_ties_by_creation_time(alembic_config):
 
     conn = _connect(db_path)
     try:
-        orders = {r["id"]: r["sort_order"] for r in conn.execute("SELECT id, sort_order FROM device_interfaces WHERE physical_device_id=?", (dev,)).fetchall()}
+        orders = {
+            r["id"]: r["sort_order"]
+            for r in conn.execute("SELECT id, sort_order FROM device_interfaces WHERE physical_device_id=?", (dev,)).fetchall()
+        }
         assert orders[early] == 0 and orders[late] == 1
     finally:
         conn.close()

@@ -6,6 +6,7 @@ tests/report_seed.py; тесты проходят и на коде до рефа
 столбцы самих записей добавляются часто, и привязывать к ним этот тест незачем.
 Запуск: pytest backend/tests/test_enrichment_behaviour.py -v
 """
+
 from __future__ import annotations
 
 import sys
@@ -18,18 +19,54 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from report_seed import seed_registry  # noqa: E402
 
 from app import reporting  # noqa: E402
-from app.models import Connection, DeviceInterface, DeviceStack, DeviceStackMember, EmbeddedOperatingSystem, InformationSystem, PhysicalDevice  # noqa: E402
+from app.models import (
+    Connection,
+    DeviceInterface,
+    DeviceStack,
+    DeviceStackMember,
+    EmbeddedOperatingSystem,
+    InformationSystem,
+    PhysicalDevice,
+)  # noqa: E402
 from app.services.serialization import enrich_connections, enrich_devices, enrich_information_systems, enrich_interfaces  # noqa: E402
 
-DEVICE_FIELDS = ("management_interface", "management_ips", "interface_count", "embedded_os_name", "embedded_os_version", "vlan_summary", "stack_id", "stack_name", "stack_position")
+DEVICE_FIELDS = (
+    "management_interface",
+    "management_ips",
+    "interface_count",
+    "embedded_os_name",
+    "embedded_os_version",
+    "vlan_summary",
+    "stack_id",
+    "stack_name",
+    "stack_position",
+)
 CONNECTION_FIELDS = (
-    "source_device_name", "source_interface_name", "destination_device_name", "destination_interface_name", "connection_type_name",
-    "source_port_role", "destination_port_role", "source_vlan_mode", "destination_vlan_mode", "source_vlans", "destination_vlans",
-    "port_config_diff", "port_config_status",
+    "source_device_name",
+    "source_interface_name",
+    "destination_device_name",
+    "destination_interface_name",
+    "connection_type_name",
+    "source_port_role",
+    "destination_port_role",
+    "source_vlan_mode",
+    "destination_vlan_mode",
+    "source_vlans",
+    "destination_vlans",
+    "port_config_diff",
+    "port_config_status",
 )
 SYSTEM_FIELDS = (
-    "support_organization_name", "support_method_name", "placement_assets_summary", "departments_summary", "ip_addresses",
-    "ip_addresses_summary", "protocols_summary", "physical_devices_summary", "vms_summary", "containers_summary",
+    "support_organization_name",
+    "support_method_name",
+    "placement_assets_summary",
+    "departments_summary",
+    "ip_addresses",
+    "ip_addresses_summary",
+    "protocols_summary",
+    "physical_devices_summary",
+    "vms_summary",
+    "containers_summary",
 )
 
 
@@ -38,7 +75,12 @@ def registry(db_session):
     seed_registry(db_session)
     db_session.add(DeviceStack(id="stk1", name="Стек SW"))
     db_session.flush()
-    db_session.add_all([DeviceStackMember(id="stm1", stack_id="stk1", physical_device_id="sw1", position=1), DeviceStackMember(id="stm2", stack_id="stk1", physical_device_id="sw2", position=2)])
+    db_session.add_all(
+        [
+            DeviceStackMember(id="stm1", stack_id="stk1", physical_device_id="sw1", position=1),
+            DeviceStackMember(id="stm2", stack_id="stk1", physical_device_id="sw2", position=2),
+        ]
+    )
     db_session.get(EmbeddedOperatingSystem, "eos1").version = "17.9"
     alpha = db_session.get(InformationSystem, "is1")
     alpha.crypto_protection_enabled, alpha.crypto_protection_description_id, alpha.siem_enabled = True, "cp1", True
@@ -56,7 +98,14 @@ def _all(session, model):
 
 
 NO_STACK = {"stack_id": None, "stack_name": None, "stack_position": None}
-EMPTY_DEVICE = {"management_interface": "", "management_ips": "", "embedded_os_name": "", "embedded_os_version": "", "vlan_summary": "", **NO_STACK}
+EMPTY_DEVICE = {
+    "management_interface": "",
+    "management_ips": "",
+    "embedded_os_name": "",
+    "embedded_os_version": "",
+    "vlan_summary": "",
+    **NO_STACK,
+}
 
 
 class TestEnrichDevices:
@@ -71,8 +120,13 @@ class TestEnrichDevices:
             "sw1": {
                 "management_interface": "Gi1/0/1; Gi1/0/1 (подинтерфейс Gi1/0/1.99); VLAN 20 — Управление",
                 "management_ips": "192.168.1.1/24; 192.168.1.2/24; 172.16.99.1/24; 192.168.20.1/24",
-                "interface_count": 6, "embedded_os_name": "IOS XE", "embedded_os_version": "17.9",
-                "vlan_summary": "10 Данные; 20 Управление", "stack_id": "stk1", "stack_name": "Стек SW", "stack_position": 1,
+                "interface_count": 6,
+                "embedded_os_name": "IOS XE",
+                "embedded_os_version": "17.9",
+                "vlan_summary": "10 Данные; 20 Управление",
+                "stack_id": "stk1",
+                "stack_name": "Стек SW",
+                "stack_position": 1,
             },
             "sw2": {**EMPTY_DEVICE, "interface_count": 3, "stack_id": "stk1", "stack_name": "Стек SW", "stack_position": 2},
         }
@@ -98,10 +152,19 @@ class TestEnrichConnections:
     def test_computed_fields_of_every_connection(self, registry):
         result = _picked(enrich_connections(_all(registry, Connection), registry), CONNECTION_FIELDS)
         assert result["c1"] == {
-            "source_device_name": "SW-1", "source_interface_name": "Gi1/0/1", "destination_device_name": "SW-2", "destination_interface_name": "Gi0/1",
-            "connection_type_name": "Витая пара", "source_port_role": "management_data", "destination_port_role": "data",
-            "source_vlan_mode": "trunk", "destination_vlan_mode": "access", "source_vlans": [10, 20], "destination_vlans": [20],
-            "port_config_diff": ["role", "mode", "vlans"], "port_config_status": "mismatch",
+            "source_device_name": "SW-1",
+            "source_interface_name": "Gi1/0/1",
+            "destination_device_name": "SW-2",
+            "destination_interface_name": "Gi0/1",
+            "connection_type_name": "Витая пара",
+            "source_port_role": "management_data",
+            "destination_port_role": "data",
+            "source_vlan_mode": "trunk",
+            "destination_vlan_mode": "access",
+            "source_vlans": [10, 20],
+            "destination_vlans": [20],
+            "port_config_diff": ["role", "mode", "vlans"],
+            "port_config_status": "mismatch",
         }
         # устройство без системного имени подписывается серийным номером; у порта «Все VLAN» набор — все VLAN устройства
         assert result["c2"]["destination_device_name"] == "SN-RT1" and result["c2"]["source_vlans"] == [10, 20, 30]
@@ -118,11 +181,17 @@ class TestEnrichInformationSystems:
     def test_every_source_kind_contributes_to_the_summaries(self, registry):
         result = _picked(enrich_information_systems(_all(registry, InformationSystem), registry), SYSTEM_FIELDS)
         assert result["is1"] == {
-            "support_organization_name": "Интегратор", "support_method_name": "Удалённо", "placement_assets_summary": "ЦОД",
+            "support_organization_name": "Интегратор",
+            "support_method_name": "Удалённо",
+            "placement_assets_summary": "ЦОД",
             "departments_summary": "Бухгалтерия",
             # адреса ручных источников, затем адреса ВМ (с префиксом); повторный источник-устройство учтён один раз
-            "ip_addresses": ["10.9.9.9", "10.1.1.10/24", "10.1.1.20/24"], "ip_addresses_summary": "10.9.9.9; 10.1.1.10/24; 10.1.1.20/24",
-            "protocols_summary": "HTTPS/443", "physical_devices_summary": "SW-1", "vms_summary": "app-vm", "containers_summary": "db",
+            "ip_addresses": ["10.9.9.9", "10.1.1.10/24", "10.1.1.20/24"],
+            "ip_addresses_summary": "10.9.9.9; 10.1.1.10/24; 10.1.1.20/24",
+            "protocols_summary": "HTTPS/443",
+            "physical_devices_summary": "SW-1",
+            "vms_summary": "app-vm",
+            "containers_summary": "db",
         }
         assert result["is2"]["containers_summary"] == "web" and result["is2"]["physical_devices_summary"] == ""
         assert result["is3"]["vms_summary"] == "orphan-vm"
@@ -146,12 +215,24 @@ class TestIsRowValues:
 
     def test_fully_filled_row(self, rows):
         assert rows["is1"] == [
-            "ИС Альфа", "Описание", "Назначение", "Бухгалтерия", "Серверная",
-            "SW-1; VM: app-vm; Контейнер: db; ЦОД", "HTTPS/443", "10.9.9.9; 10.1.1.10/24; 10.1.1.20/24",
-            "Да; КриптоПро", "Да", "Интегратор", "Удалённо", "Процесс",
+            "ИС Альфа",
+            "Описание",
+            "Назначение",
+            "Бухгалтерия",
+            "Серверная",
+            "SW-1; VM: app-vm; Контейнер: db; ЦОД",
+            "HTTPS/443",
+            "10.9.9.9; 10.1.1.10/24; 10.1.1.20/24",
+            "Да; КриптоПро",
+            "Да",
+            "Интегратор",
+            "Удалённо",
+            "Процесс",
             # устройство ИС и хост её ВМ; IP управления — адреса порта и подинтерфейса управления SW-1
-            "SW-1; SRV-1", "192.168.1.1/24; 192.168.1.2/24; 172.16.99.1/24",
-            "app-vm; db", "10.1.1.10/24; 10.1.1.20/24",
+            "SW-1; SRV-1",
+            "192.168.1.1/24; 192.168.1.2/24; 172.16.99.1/24",
+            "app-vm; db",
+            "10.1.1.10/24; 10.1.1.20/24",
         ]
 
     def test_container_vm_without_host_and_vm_on_a_device(self, rows):

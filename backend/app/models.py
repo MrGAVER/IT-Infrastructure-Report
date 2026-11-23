@@ -24,12 +24,15 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from .services.timeutil import utcnow_naive
 
+
 class Base(DeclarativeBase):
     pass
+
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
+
 
 class SupportOrganization(TimestampMixin, Base):
     __tablename__ = "support_organizations"
@@ -37,6 +40,7 @@ class SupportOrganization(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(500), unique=True)
     short_name: Mapped[Optional[str]] = mapped_column(String(200))
     description: Mapped[Optional[str]] = mapped_column(Text)
+
 
 class CryptoProtectionMeans(TimestampMixin, Base):
     __tablename__ = "crypto_protection_means"
@@ -50,6 +54,7 @@ class CryptoProtectionMeans(TimestampMixin, Base):
     # каталога при накатывании миграции этой FK не имеют.
     physical_device_id: Mapped[Optional[str]] = mapped_column(ForeignKey("physical_devices.id"), index=True)
 
+
 class SupportMethod(TimestampMixin, Base):
     __tablename__ = "support_methods"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -62,13 +67,16 @@ class SupportMethod(TimestampMixin, Base):
     # способ" при сохранении ИС проверяется в services/validation.validate_support_method_organization.
     support_organization_id: Mapped[Optional[str]] = mapped_column(ForeignKey("support_organizations.id"), index=True)
 
+
 class PlacementAsset(TimestampMixin, Base):
     """Catalog of equipment / software / interfaces an information system can be hosted on,
     used where a specific physical device, VM or container source is not applicable."""
+
     __tablename__ = "placement_assets"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(500), unique=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
+
 
 class ISPlacementAsset(TimestampMixin, Base):
     __tablename__ = "is_placement_assets"
@@ -77,11 +85,13 @@ class ISPlacementAsset(TimestampMixin, Base):
     information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
     placement_asset_id: Mapped[str] = mapped_column(ForeignKey("placement_assets.id"), index=True)
 
+
 class Department(TimestampMixin, Base):
     __tablename__ = "departments"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(500), unique=True)
     parent_id: Mapped[Optional[str]] = mapped_column(ForeignKey("departments.id"))
+
 
 class StructuralUnit(TimestampMixin, Base):
     """Организационная структурная единица (филиал/площадка/подразделение и т.п.), к которой
@@ -89,11 +99,13 @@ class StructuralUnit(TimestampMixin, Base):
     Иерархия через parent_id — тот же паттерн, что и у Department, — позволяет выбрать при
     генерации отчёта родительскую единицу и автоматически захватить все вложенные (см.
     reporting.py: _expand_structural_unit_ids)."""
+
     __tablename__ = "structural_units"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(500), unique=True)
     parent_id: Mapped[Optional[str]] = mapped_column(ForeignKey("structural_units.id"), index=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
+
 
 class Building(TimestampMixin, Base):
     __tablename__ = "buildings"
@@ -102,11 +114,13 @@ class Building(TimestampMixin, Base):
     address: Mapped[Optional[str]] = mapped_column(String(500))
     structural_unit_id: Mapped[Optional[str]] = mapped_column(ForeignKey("structural_units.id"), index=True)
 
+
 class Room(TimestampMixin, Base):
     __tablename__ = "rooms"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     building_id: Mapped[str] = mapped_column(ForeignKey("buildings.id"), index=True)
     name: Mapped[str] = mapped_column(String(255))
+
 
 class Rack(TimestampMixin, Base):
     __tablename__ = "racks"
@@ -115,6 +129,7 @@ class Rack(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255))
     height_u: Mapped[Optional[int]] = mapped_column(Integer)
 
+
 class DeviceCategory(TimestampMixin, Base):
     """Иерархическая категория типов устройств (тот же паттерн, что OperatingSystemCategory/
     StructuralUnit: parent_id, подкатегории заводятся администратором обычным CRUD, без изменения
@@ -122,6 +137,7 @@ class DeviceCategory(TimestampMixin, Base):
     на диаграмме топологии сети; оба поля nullable и наследуются от ближайшего предка по parent_id,
     у которого они заданы (см. services/diagram_icons.resolve_style) — так подкатегориям, которым
     не нужен собственный визуальный стиль, не приходится его дублировать."""
+
     __tablename__ = "device_categories"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255), unique=True)
@@ -129,6 +145,7 @@ class DeviceCategory(TimestampMixin, Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
     diagram_shape: Mapped[Optional[str]] = mapped_column(String(30))  # server|switch|firewall|workstation|peripheral|generic
     diagram_color: Mapped[Optional[str]] = mapped_column(String(20))  # HEX, напр. '#4f7cff'
+
 
 class DeviceType(TimestampMixin, Base):
     __tablename__ = "device_types"
@@ -143,20 +160,24 @@ class DeviceType(TimestampMixin, Base):
     # сети) — используется для автогенерации иконки узла (форма/цвет наследуются от категории).
     category_id: Mapped[str] = mapped_column(ForeignKey("device_categories.id"), index=True)
 
+
 class Manufacturer(TimestampMixin, Base):
     __tablename__ = "manufacturers"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255), unique=True)
+
 
 class DiagramIcon(TimestampMixin, Base):
     """Каталог пользовательских иконок для диаграммы топологии сети — только для случаев, когда
     автогенерации по категории (DeviceCategory.diagram_shape/diagram_color) недостаточно (напр.
     нужен фирменный вид конкретной модели). Хранится как SVG-текст (тот же подход, что
     ReportTemplate.config для JSON) — несколько КБ на иконку, не влияет на объём БД."""
+
     __tablename__ = "diagram_icons"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255), unique=True)
     svg_markup: Mapped[str] = mapped_column(Text)
+
 
 class DeviceModel(TimestampMixin, Base):
     __tablename__ = "device_models"
@@ -169,6 +190,7 @@ class DeviceModel(TimestampMixin, Base):
     # ТЗ диаграммы топологии сети). Приоритет ниже, чем PhysicalDevice.diagram_icon_id.
     diagram_icon_id: Mapped[Optional[str]] = mapped_column(ForeignKey("diagram_icons.id"), index=True)
 
+
 class EmbeddedOperatingSystem(TimestampMixin, Base):
     __tablename__ = "embedded_operating_systems"
     __table_args__ = (UniqueConstraint("name", "version", name="uq_embedded_os_name_version"),)
@@ -178,7 +200,9 @@ class EmbeddedOperatingSystem(TimestampMixin, Base):
     vendor: Mapped[Optional[str]] = mapped_column(String(255))
     description: Mapped[Optional[str]] = mapped_column(Text)
 
+
 _RACK_SLOT_FILLED = "rack_id IS NOT NULL AND rack_position IS NOT NULL AND rack_position <> ''"
+
 
 class PhysicalDevice(TimestampMixin, Base):
     __tablename__ = "physical_devices"
@@ -187,8 +211,14 @@ class PhysicalDevice(TimestampMixin, Base):
     # Индекс частичный: устройства без стойки или без позиции ограничением не затрагиваются (миграция
     # b5d2f8a1c673). Переназначение занятого слота делает services/crud/validators.py:_release_rack_slot.
     __table_args__ = (
-        Index("uq_device_rack_slot", "rack_id", "rack_position", unique=True,
-              sqlite_where=text(_RACK_SLOT_FILLED), postgresql_where=text(_RACK_SLOT_FILLED)),
+        Index(
+            "uq_device_rack_slot",
+            "rack_id",
+            "rack_position",
+            unique=True,
+            sqlite_where=text(_RACK_SLOT_FILLED),
+            postgresql_where=text(_RACK_SLOT_FILLED),
+        ),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     device_type_id: Mapped[str] = mapped_column(ForeignKey("device_types.id"), index=True)
@@ -216,6 +246,7 @@ class PhysicalDevice(TimestampMixin, Base):
     oac_certificate_number: Mapped[Optional[str]] = mapped_column(String(255))
     oac_certificate_registry_date: Mapped[Optional[date]] = mapped_column(Date)
 
+
 class DeviceStack(TimestampMixin, Base):
     """Пункт 5 правки "создание физического устройства": стек физических устройств (например,
     стек коммутаторов) — логическая группа, физически соединённая между собой через указанные
@@ -224,6 +255,7 @@ class DeviceStack(TimestampMixin, Base):
     это просто те, у которых ОБА конца принадлежат участникам ОДНОГО стека (см.
     services/crud/:stack_detail — вычисляется на лету, а не хранится отдельным флагом, чтобы
     не рассинхронизироваться при добавлении/удалении обычных Connection в обход стека)."""
+
     __tablename__ = "device_stacks"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255), unique=True)
@@ -235,6 +267,7 @@ class DeviceStackMember(TimestampMixin, Base):
     stack_id+physical_device_id) — намеренно: устройство физически может состоять максимум в
     ОДНОМ стеке одновременно, в отличие от, например, VLANDomainDevice, где участие в НЕСКОЛЬКИХ
     доменов — обычный случай."""
+
     __tablename__ = "device_stack_members"
     __table_args__ = (UniqueConstraint("physical_device_id", name="uq_device_stack_member_device"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -247,6 +280,7 @@ class DeviceStackMember(TimestampMixin, Base):
     # физической замене одного члена стека на другой).
     position: Mapped[int] = mapped_column(Integer, default=1)
 
+
 class DeviceStackVLAN(TimestampMixin, Base):
     """Общая настройка VLAN стека (кластера): один IP-адрес, префикс и признак «Управление» на VLAN для ВСЕХ
     устройств стека. Строка есть — настройка «задана»: значения записаны каждому участнику (PhysicalDeviceVLAN) и у
@@ -257,6 +291,7 @@ class DeviceStackVLAN(TimestampMixin, Base):
     stack_id с ondelete CASCADE — настройка принадлежит стеку; vlan_id без каскада: VLAN, заданный стеку, нельзя
     удалить, пока настройка не снята (ресурс зарегистрирован в registry.MODEL_MAP только для этой проверки и
     сообщений, запись через generic CRUD закрыта — registry.READONLY_RESOURCES)."""
+
     __tablename__ = "device_stack_vlans"
     __table_args__ = (UniqueConstraint("stack_id", "vlan_id", name="uq_device_stack_vlan"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -265,6 +300,7 @@ class DeviceStackVLAN(TimestampMixin, Base):
     ip_address: Mapped[Optional[str]] = mapped_column(String(64))
     prefix_length: Mapped[Optional[int]] = mapped_column(Integer)
     is_management: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
 
 class InformationSystem(TimestampMixin, Base):
     __tablename__ = "information_systems"
@@ -282,11 +318,13 @@ class InformationSystem(TimestampMixin, Base):
     crypto_protection_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     crypto_protection_description_id: Mapped[Optional[str]] = mapped_column(ForeignKey("crypto_protection_means.id"), index=True)
 
+
 class ISDepartment(TimestampMixin, Base):
     __tablename__ = "information_system_departments"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
     department_id: Mapped[str] = mapped_column(ForeignKey("departments.id"))
+
 
 class ProtocolPortCatalog(TimestampMixin, Base):
     __tablename__ = "protocol_port_catalogs"
@@ -295,6 +333,7 @@ class ProtocolPortCatalog(TimestampMixin, Base):
     port: Mapped[int] = mapped_column(Integer)
     protocol_type: Mapped[str] = mapped_column(String(100))
     description: Mapped[Optional[str]] = mapped_column(Text)
+
 
 class ISProtocol(TimestampMixin, Base):
     """Протокол передачи данных ИС (Лист 1, колонка "Протокол передачи данных").
@@ -308,11 +347,13 @@ class ISProtocol(TimestampMixin, Base):
     конкретному использованию протокола в этой ИС (см. ISProtocolsListEditor.vue), не путать с
     ProtocolPortCatalog.description (общее техническое описание самого протокола) — reporting.py
     показывает оба значения вместе, не выбирая одно вместо другого."""
+
     __tablename__ = "information_system_protocols"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
     protocol_catalog_id: Mapped[str] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
+
 
 def _next_interface_sort_order(context) -> int:
     """Позиция нового порта в конце списка портов его устройства. Нужна только для портов, созданных НЕ через
@@ -387,6 +428,7 @@ class DeviceSubinterface(TimestampMixin, Base):
     форма сохраняет устройство целиком, и обмен VLAN или именами между двумя подинтерфейсами одним
     запросом — законная правка, которую построчные UNIQUE-ограничения отвергли бы на промежуточном
     состоянии, не допускающем отложенной проверки на SQLite."""
+
     __tablename__ = "device_subinterfaces"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     parent_interface_id: Mapped[str] = mapped_column(ForeignKey("device_interfaces.id", ondelete="CASCADE"), index=True)
@@ -416,6 +458,7 @@ class InterfaceGroup(TimestampMixin, Base):
     FK physical_device_id с ondelete CASCADE: у группы нет своего пути удаления через generic CRUD
     (ресурс не зарегистрирован в MODEL_MAP), группы уходят вместе с устройством или через
     PUT /devices/{id}/interfaces."""
+
     __tablename__ = "interface_groups"
     __table_args__ = (UniqueConstraint("physical_device_id", "name", name="uq_interface_groups_device_name"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -436,6 +479,7 @@ class InterfaceGroupVLAN(TimestampMixin, Base):
     """VLAN, которые группа портов назначает своим портам (используется, когда у группы задан
     vlan_mode). CASCADE по vlan_id: удаление VLAN убирает его из определения группы; если VLAN
     уже записан в порты группы, удаление и так блокируется существующими связями interface_vlans."""
+
     __tablename__ = "interface_group_vlans"
     __table_args__ = (UniqueConstraint("group_id", "vlan_id", name="uq_interface_group_vlans_group_vlan"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -450,6 +494,7 @@ class InterfaceGroupIP(TimestampMixin, Base):
     services/crud/interface_groups.py). Отдельная таблица с настоящим FK, а не полиморфный ip_addresses:
     у группы нет owner_type/owner_id, и шаблон не должен попадать в общие списки IP реестра. Заменила прежние
     колонки interface_groups.ip_address/prefix_length/ip_purpose (один адрес на группу)."""
+
     __tablename__ = "interface_group_ips"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     group_id: Mapped[str] = mapped_column(ForeignKey("interface_groups.id", ondelete="CASCADE"), index=True)
@@ -463,6 +508,7 @@ class InterfaceGroupOpenPort(TimestampMixin, Base):
     порт. Как и OpenPort, port/protocol берутся только из справочника «Протоколы и порты» по
     protocol_catalog_id. Отдельная таблица с настоящим FK, а не полиморфный OpenPort: у группы нет
     owner_type/owner_id, и защита от «висячих» ссылок (services/integrity.py) не требуется."""
+
     __tablename__ = "interface_group_open_ports"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     group_id: Mapped[str] = mapped_column(ForeignKey("interface_groups.id", ondelete="CASCADE"), index=True)
@@ -483,6 +529,7 @@ class InterfaceGroupSubinterface(TimestampMixin, Base):
 
     IP-адреса и открытые порты шаблона — отдельные таблицы с настоящим FK (как у interface_group_open_ports), а не
     полиморфные ip_addresses/open_ports: шаблон не должен попадать в общие списки IP и открытых портов реестра."""
+
     __tablename__ = "interface_group_subinterfaces"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     group_id: Mapped[str] = mapped_column(ForeignKey("interface_groups.id", ondelete="CASCADE"), index=True)
@@ -494,6 +541,7 @@ class InterfaceGroupSubinterface(TimestampMixin, Base):
 
 class InterfaceGroupSubinterfaceIP(TimestampMixin, Base):
     """IP-адрес подинтерфейса группы портов (см. InterfaceGroupSubinterface): записывается в IP каждого подинтерфейса порта."""
+
     __tablename__ = "interface_group_subinterface_ips"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     subinterface_id: Mapped[str] = mapped_column(ForeignKey("interface_group_subinterfaces.id", ondelete="CASCADE"), index=True)
@@ -504,6 +552,7 @@ class InterfaceGroupSubinterfaceIP(TimestampMixin, Base):
 
 class InterfaceGroupSubinterfaceOpenPort(TimestampMixin, Base):
     """Открытый порт/протокол подинтерфейса группы портов (см. InterfaceGroupSubinterface); port/protocol — только из справочника."""
+
     __tablename__ = "interface_group_subinterface_open_ports"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     subinterface_id: Mapped[str] = mapped_column(ForeignKey("interface_group_subinterfaces.id", ondelete="CASCADE"), index=True)
@@ -518,11 +567,13 @@ class InterfaceType(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255), unique=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
 
+
 class InterfaceSpeed(TimestampMixin, Base):
     __tablename__ = "interface_speeds"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255), unique=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
+
 
 class IPAddress(TimestampMixin, Base):
     """IP-адрес владельца — интерфейс устройства, ВМ или источник ИС (owner_type/owner_id, тот же
@@ -540,8 +591,9 @@ class IPAddress(TimestampMixin, Base):
     Container.management_ip НЕ перенесён сюда: подтверждено, что поле не редактировалось ни через
     один UI (см. комментарий в ContainerFormModal.vue "у контейнера нет своего IP на уровне
     отчёта") — мёртвая колонка, удалена той же миграцией, а не активирована задним числом."""
+
     __tablename__ = "ip_addresses"
-    # Индекс по владельцу создаёт миграция d8e35a1c7f60; описан здесь, чтобы схема из миграций и модель совпадали (R1-02).
+    # Индекс по владельцу создаёт миграция d8e35a1c7f60; описан здесь, чтобы схема из миграций и модель совпадали.
     __table_args__ = (Index("ix_ip_addresses_owner", "owner_type", "owner_id"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_type: Mapped[str] = mapped_column(String(50))
@@ -551,6 +603,7 @@ class IPAddress(TimestampMixin, Base):
     purpose: Mapped[Optional[str]] = mapped_column(String(255))
     is_management: Mapped[bool] = mapped_column(Boolean, default=False)
 
+
 class VLANDomain(TimestampMixin, Base):
     __tablename__ = "vlan_domains"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -559,12 +612,14 @@ class VLANDomain(TimestampMixin, Base):
     source_device_id: Mapped[Optional[str]] = mapped_column(ForeignKey("physical_devices.id"), index=True)
     auto_sync: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+
 class VLANDomainDevice(TimestampMixin, Base):
     __tablename__ = "vlan_domain_devices"
     __table_args__ = (UniqueConstraint("domain_id", "physical_device_id", name="uq_vlan_domain_device"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     domain_id: Mapped[str] = mapped_column(ForeignKey("vlan_domains.id"), index=True)
     physical_device_id: Mapped[str] = mapped_column(ForeignKey("physical_devices.id"), index=True)
+
 
 class VLAN(TimestampMixin, Base):
     __tablename__ = "vlans"
@@ -575,6 +630,7 @@ class VLAN(TimestampMixin, Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
     domain_id: Mapped[Optional[str]] = mapped_column(ForeignKey("vlan_domains.id"), index=True)
 
+
 class DeviceTypeVLAN(TimestampMixin, Base):
     __tablename__ = "device_type_vlans"
     __table_args__ = (UniqueConstraint("device_type_id", "vlan_id", name="uq_device_type_vlan"),)
@@ -582,11 +638,12 @@ class DeviceTypeVLAN(TimestampMixin, Base):
     device_type_id: Mapped[str] = mapped_column(ForeignKey("device_types.id"), index=True)
     vlan_id: Mapped[str] = mapped_column(ForeignKey("vlans.id"), index=True)
 
+
 class PhysicalDeviceVLAN(TimestampMixin, Base):
     __tablename__ = "physical_device_vlans"
     __table_args__ = (
         UniqueConstraint("physical_device_id", "vlan_id", name="uq_physical_device_vlan"),
-        # Имя индекса — как в миграциях (`index=True` дало бы ix_physical_device_vlans_physical_device_id): так схема совпадает (R1-02).
+        # Имя индекса — как в миграциях (`index=True` дало бы ix_physical_device_vlans_physical_device_id): так схема совпадает.
         Index("ix_physical_device_vlans_device_id", "physical_device_id"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -597,12 +654,14 @@ class PhysicalDeviceVLAN(TimestampMixin, Base):
     is_management: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text)
 
+
 class InterfaceVLAN(TimestampMixin, Base):
     __tablename__ = "interface_vlans"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     interface_id: Mapped[str] = mapped_column(ForeignKey("device_interfaces.id"), index=True)
     vlan_id: Mapped[str] = mapped_column(ForeignKey("vlans.id"), index=True)
     mode: Mapped[Optional[str]] = mapped_column(String(30))
+
 
 class Connection(TimestampMixin, Base):
     __tablename__ = "connections"
@@ -655,6 +714,7 @@ class ConnectionType(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255), unique=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
 
+
 class OperatingSystemCategory(TimestampMixin, Base):
     __tablename__ = "operating_system_categories"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -663,6 +723,7 @@ class OperatingSystemCategory(TimestampMixin, Base):
     # Явный признак вместо сравнения category.name.casefold() == 'гипервизор' (см.
     # services/validation.validate_hypervisor) — та же мотивация, что у DeviceType.allows_vm_hosting.
     is_hypervisor: Mapped[bool] = mapped_column(Boolean, default=False)
+
 
 class OperatingSystem(TimestampMixin, Base):
     __tablename__ = "operating_systems"
@@ -674,6 +735,7 @@ class OperatingSystem(TimestampMixin, Base):
     vendor: Mapped[Optional[str]] = mapped_column(String(255))
     description: Mapped[Optional[str]] = mapped_column(Text)
 
+
 class VirtualMachine(TimestampMixin, Base):
     __tablename__ = "virtual_machines"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -683,6 +745,7 @@ class VirtualMachine(TimestampMixin, Base):
     hypervisor_os_id: Mapped[Optional[str]] = mapped_column(ForeignKey("operating_systems.id"), index=True)
     purpose: Mapped[Optional[str]] = mapped_column(Text)
     description: Mapped[Optional[str]] = mapped_column(Text)
+
 
 class Container(TimestampMixin, Base):
     __tablename__ = "containers"
@@ -694,6 +757,7 @@ class Container(TimestampMixin, Base):
     runtime_version: Mapped[Optional[str]] = mapped_column(String(100))
     purpose: Mapped[Optional[str]] = mapped_column(Text)
 
+
 class SoftwareAsset(TimestampMixin, Base):
     __tablename__ = "software_assets"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -703,6 +767,7 @@ class SoftwareAsset(TimestampMixin, Base):
     version: Mapped[Optional[str]] = mapped_column(String(100))
     description: Mapped[Optional[str]] = mapped_column(Text)
 
+
 class DeployedSoftware(TimestampMixin, Base):
     """Развёрнутый программный актив на устройстве/ВМ (1С, веб-сервер, файловый сервер, AD и т.п.
     — Лист 4 отчёта, столбец «Какие программные активы развёрнуты»). owner_type/owner_id вместо
@@ -711,8 +776,9 @@ class DeployedSoftware(TimestampMixin, Base):
     связь «владелец (устройство или ВМ) ↔ запись каталога software_assets + версия» — вводились в
     двух разных формах и хранились в двух отдельных таблицах, отличавшихся только именем FK-
     колонки владельца."""
+
     __tablename__ = "deployed_software"
-    # Индексы создаёт миграция c4a91e6f2b83 (поиск по владельцу и по записи каталога); описаны здесь, чтобы схема совпадала (R1-02).
+    # Индексы создаёт миграция c4a91e6f2b83 (поиск по владельцу и по записи каталога); описаны здесь, чтобы схема совпадала.
     __table_args__ = (
         Index("ix_deployed_software_owner", "owner_type", "owner_id"),
         Index("ix_deployed_software_software_asset_id", "software_asset_id"),
@@ -722,6 +788,7 @@ class DeployedSoftware(TimestampMixin, Base):
     owner_id: Mapped[str] = mapped_column(String(36))
     software_asset_id: Mapped[str] = mapped_column(ForeignKey("software_assets.id"))
     version: Mapped[Optional[str]] = mapped_column(String(100))
+
 
 class InformationSystemSource(TimestampMixin, Base):
     """Связь ИС с оборудованием/ВМ/контейнером или произвольный IP-источник (source_type: manual,
@@ -754,17 +821,21 @@ class InformationSystemSource(TimestampMixin, Base):
     ИС на уже не существующем оборудовании). Раньше это обеспечивал сам FK на уровне БД; owner_id
     настоящим FK не является (ссылается на одну из трёх разных таблиц в зависимости от source_type
     — единая FK-колонка не может ссылаться на разные таблицы), поэтому защита воссоздана вручную в
-    services/crud/deletion.py:assert_deletable() (вызывается из delete_resource; плюс before_delete и триггеры БД, см. services/integrity.py) — решение
-    заказчика по итогам рассмотрения архитектурной развилки (убрать защиту было неприемлемо для
+    services/crud/deletion.py:assert_deletable() (вызывается из delete_resource; плюс before_delete и триггеры БД, см.
+    services/integrity.py) — решение заказчика по итогам рассмотрения архитектурной развилки (убрать защиту было неприемлемо для
     точности отчёта)."""
+
     __tablename__ = "information_system_sources"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     information_system_id: Mapped[str] = mapped_column(ForeignKey("information_systems.id"), index=True)
     source_type: Mapped[str] = mapped_column(String(30))  # manual, device, vm, container — также играет роль owner_type
-    owner_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)  # id устройства/ВМ/контейнера по source_type; NULL при source_type='manual'. Не настоящий FK — см. докстринг класса
+    owner_id: Mapped[Optional[str]] = mapped_column(
+        String(36), index=True
+    )  # id устройства/ВМ/контейнера по source_type; NULL при source_type='manual'. Не настоящий FK — см. докстринг класса
     purpose: Mapped[Optional[str]] = mapped_column(String(500))
     role: Mapped[Optional[str]] = mapped_column(String(255))
     external_interaction: Mapped[bool] = mapped_column(Boolean, default=False)
+
 
 class OpenPort(TimestampMixin, Base):
     """Открытый порт/протокол владельца (ВМ или интерфейс физ. устройства, см. owner_type/owner_id).
@@ -779,6 +850,7 @@ class OpenPort(TimestampMixin, Base):
     чего не было до этой правки — старая версия хранила снимок port/protocol на самой записи и
     актуализировала его только при пересохранении именно этой записи порта). protocol_catalog_id
     обязателен (NOT NULL, миграция a1b7c9d3e502)."""
+
     __tablename__ = "open_ports"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_type: Mapped[str] = mapped_column(String(50))
@@ -787,6 +859,7 @@ class OpenPort(TimestampMixin, Base):
     protocol_catalog_id: Mapped[str] = mapped_column(ForeignKey("protocol_port_catalogs.id"), index=True)
     ip_address: Mapped[Optional[str]] = mapped_column(String(64))
     description: Mapped[Optional[str]] = mapped_column(Text)
+
 
 class ReportTemplate(TimestampMixin, Base):
     """Пользовательский шаблон произвольного отчёта (конструктор отчётов).
@@ -797,6 +870,7 @@ class ReportTemplate(TimestampMixin, Base):
     неизбежно дублировала бы её и требовала бы миграции при каждом новом типе колонки. Формат JSON
     описан в services/report_engine.py.
     """
+
     __tablename__ = "report_templates"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255), unique=True)
@@ -804,11 +878,13 @@ class ReportTemplate(TimestampMixin, Base):
     format: Mapped[str] = mapped_column(String(10), default="xlsx")  # xlsx | docx
     config: Mapped[str] = mapped_column(Text)  # JSON: sheets/blocks, колонки, фильтры, параметры
 
+
 class ReportTemplateVersion(TimestampMixin, Base):
     """Снимок состояния ReportTemplate, сохранённый непосредственно перед тем, как оно было
     заменено (обновление шаблона или восстановление другой версии). Раньше PUT
     /report-templates/{id} просто перезаписывал config — случайное сохранение стирало предыдущую
     версию без возможности отката."""
+
     __tablename__ = "report_template_versions"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     report_template_id: Mapped[str] = mapped_column(ForeignKey("report_templates.id"), index=True)
@@ -817,6 +893,7 @@ class ReportTemplateVersion(TimestampMixin, Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
     format: Mapped[str] = mapped_column(String(10))
     config: Mapped[str] = mapped_column(Text)
+
 
 class PortSyncRule(TimestampMixin, Base):
     """Правило автоматического согласования данных порта с портом на другом конце подключения
@@ -830,6 +907,7 @@ class PortSyncRule(TimestampMixin, Base):
     code заполнен только у СТАНДАРТНЫХ правил (устойчивый идентификатор из DEFAULT_RULES): по нему
     правило находится при сбросе к стандартному и не дублируется при стартовом заполнении.
     Стандартное правило можно менять и отключать, но не удалять."""
+
     __tablename__ = "port_sync_rules"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     code: Mapped[Optional[str]] = mapped_column(String(64), unique=True)
@@ -875,6 +953,7 @@ class AuditLog(TimestampMixin, Base):
     actor_username: Mapped[Optional[str]] = mapped_column(String(150))
     actor_ip: Mapped[Optional[str]] = mapped_column(String(64))
 
+
 class User(TimestampMixin, Base):
     """Учётная запись приложения. Существует независимо от AuthSettings.enabled — учётные записи
     можно завести заранее, пока переключатель ещё выключен (см. services/auth/settings.py), а не только
@@ -886,6 +965,7 @@ class User(TimestampMixin, Base):
     failed_attempts/locked_until — защита от подбора пароля (см. services/auth/lockout.py и config.AUTH_MAX_FAILED_ATTEMPTS):
     после серии неудачных попыток учётная запись временно блокируется независимо от того, был ли
     следующий пароль верным."""
+
     __tablename__ = "users"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     username: Mapped[str] = mapped_column(String(150), unique=True)
@@ -896,15 +976,16 @@ class User(TimestampMixin, Base):
     locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
+
 class AuthSession(Base):
     """Активная сессия входа. Хранится ХЕШ токена (sha256), а не сам токен — токен виден клиенту
-    только один раз, в ответе на /api/v1/auth/login, и не восстановим из БД (в т.ч. из стухшей
-    infra_registry.db в репозитории, см. память проекта про этот файл). user_agent/ip_address —
+    только один раз, в ответе на /api/v1/auth/login, и не восстановим из БД (в т.ч. из копии базы). user_agent/ip_address —
     только для отображения администратору списка активных входов (см. GET /auth/sessions), не
     участвуют в проверке подлинности запроса."""
+
     __tablename__ = "auth_sessions"
     # Уникальность хеша — именованное ограничение, как в миграциях (раньше `unique=True, index=True` давало unique-индекс под другим
-    # именем и вечное расхождение схемы из миграций с моделью, R1-02). Поиск по хешу идёт по индексу этого ограничения.
+    # именем и вечное расхождение схемы из миграций с моделью). Поиск по хешу идёт по индексу этого ограничения.
     __table_args__ = (UniqueConstraint("token_hash", name="uq_auth_sessions_token_hash"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     token_hash: Mapped[str] = mapped_column(String(64))
@@ -914,6 +995,7 @@ class AuthSession(Base):
     user_agent: Mapped[Optional[str]] = mapped_column(String(255))
     ip_address: Mapped[Optional[str]] = mapped_column(String(64))
 
+
 class AuthSettings(Base):
     """Синглтон (id зафиксирован строкой 'singleton', ровно одна строка в таблице) — глобальный
     тумблер аутентификации. По умолчанию enabled=False: однопользовательский локальный режим,
@@ -921,10 +1003,12 @@ class AuthSettings(Base):
     services/auth/gate.py:auth_gate_middleware). Отдельная таблица, а не запись в каком-то общем
     key-value справочнике настроек — на момент написания это единственная серверная настройка,
     заводить ради неё общий механизм преждевременно."""
+
     __tablename__ = "auth_settings"
     id: Mapped[str] = mapped_column(String(20), primary_key=True, default="singleton")
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
+
 
 class AuditSettings(Base):
     """Синглтон (id 'singleton') — политика хранения журнала аудита.
@@ -935,6 +1019,7 @@ class AuditSettings(Base):
     last_cleanup_at — когда очистка по сроку последний раз довела дело до конца; от неё считается «не чаще раза в сутки».
     Строка создаётся при первой записи (чтение без строки возвращает умолчания), как у AuthSettings; отдельная таблица, а не ключ
     AppPreference: настройки интерфейса читает любая роль (GET /preferences), а эти — только администратор."""
+
     __tablename__ = "audit_settings"
     __table_args__ = (
         CheckConstraint("retention_days IS NULL OR retention_days >= 0", name="ck_audit_settings_retention_days_non_negative"),
@@ -943,6 +1028,7 @@ class AuditSettings(Base):
     retention_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     last_cleanup_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
+
 
 class AppPreference(Base):
     """Серверная настройка интерфейса (раньше жила в localStorage браузера — тема, название организации,
@@ -958,11 +1044,13 @@ class AppPreference(Base):
 
     value — JSON-текст (как ReportTemplate.config: портируемость SQLite/PostgreSQL). Допустимые ключи и
     формы значений проверяет слой схем (schemas.UserPreferencesUpdate / GlobalPreferencesUpdate), а не БД."""
+
     __tablename__ = "app_preferences"
     owner: Mapped[str] = mapped_column(String(50), primary_key=True)
     key: Mapped[str] = mapped_column(String(60), primary_key=True)
     value: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
+
 
 class CatalogSeedMarker(Base):
     """Отметка «стартовые значения справочников уже заведены» (см. services/catalogs.py:
@@ -970,6 +1058,7 @@ class CatalogSeedMarker(Base):
     администратор удалил или переименовал. name — идентификатор набора значений с версией
     (например 'default_catalogs.v1'): новые стандартные значения вводятся новым набором с новым
     именем, поэтому ранее удалённые записи старого набора не возвращаются."""
+
     __tablename__ = "catalog_seed_markers"
     name: Mapped[str] = mapped_column(String(100), primary_key=True)
     applied_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
@@ -979,6 +1068,7 @@ class SavedDiagram(TimestampMixin, Base):
     """Независимая сохранённая диаграмма топологии сети (не синглтон — unique(name), может быть
     несколько диаграмм с разными фильтрами охвата, см. ТЗ раздел 6). scope_filter хранится как
     JSON в Text (тот же подход, что ReportTemplate.config) — портируемость SQLite/PostgreSQL."""
+
     __tablename__ = "saved_diagrams"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(255), unique=True)
@@ -988,13 +1078,15 @@ class SavedDiagram(TimestampMixin, Base):
     collapse_threshold: Mapped[int] = mapped_column(Integer, default=20)
     last_export_format: Mapped[Optional[str]] = mapped_column(String(10))  # drawio|vsdx|svg
 
+
 class DiagramLayout(TimestampMixin, Base):
     """Раскладка узлов диаграммы — 1:1 к SavedDiagram. Хранится отдельной таблицей (не колонкой
     SavedDiagram), т.к. это часть контракта "перегенерировать граф, сохранив раскладку"
     (POST /diagrams/{id}/regenerate) — раскладка переживает пересборку графа из реестра."""
+
     __tablename__ = "diagram_layouts"
     # В базе из миграций — UNIQUE-ограничение и отдельный обычный индекс (не один unique-индекс, как давало `unique=True, index=True`);
-    # модель описывает ровно это, чтобы схема из миграций и модели совпадали (R1-02).
+    # модель описывает ровно это, чтобы схема из миграций и модели совпадали.
     __table_args__ = (Index("ix_diagram_layouts_saved_diagram_id", "saved_diagram_id"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     saved_diagram_id: Mapped[str] = mapped_column(ForeignKey("saved_diagrams.id", ondelete="CASCADE"), unique=True)
@@ -1002,11 +1094,13 @@ class DiagramLayout(TimestampMixin, Base):
     viewport: Mapped[Optional[str]] = mapped_column(Text)  # JSON: {"zoom":..,"pan_x":..,"pan_y":..}
     auto_layout_algorithm: Mapped[str] = mapped_column(String(30), default="hierarchical")
 
+
 class DiagramGroupState(TimestampMixin, Base):
     """Явное состояние сворачивания одной группы узлов одной диаграммы (1:N к SavedDiagram) — см.
     ТЗ раздел 8. Отсутствие записи для group_key означает "порог ещё не достигнут"; при достижении
     порога и отсутствии явной записи она создаётся с is_collapsed=True, а дальнейший
     regenerate её не перезаписывает (только device_count)."""
+
     __tablename__ = "diagram_group_states"
     __table_args__ = (UniqueConstraint("saved_diagram_id", "group_key", name="uq_diagram_group_state"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

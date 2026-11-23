@@ -1,4 +1,4 @@
-"""Код-ревью п.3.2 (высокая серьёзность): защита от Excel Formula Injection.
+"""Защита от Excel Formula Injection.
 
 reporting.py (`ws.append(...)` в _populate_sheet1..4), services/audit_export.py и services/report_grid.py
 (`xl_cell.value = ...`) записывают пользовательские текстовые поля в ячейки openpyxl. openpyxl автоматически
@@ -15,6 +15,7 @@ reporting.py (`ws.append(...)` в _populate_sheet1..4), services/audit_export.py
 
 Единая точка защиты для всех генераторов отчётов — правило одно на проект, а не по копии в каждом.
 """
+
 from __future__ import annotations
 
 from typing import Any

@@ -2,6 +2,7 @@
 
 Запуск: pytest backend/tests/test_migrations_port_sync_rules.py -v
 """
+
 from __future__ import annotations
 
 import sqlite3

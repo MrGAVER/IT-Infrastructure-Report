@@ -1,7 +1,7 @@
-"""Pydantic-модели тел запросов отчётов и конструктора шаблонов (код-ревью main, F-06, этап 2).
+"""Pydantic-модели тел запросов отчётов и конструктора шаблонов.
 
 Заменяют ``payload: dict`` в ``api/reports.py`` и ``api/report_builder.py``. Правила проверки — прежние и по-прежнему в
-``services/report_params.py`` (A-10): валидаторы вызывают их через ``delegate_to_parser`` (см. ``schema_base``), поэтому тексты
+``services/report_params.py``: валидаторы вызывают их через ``delegate_to_parser`` (см. ``schema_base``), поэтому тексты
 ошибок не изменились. Предметная проверка шаблона (``validate_grid_config`` / ``validate_config``) осталась в обработчике: ей нужны
 метаданные сущностей, и она не про форму тела.
 
@@ -129,7 +129,12 @@ class ReportTemplateWrite(RequestBody):
     """POST /api/v1/report-templates и PUT /api/v1/report-templates/{id} — шаблон целиком."""
 
     # validate_default: отсутствующее поле проходит ту же проверку и получает то же сообщение, что и неверное значение.
-    name: str = Field(default="", validate_default=True, max_length=MAX_TEMPLATE_NAME_LENGTH, description="Название шаблона, уникальное; пробелы по краям обрезаются.")
+    name: str = Field(
+        default="",
+        validate_default=True,
+        max_length=MAX_TEMPLATE_NAME_LENGTH,
+        description="Название шаблона, уникальное; пробелы по краям обрезаются.",
+    )
     format: str = Field(default=DEFAULT_FORMAT, description="xlsx или docx.")
     config: dict[str, Any] = Field(description="Описание листов (xlsx) или блоков (docx); проверяется под формат шаблона.")
     description: str | None = None

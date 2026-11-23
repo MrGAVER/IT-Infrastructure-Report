@@ -4,8 +4,10 @@
 показывал журнал аудита, «последний вход» и сессии со сдвигом на часовой пояс пользователя (см. services/timeutil.py).
 
 Запуск: pytest backend/tests/test_timeutil.py -v
-PostgreSQL-часть: INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/infra_test pytest backend/tests/test_timeutil.py
+PostgreSQL-часть: INFRA_REGISTRY_TEST_DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/infra_test pytest
+backend/tests/test_timeutil.py
 """
+
 from __future__ import annotations
 
 import os
@@ -124,10 +126,14 @@ def test_generic_resource_has_same_format_on_create_read_list_and_update(client)
         _assert_utc_iso(fetched[field], f"GET {field}")
     assert fetched["created_at"] == body["created_at"], "одно и то же значение при создании и при чтении"
 
-    listed = next(i for i in client.get(f"{API}/resources/device-categories", params={"limit": 500}).json()["items"] if i["id"] == body["id"])
+    listed = next(
+        i for i in client.get(f"{API}/resources/device-categories", params={"limit": 500}).json()["items"] if i["id"] == body["id"]
+    )
     _assert_utc_iso(listed["created_at"], "list created_at")
 
-    updated = client.put(f"{API}/resources/device-categories/{body['id']}", json={"name": "Категория А-06", "description": "после правки"}).json()
+    updated = client.put(
+        f"{API}/resources/device-categories/{body['id']}", json={"name": "Категория А-06", "description": "после правки"}
+    ).json()
     _assert_utc_iso(updated["updated_at"], "PUT updated_at")
 
 
@@ -160,9 +166,22 @@ def test_diagram_has_same_format_on_create_and_read(client):
 
 
 def test_report_template_and_versions_carry_the_offset(client):
-    config = {"sheets": [{"title": "Лист1", "columns": [{"width": 25}], "rows": [{
-        "height": 18, "repeat": True, "data_source": {"root_entity": "information-systems"},
-        "cells": [{"col": 0, "kind": "field", "path": "name"}]}]}]}
+    config = {
+        "sheets": [
+            {
+                "title": "Лист1",
+                "columns": [{"width": 25}],
+                "rows": [
+                    {
+                        "height": 18,
+                        "repeat": True,
+                        "data_source": {"root_entity": "information-systems"},
+                        "cells": [{"col": 0, "kind": "field", "path": "name"}],
+                    }
+                ],
+            }
+        ]
+    }
     created = client.post(f"{API}/report-templates", json={"name": "Шаблон А-06", "config": config})
     assert created.status_code == 201, created.text
     template = created.json()
@@ -199,7 +218,9 @@ def test_serialize_user_and_session_use_the_offset(db_session):
     user.last_login_at = None
     assert serialize_user(user)["last_login_at"] is None
 
-    session_row = AuthSession(token_hash="h", user_id="u", created_at=datetime(2026, 10, 19, 18, 0), expires_at=datetime(2026, 10, 20, 6, 0))
+    session_row = AuthSession(
+        token_hash="h", user_id="u", created_at=datetime(2026, 10, 19, 18, 0), expires_at=datetime(2026, 10, 20, 6, 0)
+    )
     out = serialize_session(session_row)
     assert out["created_at"] == "2026-10-19T18:00:00+00:00"
     assert out["expires_at"] == "2026-10-20T06:00:00+00:00"
@@ -254,7 +275,9 @@ def test_range_filter_accepts_values_with_offset_and_without(client, db_session)
     items = client.get(f"{API}/resources/audit-log", params={"date_from": sent_back, "limit": 50}).json()["items"]
     assert entry.id in {i["id"] for i in items}, "значение из ответа API, отправленное обратно как граница периода, находит запись"
     later = iso_utc(entry.created_at + timedelta(seconds=5))
-    assert entry.id not in {i["id"] for i in client.get(f"{API}/resources/audit-log", params={"date_from": later, "limit": 50}).json()["items"]}
+    assert entry.id not in {
+        i["id"] for i in client.get(f"{API}/resources/audit-log", params={"date_from": later, "limit": 50}).json()["items"]
+    }
 
 
 # ---------------------------------------------------------------------------------------------------------------------

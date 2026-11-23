@@ -8,6 +8,7 @@ alembic/versions/b44cd42f9fa0_seed_structural_appendix_word_template.py, кот�
 Требует sqlalchemy/python-docx/alembic (как test_report_seed_templates.py) — при их отсутствии
 тесты пропускаются.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -26,14 +27,26 @@ try:
     from sqlalchemy.orm import sessionmaker
 
     from app.models import (
-        Base, Connection, ConnectionType, DeviceCategory, DeviceInterface, DeviceModel, DeviceType, EmbeddedOperatingSystem,
-        Manufacturer, PhysicalDevice, PhysicalDeviceVLAN, VLAN,
+        Base,
+        Connection,
+        ConnectionType,
+        DeviceCategory,
+        DeviceInterface,
+        DeviceModel,
+        DeviceType,
+        EmbeddedOperatingSystem,
+        Manufacturer,
+        PhysicalDevice,
+        PhysicalDeviceVLAN,
+        VLAN,
     )
     from app.services.report_engine import ReportBuilderError, validate_config
     from app.services.report_meta import build_entity_metadata
     from app.services.report_render import build_docx
     from app.services.report_seed_word_template import (
-        TEMPLATE_DESCRIPTION, TEMPLATE_NAME, default_structural_appendix_config,
+        TEMPLATE_DESCRIPTION,
+        TEMPLATE_NAME,
+        default_structural_appendix_config,
     )
 
     DEPS_AVAILABLE = True
@@ -119,10 +132,21 @@ class BuildStructuralAppendixTestCase(unittest.TestCase):
         self.session.add(model)
         self.session.flush()
 
-        self.switch = PhysicalDevice(device_type_id=dtype.id, manufacturer_id=manufacturer.id, model_id=model.id,
-                                      serial_number="SN-321", system_name="C2960X_210", embedded_os_id=embedded_os.id)
-        self.server = PhysicalDevice(device_type_id=dtype.id, manufacturer_id=manufacturer.id,
-                                      serial_number="SN-123", system_name="srv-204", embedded_os_id=embedded_os.id)
+        self.switch = PhysicalDevice(
+            device_type_id=dtype.id,
+            manufacturer_id=manufacturer.id,
+            model_id=model.id,
+            serial_number="SN-321",
+            system_name="C2960X_210",
+            embedded_os_id=embedded_os.id,
+        )
+        self.server = PhysicalDevice(
+            device_type_id=dtype.id,
+            manufacturer_id=manufacturer.id,
+            serial_number="SN-123",
+            system_name="srv-204",
+            embedded_os_id=embedded_os.id,
+        )
         self.session.add_all([self.switch, self.server])
         self.session.flush()
 
@@ -139,8 +163,9 @@ class BuildStructuralAppendixTestCase(unittest.TestCase):
         vlan = VLAN(vlan_id=100, name="Servers")
         self.session.add(vlan)
         self.session.flush()
-        self.session.add(PhysicalDeviceVLAN(physical_device_id=self.switch.id, vlan_id=vlan.id,
-                                             ip_address="10.9.100.204", prefix_length=24))
+        self.session.add(
+            PhysicalDeviceVLAN(physical_device_id=self.switch.id, vlan_id=vlan.id, ip_address="10.9.100.204", prefix_length=24)
+        )
         self.session.commit()
 
     def tearDown(self):

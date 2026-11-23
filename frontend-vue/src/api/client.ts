@@ -382,8 +382,14 @@ export function createResource<T>(resource: string, payload: Record<string, unkn
   return api.post<T>(`/resources/${resource}`, payload)
 }
 
-export function updateResource<T>(resource: string, id: string, payload: Record<string, unknown>) {
-  return api.put<T>(`/resources/${resource}/${id}`, payload)
+/**
+ * Обновление записи. `expectedUpdatedAt` — `updated_at` записи в том виде, в каком форма её получила: сервер сверит его с текущим и, если запись
+ * успели изменить, ответит 409 STALE_RECORD вместо того, чтобы молча затереть чужую правку (оптимистичная блокировка). Без значения (null, undefined,
+ * у записи нет отметки времени) проверки нет, как раньше: выигрывает последняя запись.
+ */
+export function updateResource<T>(resource: string, id: string, payload: Record<string, unknown>, expectedUpdatedAt?: string | null) {
+  const body = expectedUpdatedAt ? { ...payload, expected_updated_at: expectedUpdatedAt } : payload
+  return api.put<T>(`/resources/${resource}/${id}`, body)
 }
 
 export function deleteResource(resource: string, id: string) {
@@ -417,4 +423,6 @@ export const ErrorCode = {
   REQUEST_BODY_TOO_LARGE: 'REQUEST_BODY_TOO_LARGE',
   /** 422: неверный текущий пароль при смене собственного пароля. Сессию не завершает (в отличие от 401), попытка считается неудачным входом. */
   WRONG_CURRENT_PASSWORD: 'WRONG_CURRENT_PASSWORD',
+  /** 409: запись изменили после того, как форма её получила (PUT с expected_updated_at устарел). Нужно перечитать запись и повторить правку. */
+  STALE_RECORD: 'STALE_RECORD',
 } as const

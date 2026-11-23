@@ -4,3 +4,24 @@
 
 # Frontend: форматирование Prettier (только форматирование, без изменения логики)
 ad06591b837dd8153377ea748e0861f50a5daa1e
+
+# Backend: ruff format пачками 1–14 (только форматирование, AST до и после совпадает; проверка — равенство ast.dump по HEAD)
+3d0e5c3e0d76ffce46ce20c41dfc3dcef49dd5a4 # пачка 1
+316250d6f640a70b33345becb3e375c874cc457c # пачка 2
+b8e84d61cd597a3f423d2037c81633042941c5aa # пачка 3
+e41ec964747ba75e37b9e2aa5b5876696cff78f3 # пачка 4
+e08d2076471b04952d5d72d755af14eeac2e3c1f # пачка 5
+3c6c6b653817878a5dc4210d2458b3881b3560dc # пачка 6
+441b1e0ba77e18a3ed566c608e8db7fdb86c4431 # пачка 7
+3dbae18830469e2d289f63aba76338817e66ccf7 # пачка 8
+656cd5f9476e454c76ffc47b8dc19a734c3b03f3 # пачка 9
+fa1745f523bf0e33fa2fe08a5ceb628b9f25d4bb # пачка 10
+113b6a502c683e18e2d043e3128376bbda6f3e18 # пачка 11
+166efbb5b7218c678fad44c72116ab3dc8856e9e # пачка 12
+a83899413dde09d98066aa52750327c25d64f478 # пачка 13
+9a56638e1bbe6105bd43b83cf4cd3b51fe4165e7 # пачка 14
+c84fda0b6e671533a223c52a25a1265709676b31 # line-length: ступень 1 из 5 (400 → 300)
+f3a8122d0fbf91e43db9a4d483ee6d05ec030c4d # line-length: ступень 2 из 5 (300 → 240)
+157275ccb5561498a1dfff446fee9ff8eab00d9e # line-length: ступень 3 из 5 (240 → 200)
+ec5c90bb66b6558b5eb451846d0b21cd79a6bac5 # line-length: ступень 4 из 5 (200 → 160)
+971b8ee6f5a6c6be8d40a534c245083597962e29 # line-length: ступень 5 из 5 (160 → 140)

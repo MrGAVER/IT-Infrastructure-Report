@@ -1,7 +1,8 @@
-"""VLAN: панель, участники и синхронизация доменов, копирование и массовое назначение (код-ревью п. 10).
+"""VLAN: панель, участники и синхронизация доменов, копирование и массовое назначение.
 
 Обработчики только разбирают запрос и вызывают services/vlan_operations.py — вся логика там.
 """
+
 from fastapi import APIRouter, Body, Depends
 from sqlalchemy.orm import Session
 
@@ -15,19 +16,24 @@ from ..services.vlan_operations import (
 from ..services.vlan_operations import bulk_assign_vlan as bulk_assign_vlans
 from ..services.vlan_operations import copy_device_vlans as copy_vlans_between_devices
 
-router = APIRouter(tags=['VLAN'])
+router = APIRouter(tags=["VLAN"])
 
-@router.get('/api/v1/vlan-dashboard')
+
+@router.get("/api/v1/vlan-dashboard")
 def vlan_dashboard(session: Session = Depends(get_db)):
     """Dashboard-friendly VLAN view: same VLAN ID can have different definitions."""
     return build_vlan_dashboard(session)
 
-@router.post('/api/v1/vlan-domains/{domain_id}/members')
+
+@router.post("/api/v1/vlan-domains/{domain_id}/members")
 def add_vlan_domain_member(domain_id: str, payload: VLANDomainMemberRequest, session: Session = Depends(get_db)):
     return add_domain_member(session, domain_id, payload.physical_device_id)
 
-@router.post('/api/v1/vlan-domains/{domain_id}/sync')
-def sync_vlan_domain(domain_id: str, payload: VLANDomainSyncRequest = Body(default_factory=VLANDomainSyncRequest), session: Session = Depends(get_db)):
+
+@router.post("/api/v1/vlan-domains/{domain_id}/sync")
+def sync_vlan_domain(
+    domain_id: str, payload: VLANDomainSyncRequest = Body(default_factory=VLANDomainSyncRequest), session: Session = Depends(get_db)
+):
     """Пункт 1 правки "домен VLAN" — payload может содержать replace=true (посылается
     VLANDomainFormModal.vue при смене устройства-источника, после подтверждения
     пользователем предупреждения о перезаписи): помимо обычного добавления недостающих VLAN
@@ -39,11 +45,13 @@ def sync_vlan_domain(domain_id: str, payload: VLANDomainSyncRequest = Body(defau
     уже используемое поведение, менять его не нужно."""
     return sync_domain(session, domain_id, payload.replace)
 
-@router.post('/api/v1/devices/{device_id}/vlan-copy')
+
+@router.post("/api/v1/devices/{device_id}/vlan-copy")
 def copy_device_vlans(device_id: str, payload: VlanCopyRequest, session: Session = Depends(get_db)):
     return copy_vlans_between_devices(session, device_id, payload.source_device_id)
 
-@router.post('/api/v1/device-vlans/bulk-assign')
+
+@router.post("/api/v1/device-vlans/bulk-assign")
 def bulk_assign_vlan(payload: BulkVlanAssignRequest, session: Session = Depends(get_db)):
     """Назначает один существующий VLAN сразу нескольким устройствам — без создания формального
     VLANDomain (тот нужен для периодической синхронизации набора VLAN, см. sync_vlan_domain; это —

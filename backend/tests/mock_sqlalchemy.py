@@ -6,6 +6,7 @@
 Если в окружении есть настоящий SQLAlchemy, эти тесты можно один в один переписать на реальную
 in-memory SQLite сессию — форма мока намеренно повторяет реальный API (`session.scalars(select(X)...).all()`).
 """
+
 from __future__ import annotations
 
 import sys
@@ -16,19 +17,47 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parent.parent / "app"
 
 MODEL_NAMES = [
-    "Building", "Connection", "ConnectionType", "Container", "Department", "DeviceInterface", "DeviceSubinterface",
-    "DeployedSoftware", "DeviceModel", "DeviceType", "EmbeddedOperatingSystem", "IPAddress",
-    "ISDepartment", "ISPlacementAsset", "ISProtocol",
-    "InformationSystem", "InformationSystemSource", "InterfaceType",
-    "InterfaceVLAN", "Manufacturer", "OpenPort", "OperatingSystem", "PhysicalDevice",
-    "PhysicalDeviceVLAN", "PlacementAsset", "ProtocolPortCatalog", "Rack", "Room",
-    "SoftwareAsset", "StructuralUnit", "SupportMethod", "SupportOrganization", "VLAN",
-    "VirtualMachine", "CryptoProtectionMeans",
+    "Building",
+    "Connection",
+    "ConnectionType",
+    "Container",
+    "Department",
+    "DeviceInterface",
+    "DeviceSubinterface",
+    "DeployedSoftware",
+    "DeviceModel",
+    "DeviceType",
+    "EmbeddedOperatingSystem",
+    "IPAddress",
+    "ISDepartment",
+    "ISPlacementAsset",
+    "ISProtocol",
+    "InformationSystem",
+    "InformationSystemSource",
+    "InterfaceType",
+    "InterfaceVLAN",
+    "Manufacturer",
+    "OpenPort",
+    "OperatingSystem",
+    "PhysicalDevice",
+    "PhysicalDeviceVLAN",
+    "PlacementAsset",
+    "ProtocolPortCatalog",
+    "Rack",
+    "Room",
+    "SoftwareAsset",
+    "StructuralUnit",
+    "SupportMethod",
+    "SupportOrganization",
+    "VLAN",
+    "VirtualMachine",
+    "CryptoProtectionMeans",
 ]
 
 
 class DummyAttr:
     """Заглушка для сравнений вида Model.column == value внутри select(...).where(...)."""
+
     def __eq__(self, other):
         return True
 
@@ -84,6 +113,7 @@ class FakeResult:
 
 class FakeSession:
     """session.scalars(select(Model)...).all() -> все объекты данного типа из таблицы."""
+
     def __init__(self, table: dict[str, list]):
         self.table = table
 

@@ -9,7 +9,9 @@ import os
 import re
 import shutil
 import tempfile
-import xml.etree.ElementTree as ET  # nosec B405 # только запись и сборка (ElementTree.write, SubElement, register_namespace); разбор — через SafeET
+
+# ET — только запись и сборка (ElementTree.write, SubElement, register_namespace); разбор — через SafeET
+import xml.etree.ElementTree as ET  # nosec B405
 import zipfile
 
 from defusedxml import ElementTree as SafeET
@@ -105,7 +107,9 @@ def _finalize_vsdx_package(saved_path: str, template_path: str) -> None:
     for part in _VSDX_CONTENT_PARTS:
         data = entries[part]
         if _SYNTHETIC_NAMESPACE_DECLARATION.search(data):
-            root = SafeET.fromstring(data)  # части пакета формирует само приложение, но разбор — безопасный: DTD-сущности и внешние ссылки запрещены
+            root = SafeET.fromstring(
+                data
+            )  # части пакета формирует само приложение, но разбор — безопасный: DTD-сущности и внешние ссылки запрещены
             if root.tag.startswith("{"):
                 ET.register_namespace("", root.tag[1:].split("}", 1)[0])
             buf = io.BytesIO()
@@ -281,7 +285,7 @@ def _set_vsdx_font_size(shape, size: float) -> None:
 def _add_vsdx_port_ticks(rect_template, node_shape, ticks: int) -> None:
     """Засечки портов вдоль нижней грани узла — отдельные фигуры PORT_TICK_WIDTH x PORT_TICK_HEIGHT, равномерно по ширине (как port-tick
     в .svg и штрихи в .drawio); коннектор целится в их центр по горизонтали (_vsdx_port_anchor). Копии делает _ShapeTemplate — без
-    него сотни засечек вернули бы квадратичный обход страницы (A-06). Шаблонная секция Property (демонстрационные «property value»)
+    него сотни засечек вернули бы квадратичный обход страницы. Шаблонная секция Property (демонстрационные «property value»)
     засечке не нужна и в файл не попадает."""
     if ticks <= 0:
         return
@@ -348,7 +352,7 @@ def _fit_vsdx_page_to_content(page, graph: dict) -> float:
 
 
 class _ShapeTemplate:
-    """Шаблонная фигура, копии которой делаются за постоянное время (A-06: .vsdx стал быстрым).
+    """Шаблонная фигура, копии которой делаются за постоянное время (.vsdx стал быстрым).
 
     Shape.copy() библиотеки vsdx перед каждым копированием вызывает page.set_max_ids() — обход ВСЕХ фигур страницы ради «наибольшего ID»,
     то есть n копий стоят n² обходов (120 устройств — около 18 с). Но page.max_id только растёт: каждая копия получает max_id + 1 и
@@ -368,7 +372,9 @@ class _ShapeTemplate:
         from vsdx import namespace as visio_ns
 
         page = self._page
-        new_xml = copy.deepcopy(self._shape.xml)  # то же, что у библиотеки (tostring → разбор), но без разбора XML: см. test_diagram_export_safe_xml
+        new_xml = copy.deepcopy(
+            self._shape.xml
+        )  # то же, что у библиотеки (tostring → разбор), но без разбора XML: см. test_diagram_export_safe_xml
         shapes_tag = page.xml.find(f"{visio_ns}Shapes")
         id_map = page.vis.increment_shape_ids(new_xml, page)
         page.vis.update_ids(new_xml, id_map)

@@ -16,6 +16,7 @@
 (NULL считается активным): порт, который эти функции считают свободным, validate_connection тоже
 примет.
 """
+
 from __future__ import annotations
 
 import re
@@ -30,7 +31,7 @@ from ..models import Connection, DeviceInterface, PhysicalDevice
 from .port_vlans import carries_all_vlans
 from .device_label import device_label, device_label_from_parts
 
-_DIGITS = re.compile(r'(\d+)')
+_DIGITS = re.compile(r"(\d+)")
 
 
 def natural_key(name: str) -> tuple[Any, ...]:
@@ -48,7 +49,7 @@ def natural_key(name: str) -> tuple[Any, ...]:
 def _require_device(device_id: str, session: Session) -> PhysicalDevice:
     device = session.get(PhysicalDevice, device_id)
     if device is None:
-        raise HTTPException(404, 'Физическое устройство не найдено')
+        raise HTTPException(404, "Физическое устройство не найдено")
     return device
 
 
@@ -58,13 +59,18 @@ def _active_connections_of_device(device_id: str, session: Session) -> list[Conn
     own_ids = select(DeviceInterface.id).where(DeviceInterface.physical_device_id == device_id)
     stmt = (
         select(Connection)
-        .where(Connection.is_active.is_not(False), or_(Connection.source_interface_id.in_(own_ids), Connection.destination_interface_id.in_(own_ids)))
+        .where(
+            Connection.is_active.is_not(False),
+            or_(Connection.source_interface_id.in_(own_ids), Connection.destination_interface_id.in_(own_ids)),
+        )
         .order_by(Connection.created_at, Connection.id)
     )
     return list(session.scalars(stmt).all())
 
 
-def list_free_interfaces(device_id: str, session: Session, *, q: str | None = None, include: Iterable[str] = (), offset: int = 0, limit: int = 100) -> dict[str, Any]:
+def list_free_interfaces(
+    device_id: str, session: Session, *, q: str | None = None, include: Iterable[str] = (), offset: int = 0, limit: int = 100
+) -> dict[str, Any]:
     """Свободные порты устройства в естественном порядке имён, одна страница.
 
     Для каждого порта возвращаются роль, режим и ``all_vlans`` — признак «Все VLAN» С УЧЁТОМ режима (в access он
@@ -84,22 +90,27 @@ def list_free_interfaces(device_id: str, session: Session, *, q: str | None = No
     for conn in _active_connections_of_device(device_id, session):
         occupied.update((conn.source_interface_id, conn.destination_interface_id))
     forced = set(include)
-    needle = (q or '').strip().casefold()
+    needle = (q or "").strip().casefold()
 
     selected = [p for p in ports if p.id in forced or (p.id not in occupied and (not needle or needle in p.name.casefold()))]
     selected.sort(key=lambda p: (natural_key(p.name), p.id))
-    page = selected[offset:offset + limit]
+    page = selected[offset : offset + limit]
     return {
-        'items': [
+        "items": [
             {
-                'id': p.id, 'name': p.name, 'is_management': p.is_management, 'is_data_transfer': p.is_data_transfer,
-                'vlan_mode': p.vlan_mode, 'all_vlans': carries_all_vlans(p), 'occupied': p.id in occupied,
+                "id": p.id,
+                "name": p.name,
+                "is_management": p.is_management,
+                "is_data_transfer": p.is_data_transfer,
+                "vlan_mode": p.vlan_mode,
+                "all_vlans": carries_all_vlans(p),
+                "occupied": p.id in occupied,
             }
             for p in page
         ],
-        'total': len(selected),
-        'offset': offset,
-        'limit': limit,
+        "total": len(selected),
+        "offset": offset,
+        "limit": limit,
     }
 
 
@@ -117,35 +128,44 @@ def list_interface_connections(device_id: str, session: Session) -> dict[str, An
     peer_ids = {pid for c in connections for pid in (c.source_interface_id, c.destination_interface_id)}
     peers = {p.id: p for p in session.scalars(select(DeviceInterface).where(DeviceInterface.id.in_(peer_ids))).all()} if peer_ids else {}
     device_ids = {p.physical_device_id for p in peers.values()}
-    devices = {d.id: d for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(device_ids))).all()} if device_ids else {}
+    devices = (
+        {d.id: d for d in session.scalars(select(PhysicalDevice).where(PhysicalDevice.id.in_(device_ids))).all()} if device_ids else {}
+    )
 
     items: list[dict[str, Any]] = []
     for conn in connections:
-        for own_id, peer_id in ((conn.source_interface_id, conn.destination_interface_id), (conn.destination_interface_id, conn.source_interface_id)):
+        for own_id, peer_id in (
+            (conn.source_interface_id, conn.destination_interface_id),
+            (conn.destination_interface_id, conn.source_interface_id),
+        ):
             if own_id not in own_ids:
                 continue
             peer = peers.get(peer_id)
             if peer is None:  # внешний ключ гарантирует наличие; защита от рассинхронизации данных
                 continue
             peer_device = devices.get(peer.physical_device_id)
-            items.append({
-                'interface_id': own_id,
-                'connection_id': conn.id,
-                'connection_type_id': conn.connection_type_id,
-                'description': conn.description,
-                'peer_interface_id': peer.id,
-                'peer_interface_name': peer.name,
-                'peer_device_id': peer.physical_device_id,
-                'peer_device_name': device_label(peer_device) if peer_device else '',
-                'peer_is_management': peer.is_management,
-                'peer_is_data_transfer': peer.is_data_transfer,
-                'peer_vlan_mode': peer.vlan_mode,
-                'peer_all_vlans': carries_all_vlans(peer),
-            })
-    return {'items': items}
+            items.append(
+                {
+                    "interface_id": own_id,
+                    "connection_id": conn.id,
+                    "connection_type_id": conn.connection_type_id,
+                    "description": conn.description,
+                    "peer_interface_id": peer.id,
+                    "peer_interface_name": peer.name,
+                    "peer_device_id": peer.physical_device_id,
+                    "peer_device_name": device_label(peer_device) if peer_device else "",
+                    "peer_is_management": peer.is_management,
+                    "peer_is_data_transfer": peer.is_data_transfer,
+                    "peer_vlan_mode": peer.vlan_mode,
+                    "peer_all_vlans": carries_all_vlans(peer),
+                }
+            )
+    return {"items": items}
 
 
-def list_device_options(session: Session, *, q: str | None = None, include: Iterable[str] = (), exclude: Iterable[str] = (), offset: int = 0, limit: int = 50) -> dict[str, Any]:
+def list_device_options(
+    session: Session, *, q: str | None = None, include: Iterable[str] = (), exclude: Iterable[str] = (), offset: int = 0, limit: int = 50
+) -> dict[str, Any]:
     """Устройства для выбора соседа в форме подключения: лёгкие записи, поиск и одна страница.
 
     Каждая запись — ``id``, ``label`` (системное имя, а без него серийный номер, как везде в интерфейсе),
@@ -168,15 +188,20 @@ def list_device_options(session: Session, *, q: str | None = None, include: Iter
     rows = session.execute(select(PhysicalDevice.id, PhysicalDevice.system_name, PhysicalDevice.serial_number)).all()
     forced = set(include)
     excluded = set(exclude)
-    needle = (q or '').strip().casefold()
+    needle = (q or "").strip().casefold()
 
     def matches(system_name: str | None, serial_number: str | None) -> bool:
-        return not needle or needle in (system_name or '').casefold() or needle in (serial_number or '').casefold()
+        return not needle or needle in (system_name or "").casefold() or needle in (serial_number or "").casefold()
 
     selected = [
-        {'id': device_id, 'label': device_label_from_parts(system_name, serial_number, fallback=device_id), 'system_name': system_name, 'serial_number': serial_number}
+        {
+            "id": device_id,
+            "label": device_label_from_parts(system_name, serial_number, fallback=device_id),
+            "system_name": system_name,
+            "serial_number": serial_number,
+        }
         for device_id, system_name, serial_number in rows
         if device_id not in excluded and (device_id in forced or matches(system_name, serial_number))
     ]
-    selected.sort(key=lambda item: (item['label'].casefold(), item['id']))
-    return {'items': selected[offset:offset + limit], 'total': len(selected), 'offset': offset, 'limit': limit}
+    selected.sort(key=lambda item: (item["label"].casefold(), item["id"]))
+    return {"items": selected[offset : offset + limit], "total": len(selected), "offset": offset, "limit": limit}

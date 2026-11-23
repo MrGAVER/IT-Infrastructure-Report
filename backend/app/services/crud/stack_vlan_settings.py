@@ -8,6 +8,7 @@
 которую опираются отчёты, управляющие адреса и диаграмма. Пока настройка задана, IP-адрес, префикс и «Управление»
 этого VLAN у участников не редактируются по отдельности (assert_device_vlan_editable).
 """
+
 from __future__ import annotations
 
 from typing import Any, NamedTuple
@@ -19,9 +20,11 @@ from sqlalchemy.orm import Session
 from ...models import DeviceStack, DeviceStackMember, DeviceStackVLAN, PhysicalDevice, PhysicalDeviceVLAN, VLAN, VLANDomainDevice
 from ..device_label import device_label
 
+
 class Values(NamedTuple):
     """То, что общая настройка задаёт каждому участнику: IP-адрес, префикс, «Управление». Это обычный кортеж по
     сравнению и распаковке (запрос формы устройства собирает значения кортежем), класс нужен ради читаемых имён полей."""
+
     ip_address: str | None
     prefix_length: int | None
     is_management: bool
@@ -45,12 +48,14 @@ def vlan_sort_key(vlan: VLAN) -> tuple[int, str, str]:
 
 def member_devices(session: Session, stack_id: str) -> list[PhysicalDevice]:
     """Участники стека по позиции (при равных позициях — по id, чтобы порядок был стабильным)."""
-    return list(session.scalars(
-        select(PhysicalDevice)
-        .join(DeviceStackMember, DeviceStackMember.physical_device_id == PhysicalDevice.id)
-        .where(DeviceStackMember.stack_id == stack_id)
-        .order_by(DeviceStackMember.position, PhysicalDevice.id)
-    ).all())
+    return list(
+        session.scalars(
+            select(PhysicalDevice)
+            .join(DeviceStackMember, DeviceStackMember.physical_device_id == PhysicalDevice.id)
+            .where(DeviceStackMember.stack_id == stack_id)
+            .order_by(DeviceStackMember.position, PhysicalDevice.id)
+        ).all()
+    )
 
 
 def stack_settings(session: Session, stack_id: str) -> dict[str, DeviceStackVLAN]:
@@ -86,16 +91,25 @@ def write_link(session: Session, device_id: str, vlan: VLAN, link: PhysicalDevic
     массовом назначении), обновляет отличающееся на месте, совпадающее не трогает. Возвращает 'added'/'updated'/None."""
     ip, prefix, management = values
     if link is None:
-        session.add(PhysicalDeviceVLAN(physical_device_id=device_id, vlan_id=vlan.id, ip_address=ip, prefix_length=prefix, is_management=management, description=vlan.description))
-        return 'added'
+        session.add(
+            PhysicalDeviceVLAN(
+                physical_device_id=device_id,
+                vlan_id=vlan.id,
+                ip_address=ip,
+                prefix_length=prefix,
+                is_management=management,
+                description=vlan.description,
+            )
+        )
+        return "added"
     if link_values(link) != values:
         link.ip_address, link.prefix_length, link.is_management = ip, prefix, management
-        return 'updated'
+        return "updated"
     return None
 
 
 def _values_dict(values: Values) -> dict[str, Any]:
-    return {'ip_address': values[0], 'prefix_length': values[1], 'is_management': values[2]}
+    return {"ip_address": values[0], "prefix_length": values[1], "is_management": values[2]}
 
 
 def plan_member_settings(session: Session, stack_id: str, device: PhysicalDevice) -> list[dict[str, Any]]:
@@ -111,21 +125,40 @@ def plan_member_settings(session: Session, stack_id: str, device: PhysicalDevice
     members_by_domain = domain_members(session, [device.id])
     blocked = [v for v in vlans.values() if outside_domain(v, [device], members_by_domain)]
     if blocked:
-        names = ', '.join(f'{v.vlan_id} «{v.name}»' for v in sorted(blocked, key=vlan_sort_key))
-        raise HTTPException(422, f'Устройство «{device_label(device)}» не входит в домен VLAN: {names}. Включите его в домен или снимите общую настройку этих VLAN у стека')
-    links = {l.vlan_id: l for l in session.scalars(
-        select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id == device.id, PhysicalDeviceVLAN.vlan_id.in_(list(settings)))).all()}
+        names = ", ".join(f"{v.vlan_id} «{v.name}»" for v in sorted(blocked, key=vlan_sort_key))
+        raise HTTPException(
+            422,
+            f"Устройство «{device_label(device)}» не входит в домен VLAN: {names}. Включите его в домен или "
+            "снимите общую настройку этих VLAN у стека",
+        )
+    links = {
+        l.vlan_id: l
+        for l in session.scalars(
+            select(PhysicalDeviceVLAN).where(
+                PhysicalDeviceVLAN.physical_device_id == device.id, PhysicalDeviceVLAN.vlan_id.in_(list(settings))
+            )
+        ).all()
+    }
     plan = []
     for vlan in sorted(vlans.values(), key=vlan_sort_key):
         after = setting_values(settings[vlan.id])
         link = links.get(vlan.id)
         if link is None:
-            action, before = 'add', None
+            action, before = "add", None
         elif link_values(link) != after:
-            action, before = 'update', _values_dict(link_values(link))
+            action, before = "update", _values_dict(link_values(link))
         else:
-            action, before = 'keep', _values_dict(after)
-        plan.append({'vlan_id': vlan.id, 'vlan_number': vlan.vlan_id, 'vlan_name': vlan.name, 'action': action, 'before': before, 'after': _values_dict(after)})
+            action, before = "keep", _values_dict(after)
+        plan.append(
+            {
+                "vlan_id": vlan.id,
+                "vlan_number": vlan.vlan_id,
+                "vlan_name": vlan.name,
+                "action": action,
+                "before": before,
+                "after": _values_dict(after),
+            }
+        )
     return plan
 
 
@@ -133,13 +166,19 @@ def apply_stack_settings_to_device(session: Session, stack_id: str, device: Phys
     """Записывает устройству значения всех заданных настроек стека (не коммитит — вызывающий добавляет участника и
     коммитит одной транзакцией). Возвращает счётчики {'added', 'updated'} для журнала аудита."""
     plan = plan_member_settings(session, stack_id, device)
-    counts = {'added': 0, 'updated': 0}
-    if not any(item['action'] != 'keep' for item in plan):
+    counts = {"added": 0, "updated": 0}
+    if not any(item["action"] != "keep" for item in plan):
         return counts
     settings = stack_settings(session, stack_id)
     vlans = {v.id: v for v in session.scalars(select(VLAN).where(VLAN.id.in_(list(settings)))).all()}
-    links = {l.vlan_id: l for l in session.scalars(
-        select(PhysicalDeviceVLAN).where(PhysicalDeviceVLAN.physical_device_id == device.id, PhysicalDeviceVLAN.vlan_id.in_(list(settings)))).all()}
+    links = {
+        l.vlan_id: l
+        for l in session.scalars(
+            select(PhysicalDeviceVLAN).where(
+                PhysicalDeviceVLAN.physical_device_id == device.id, PhysicalDeviceVLAN.vlan_id.in_(list(settings))
+            )
+        ).all()
+    }
     for vlan_id, setting in settings.items():
         outcome = write_link(session, device.id, vlans[vlan_id], links.get(vlan_id), setting_values(setting))
         if outcome:
@@ -171,9 +210,17 @@ def assert_device_vlan_editable(session: Session, device_id: str, incoming: dict
         return
     vlans = {v.id: v for v in session.scalars(select(VLAN).where(VLAN.id.in_(list(settings)))).all()}
     for vlan_id, setting in settings.items():
-        label = f'{vlans[vlan_id].vlan_id} «{vlans[vlan_id].name}»' if vlan_id in vlans else vlan_id
-        stack_name = stack.name if stack else ''
+        label = f"{vlans[vlan_id].vlan_id} «{vlans[vlan_id].name}»" if vlan_id in vlans else vlan_id
+        stack_name = stack.name if stack else ""
         if vlan_id in incoming and incoming[vlan_id] != setting_values(setting):
-            raise HTTPException(409, f'VLAN {label} задан для стека «{stack_name}»: IP-адрес, префикс и «Управление» меняются в общих настройках стека, а не на отдельном устройстве')
+            raise HTTPException(
+                409,
+                f"VLAN {label} задан для стека «{stack_name}»: IP-адрес, префикс и «Управление» меняются в общих настройках "
+                "стека, а не на отдельном устройстве",
+            )
         if vlan_id in existing_ids and vlan_id not in incoming:
-            raise HTTPException(409, f'VLAN {label} задан для стека «{stack_name}» и не может быть убран с отдельного устройства: снимите общую настройку у стека')
+            raise HTTPException(
+                409,
+                f"VLAN {label} задан для стека «{stack_name}» и не может быть убран с отдельного устройства: снимите "
+                "общую настройку у стека",
+            )

@@ -1,4 +1,4 @@
-"""Pydantic-модели тел запросов роутера порт-конфигурации и подключений (код-ревью main, F-06, этап 2).
+"""Pydantic-модели тел запросов роутера порт-конфигурации и подключений.
 
 Заменяют ``payload: dict`` в ``api/port_config.py``. Правила проверки не копируются: они остаются в сервисах
 (``port_edit``, ``vlan_mode_cascade``, ``connection_review``), а валидаторы моделей их вызывают через ``delegate_to_parser``
@@ -6,7 +6,7 @@
 (тесты, другие сервисы). Модель добавляет к этому описание формы тела в OpenAPI и проверку до обработчика.
 
 Обработчики передают в сервис ``body.model_dump(exclude_unset=True)`` — тот же словарь, что прислал клиент (без полей, которых он не
-присылал): сигнатуры сервисов не менялись. Исключение — пилот однократного разбора (код-ревью, BE-04): ``PortConfigUpdate`` разбирает тело
+присылал): сигнатуры сервисов не менялись. Исключение — пилот однократного разбора: ``PortConfigUpdate`` разбирает тело
 один раз и отдаёт результат как ``body.request``, а обработчик зовёт ``apply_port_config`` без повторного разбора того же словаря.
 Остальные модели (каскад, одобрение) пока работают по-старому.
 
@@ -69,8 +69,12 @@ class PortConfigUpdate(RequestBody):
     model_config = ConfigDict(extra="forbid")
 
     role: str | None = Field(default=None, description="Роль порта: management, data, both или none.")
-    vlan_ids: list[str] | None = Field(default=None, max_length=MAX_VLAN_IDS, description="Полный набор VLAN порта (id записей справочника).")
-    all_vlans: bool | None = Field(default=None, description="«Все VLAN» устройства порта; тогда vlan_ids игнорируется. Только в режиме trunk.")
+    vlan_ids: list[str] | None = Field(
+        default=None, max_length=MAX_VLAN_IDS, description="Полный набор VLAN порта (id записей справочника)."
+    )
+    all_vlans: bool | None = Field(
+        default=None, description="«Все VLAN» устройства порта; тогда vlan_ids игнорируется. Только в режиме trunk."
+    )
     mode: PortMode | None = Field(default=None, description="Режим, под который выбран набор VLAN; у порта другой режим — 409.")
 
     _request: PortConfigRequest = PrivateAttr()
@@ -100,7 +104,11 @@ class CascadePreviewRequest(RequestBody):
     mode: PortMode = Field(description="Целевой режим порта-инициатора.")
     edited: dict[str, Any] | None = Field(
         default=None,
-        description="Снимок формы устройства с открытой формой: {device_id, ports: {id: {mode, group?, vlan_ids?, name?}}, groups: {ключ: {mode, vlan_ids?, name?}}}. С port не сочетается.",
+        description=(
+            "Снимок формы устройства с открытой формой: "
+            "{device_id, ports: {id: {mode, group?, vlan_ids?, name?}}, groups: {ключ: {mode, vlan_ids?, name?}}}. С port "
+            "не сочетается."
+        ),
     )
     # Содержимое port проверяет сервис — после поиска порта, как и раньше: ошибка в роли/VLAN у несуществующего порта — 404, а не 422.
     port: dict[str, Any] | None = Field(
@@ -128,7 +136,9 @@ class CascadePreviewRequest(RequestBody):
 class CascadeApplyRequest(CascadePreviewRequest):
     """POST /api/v1/interfaces/{id}/vlan-mode-cascade — применение плана из предпросмотра (mode, edited и port те же)."""
 
-    plan_hash: str | None = Field(default=None, max_length=MAX_PLAN_HASH_LENGTH, description="Hash плана из предпросмотра; план изменился — 409.")
+    plan_hash: str | None = Field(
+        default=None, max_length=MAX_PLAN_HASH_LENGTH, description="Hash плана из предпросмотра; план изменился — 409."
+    )
     confirm: bool | None = Field(default=None, description="Должно быть true — явное подтверждение применения.")
 
     @field_validator("confirm", mode="before")
@@ -149,14 +159,17 @@ class ApproveMatch(RequestBody):
 class ApprovePortConfigRequest(RequestBody):
     """POST /api/v1/connections/port-config/approve — одобрить расхождение конфигурации портов.
 
-    Ровно одно из полей: ``connection_ids`` (перечисленные подключения) или ``match`` (все подключения с расхождением под условиями поиска)."""
+    Ровно одно из полей: ``connection_ids`` (перечисленные подключения) или ``match`` (все подключения с расхождением под
+    условиями поиска)."""
 
     connection_ids: list[str] | None = Field(
         default=None,
         max_length=MAX_APPROVE_BATCH,
         description=f"Идентификаторы подключений; от 1 до {MAX_APPROVE_BATCH} за запрос.",
     )
-    match: ApproveMatch | None = Field(default=None, description="Условия поиска: одобрить ВСЕ подключения с расхождением, а не только показанную страницу.")
+    match: ApproveMatch | None = Field(
+        default=None, description="Условия поиска: одобрить ВСЕ подключения с расхождением, а не только показанную страницу."
+    )
 
     @model_validator(mode="before")
     @classmethod

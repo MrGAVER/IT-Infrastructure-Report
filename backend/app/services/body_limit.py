@@ -1,4 +1,4 @@
-"""Ограничение размера тела запроса (код-ревью main, F-06, этап 1).
+"""Ограничение размера тела запроса.
 
 Раньше предела не было вовсе: обработчики с ``payload: dict`` и pydantic-модели читают тело целиком, и запрос в сотни мегабайт
 FastAPI разбирал бы в память. При выключенной аутентификации (режим по умолчанию) это доступно любому клиенту из разрешённых
@@ -12,19 +12,18 @@ FastAPI разбирал бы в память. При выключенной а�
   изменений (любое другое исключение при чтении тела он подменил бы ответом 400 «error parsing the body»), а
   ``ExceptionMiddleware`` превращает в обычный JSON-ответ 413.
 
-Одного исключения мало: между этим слоем и обработчиком стоит ``auth_gate_middleware`` (``BaseHTTPMiddleware``), а тот читает
-``receive`` внутри группы задач anyio, и исключение приходит в FastAPI уже обёрнутым в ``ExceptionGroup`` — то есть не как
-``HTTPException`` — и превращается в 400. Поэтому после обнаружения превышения любой ответ приложения подменяется на 413
-(``_GuardedRequest.send``), а исключение, дошедшее до этого слоя, гасится: оно вызвано самим превышением, и если приложение упало, не
-успев ответить, 413 отправляется отсюда. Так результат не зависит от того, какие обёртки над ``receive`` появятся ниже по стеку.
-
-Чистый ASGI-middleware, а не ``BaseHTTPMiddleware``: тот не даёт подменить ``receive`` для приложения под ним.
+Это возможно потому, что все слои над обработчиком — чистый ASGI (csrf_guard, network_access, security_headers, шлюз доступа
+``AuthGateMiddleware``): ``receive`` читается в той же задаче, и исключение доходит до FastAPI как есть. Раньше шлюз был функцией под
+``BaseHTTPMiddleware`` — тот читает ``receive`` внутри группы задач anyio, и исключение приходило обёрнутым в ``ExceptionGroup``
+(то есть не как ``HTTPException``) и превращалось в 400; от этого здесь был обход с подменой любого ответа приложения на 413. Обход убран.
+Вернёт ли кто-то ``BaseHTTPMiddleware`` в стек — поймает tests/test_review_p1_auth_gate_asgi.py.
 
 Предел — ``INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES`` (config.MAX_REQUEST_BODY_BYTES); 0 отключает проверку. Все тела запросов
-приложения — JSON (загрузок файлов нет). Самый тяжёлый легитимный запрос — SVG-иконка: при записи её длина не ограничена, но
-длиннее ``MAX_CUSTOM_ICON_SVG_LENGTH`` (256 К символов) иконку пропускает экспорт диаграммы, то есть она бесполезна. Такая иконка
-в JSON — до 1,5 МБ даже при экранировании каждого символа как ``\\uXXXX``, поэтому предел по умолчанию (2 МБ) выше. Размеры
-остальных тяжёлых запросов (раскладка на максимум узлов, устройство со стеком портов) измерены в tests/test_body_limit.py.
+приложения — JSON (загрузок файлов нет). Самый тяжёлый легитимный запрос — SVG-иконка: её длину ограничивает
+``validate_svg_markup`` (``MAX_CUSTOM_ICON_SVG_LENGTH`` — 256 К символов; длиннее иконка бесполезна, экспорт диаграммы её
+пропускает). Такая иконка в JSON — до 1,5 МБ даже при экранировании каждого символа как ``\\uXXXX``,
+поэтому предел по умолчанию (2 МБ) выше. Размеры остальных тяжёлых запросов
+(раскладка на максимум узлов, устройство со стеком портов) измерены в tests/test_body_limit.py.
 """
 
 from __future__ import annotations
@@ -53,7 +52,10 @@ def too_large_detail(max_bytes: int) -> dict[str, str]:
     """Тело ошибки в том же виде, что и остальные структурированные ошибки API (``detail.code`` + ``detail.message``)."""
     return {
         "code": ErrorCode.REQUEST_BODY_TOO_LARGE,
-        "message": (f"Запрос слишком большой: тело превышает допустимые {describe_limit(max_bytes)}. Уменьшите объём отправляемых данных. Администратор может поднять предел параметром INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES."),
+        "message": (
+            f"Запрос слишком большой: тело превышает допустимые {describe_limit(max_bytes)}. Уменьшите объём отправляемых "
+            "данных. Администратор может поднять предел параметром INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES."
+        ),
     }
 
 
@@ -82,48 +84,20 @@ async def _reject(scope: Scope, receive: Receive, send: Send, max_bytes: int) ->
     await response(scope, receive, send)
 
 
-class _GuardedRequest:
-    """Состояние одного запроса без заголовка Content-Length (или с недостоверным): подсчёт принятых байт и подмена ответа."""
+def _counting_receive(receive: Receive, max_bytes: int) -> Receive:
+    """``receive``, который считает принятые байты тела и на превышении предела поднимает ``RequestBodyTooLarge``."""
+    received = 0
 
-    def __init__(self, app: ASGIApp, scope: Scope, receive: Receive, send: Send, max_bytes: int) -> None:
-        self.app, self.scope, self.original_receive, self.original_send, self.max_bytes = app, scope, receive, send, max_bytes
-        self.received = 0
-        self.exceeded = False  # тело превысило предел
-        self.response_started = False  # ответ приложения уже пошёл клиенту: заменять поздно
-        self.replaced = False  # вместо ответа приложения клиенту уже ушёл 413
-
-    async def receive(self) -> Message:
-        message = await self.original_receive()
+    async def counting_receive() -> Message:
+        nonlocal received
+        message = await receive()
         if message["type"] == "http.request":
-            self.received += len(message.get("body", b""))
-            if self.received > self.max_bytes:
-                self.exceeded = True
-                raise RequestBodyTooLarge(self.max_bytes)
+            received += len(message.get("body", b""))
+            if received > max_bytes:
+                raise RequestBodyTooLarge(max_bytes)
         return message
 
-    async def send(self, message: Message) -> None:
-        if self.replaced:
-            return  # остаток ответа приложения (тело 400/500) клиенту не нужен
-        if message["type"] == "http.response.start":
-            if self.exceeded and not self.response_started:
-                self.replaced = True
-                await _reject(self.scope, self.original_receive, self.original_send, self.max_bytes)
-                return
-            self.response_started = True
-        await self.original_send(message)
-
-    async def run(self) -> None:
-        try:
-            await self.app(self.scope, self.receive, self.send)
-        except Exception:
-            # Исключение вызвано самим превышением: ответ уже подменён на 413 либо приложение упало, не успев ответить (например,
-            # ExceptionGroup от BaseHTTPMiddleware дошла сюда мимо ExceptionMiddleware) — тогда 413 отправляем сами. Ошибку выше
-            # не пробрасываем: иначе сервер залогировал бы «Exception in ASGI application» на обычное превышение предела.
-            # Если приложение уже начало отвечать (потоковый ответ), заменять поздно — ошибка идёт дальше как обычно.
-            if not self.exceeded or self.response_started:
-                raise
-            if not self.replaced:
-                await _reject(self.scope, self.original_receive, self.original_send, self.max_bytes)
+    return counting_receive
 
 
 class BodySizeLimitMiddleware:
@@ -142,4 +116,4 @@ class BodySizeLimitMiddleware:
         if declared is not None and declared > self.max_bytes:
             await _reject(scope, receive, send, self.max_bytes)
             return
-        await _GuardedRequest(self.app, scope, receive, send, self.max_bytes).run()
+        await self.app(scope, _counting_receive(receive, self.max_bytes), send)

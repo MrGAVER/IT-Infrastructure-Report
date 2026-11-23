@@ -1,9 +1,12 @@
 """Smoke-запуск собранного EXE и еженедельная сборка под Windows в CI.
 
 Job `build-windows` собирает `InfraRegistry.exe` тем же `installer\\build_windows.bat`, что и разработчик, но до сих пор не проверял, что
-собранный EXE вообще запускается: пакет без `alembic` или без `frontend-vue/dist` собирался «успешно» и падал только у пользователя. Теперь после
-сборки EXE стартует на свободном порту с данными во временном каталоге, и CI проверяет `/api/v1/health` (версия совпадает с APP_VERSION из
-`backend/app/config.py`), раздачу собранного интерфейса и то, что миграции действительно создали схему в `infra_registry.db`.
+собранный EXE вообще запускается: пакет без `alembic` или без `frontend-vue/dist` собирался «успешно» и падал только у
+пользователя. Теперь после сборки EXE стартует на свободном порту с данными во временном каталоге, и CI проверяет
+`/api/v1/health`, версию (она совпадает с
+APP_VERSION из
+`backend/app/config.py`; публичный health версию не отдаёт, поэтому она читается из `/openapi.json`), раздачу собранного интерфейса и то,
+что миграции действительно создали схему в `infra_registry.db`.
 
 Кроме того, `build-windows` идёт по расписанию раз в неделю: новая уязвимость в уже влитых зависимостях иначе осталась бы незамеченной до
 следующего PR. По расписанию выполняется только этот job — остальные пропускаются условием `if`.
@@ -92,9 +95,18 @@ def test_the_smoke_step_runs_the_built_exe_on_its_own_port_and_data_dir(steps):
 def test_the_smoke_step_checks_health_version_frontend_and_migrations(steps):
     run = _smoke(steps)["run"]
     assert "/api/v1/health" in run and "infra-registry" in run
-    assert "APP_VERSION" in run and "backend\\app\\config.py" in run, "версия в ответе сверяется с backend/app/config.py"
+    assert "APP_VERSION" in run and "backend\\app\\config.py" in run, "версия сверяется с backend/app/config.py"
     assert 'id="app"' in run, "раздаётся собранный интерфейс (frontend-vue/dist внутри EXE)"
     assert "infra_registry.db" in run and "alembic_version" in run, "миграции прошли внутри EXE, а не только ответил /health"
+
+
+def test_the_smoke_step_reads_the_version_from_openapi_because_the_public_health_does_not_return_it(steps):
+    """`GET /api/v1/health` версию не отдаёт (api/system.py: версия помогает подбирать известные уязвимости), поэтому сверка с
+    `$health.version` падала бы всегда. Версия есть в `/openapi.json`, а он включается только флагом INFRA_REGISTRY_ENABLE_DOCS:
+    smoke выставляет его себе."""
+    run = _smoke(steps)["run"]
+    assert "INFRA_REGISTRY_ENABLE_DOCS" in run and "/openapi.json" in run and "$openapi.info.version" in run
+    assert "$health.version" not in run, "версии в health нет"
 
 
 def test_the_smoke_step_stops_the_exe_with_its_children_and_fails_when_it_dies_early(steps):
@@ -111,7 +123,8 @@ def test_the_exe_logs_are_printed_when_the_job_fails(steps):
 
 
 def test_the_failure_reason_is_published_as_an_annotation(steps):
-    """Текст исключения и хвост логов EXE уходят в аннотации (`::error`): они видны на странице запуска и в API, а не только в журнале шага."""
+    """Текст исключения и хвост логов EXE уходят в аннотации (`::error`): они видны на странице запуска и в API, а не только в
+    журнале шага."""
     smoke = steps.index(_smoke(steps))
     assert "catch" in _smoke(steps)["run"] and "::error" in _smoke(steps)["run"]
     logs = next(step for step in steps[smoke + 1 :] if step.get("if") == "failure()")

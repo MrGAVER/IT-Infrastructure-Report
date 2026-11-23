@@ -41,7 +41,9 @@ def counted(monkeypatch) -> list[dict]:
     """Подменяет сериализаторы всех форматов счётчиком вызовов: возвращает список графов, с которыми их вызывали."""
     calls: list[dict] = []
     for fmt, (media_type, _) in list(diagrams_module.EXPORT_FORMATS.items()):
-        monkeypatch.setitem(diagrams_module.EXPORT_FORMATS, fmt, (media_type, lambda graph, fmt=fmt: calls.append(graph) or f"{fmt}-{len(calls)}".encode()))
+        monkeypatch.setitem(
+            diagrams_module.EXPORT_FORMATS, fmt, (media_type, lambda graph, fmt=fmt: calls.append(graph) or f"{fmt}-{len(calls)}".encode())
+        )
     return calls
 
 
@@ -54,7 +56,8 @@ def full_slots(monkeypatch) -> threading.BoundedSemaphore:
     return slots
 
 
-# --- Потолок размера (уровень 1) -----------------------------------------------------------------------------------------------------------
+# --- Потолок размера (уровень 1)
+# -----------------------------------------------------------------------------------------------------------
 def test_the_node_ceiling_is_a_sane_positive_number():
     assert 100 <= diagrams_module.MAX_VSDX_NODES <= 5000
 
@@ -71,7 +74,9 @@ def test_a_diagram_above_the_ceiling_is_refused_with_422_and_never_serialized(cl
 
 def test_the_ceiling_is_checked_before_a_slot_is_taken(client, diagram, counted, full_slots, monkeypatch):
     monkeypatch.setattr(diagrams_module, "MAX_VSDX_NODES", 0)
-    assert _export(client, diagram["id"], "vsdx").status_code == 422, "при занятых слотах слишком большая диаграмма должна получить 422, а не 503"
+    assert _export(client, diagram["id"], "vsdx").status_code == 422, (
+        "при занятых слотах слишком большая диаграмма должна получить 422, а не 503"
+    )
 
 
 def test_a_diagram_exactly_at_the_ceiling_is_exported(client, diagram, counted, monkeypatch):
@@ -85,7 +90,8 @@ def test_the_ceiling_does_not_apply_to_light_formats(client, diagram, counted, m
     assert _export(client, diagram["id"], fmt).status_code == 200
 
 
-# --- Кэш в эндпоинте (уровень 2) -----------------------------------------------------------------------------------------------------------
+# --- Кэш в эндпоинте (уровень 2)
+# -----------------------------------------------------------------------------------------------------------
 def test_a_repeated_heavy_export_of_the_same_graph_is_served_from_the_cache(client, diagram, counted):
     first = _export(client, diagram["id"], "vsdx")
     second = _export(client, diagram["id"], "vsdx")
@@ -144,7 +150,8 @@ def test_a_failed_export_is_not_cached(client, diagram, monkeypatch):
     assert len(attempts) == 2
 
 
-# --- ExportCache и отпечаток графа ----------------------------------------------------------------------------------------------------------
+# --- ExportCache и отпечаток графа
+# ----------------------------------------------------------------------------------------------------------
 def test_cache_returns_what_was_stored_and_none_for_a_miss():
     cache = ExportCache(max_entries=2)
     assert cache.get("a") is None
