@@ -385,7 +385,7 @@ docker compose up --build
 
 **Числовые настройки.** Пустое значение (`VAR=` в `.env`) означает «по умолчанию»; нечисловое значение или значение ниже границы
 останавливает запуск с сообщением, где названа переменная. Границы: `INFRA_REGISTRY_AUTH_MAX_ATTEMPTS` и
-`INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH` — не меньше 1; `INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES`, `…_SESSION_TTL_HOURS`,
+`INFRA_REGISTRY_AUTH_MIN_PASSWORD_LENGTH`, `INFRA_REGISTRY_BACKUP_KEEP` — не меньше 1; `INFRA_REGISTRY_DB_PORT` — от 1 до 65535; `INFRA_REGISTRY_BACKUP_INTERVAL_HOURS` — не меньше 0; `INFRA_REGISTRY_MAX_REQUEST_BODY_BYTES`, `…_SESSION_TTL_HOURS`,
 `…_AUTH_LOCKOUT_MINUTES`, `…_AUTH_KNOWN_CLIENT_DAYS` — не меньше 0; у `INFRA_REGISTRY_REPORT_RETENTION_DAYS` границы нет (`0` и меньше —
 «не удалять»).
 

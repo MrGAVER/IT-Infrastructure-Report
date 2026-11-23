@@ -80,7 +80,7 @@ def _backup_dir(data_dir: Path, *, env: Environ | None = None) -> Path:
     return path
 
 
-def _database_url(data_dir: Path | None = None, *, env: Environ | None = None) -> str:
+def _database_url(data_dir: Path, *, env: Environ | None = None) -> str:
     """Адрес базы данных.
 
     1. DATABASE_URL — готовая строка (внешний сервер, нестандартные параметры). Пароль в ней нужно экранировать самому:
@@ -88,7 +88,8 @@ def _database_url(data_dir: Path | None = None, *, env: Environ | None = None) -
     2. Иначе, если задан INFRA_REGISTRY_DB_HOST, адрес PostgreSQL собирается из частей: INFRA_REGISTRY_DB_PORT (5432),
        POSTGRES_USER (infra), POSTGRES_PASSWORD, POSTGRES_DB (infra_registry). Так работает docker-compose.yml: пароль
        берётся из .env как есть, любые символы допустимы, экранирование делает SQLAlchemy.
-    3. Иначе — файл SQLite в каталоге данных (``data_dir``; по умолчанию APP_DATA_DIR)."""
+    3. Иначе — файл SQLite в каталоге данных ``data_dir``: параметр обязательный, а не «по умолчанию APP_DATA_DIR» — тот объявлен ниже по
+       файлу, и функция зависела бы от порядка определений в модуле."""
     variables = _environ(env)
     explicit = variables.get("DATABASE_URL", "").strip()
     if explicit:
@@ -102,10 +103,10 @@ def _database_url(data_dir: Path | None = None, *, env: Environ | None = None) -
             username=variables.get("POSTGRES_USER", "infra") or "infra",
             password=variables.get("POSTGRES_PASSWORD") or None,
             host=host,
-            port=int(variables.get("INFRA_REGISTRY_DB_PORT") or 5432),
+            port=_number_env("INFRA_REGISTRY_DB_PORT", 5432, int, minimum=1, maximum=65535, env=variables),
             database=variables.get("POSTGRES_DB", "infra_registry") or "infra_registry",
         ).render_as_string(hide_password=False)
-    return f"sqlite:///{(APP_DATA_DIR if data_dir is None else data_dir) / 'infra_registry.db'}"
+    return f"sqlite:///{data_dir / 'infra_registry.db'}"
 
 
 # Content-Security-Policy для интерфейса и API по умолчанию (переопределяется INFRA_REGISTRY_CSP).
