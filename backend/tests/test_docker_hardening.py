@@ -126,6 +126,23 @@ class TestCompose:
         mount = next(v for v in compose["services"]["app"]["volumes"] if v.startswith("appdata:")).split(":", 1)[1]
         assert f"ENV INFRA_REGISTRY_DATA_DIR={mount}" in _dockerfile()
 
+    def test_sqlite_backup_parameters_reach_the_app_container_and_default_to_empty(self, compose):
+        """Плановые копии SQLite настраиваются из `.env`: имена берутся из config, поэтому переименование не разойдётся с compose.
+
+        Пустое значение означает умолчания приложения."""
+        from app.config import BACKUP_PARAMETER_VARIABLES
+
+        environment = compose["services"]["app"]["environment"]
+        for variable in BACKUP_PARAMETER_VARIABLES.values():
+            assert environment.get(variable) == f"${{{variable}:-}}", f"{variable} не передаётся в контейнер app как необязательная"
+
+    def test_env_example_documents_the_sqlite_backup_parameters(self):
+        from app.config import BACKUP_PARAMETER_VARIABLES
+
+        text = (ROOT / ".env.example").read_text(encoding="utf-8")
+        for variable in BACKUP_PARAMETER_VARIABLES.values():
+            assert f"# {variable}=" in text, f"{variable} не описан в .env.example (закомментированной строкой)"
+
 
 class TestPostgresBackupService:
     """pg_dump перед обновлением — одноразовый сервис compose с профилем backup (не стартует вместе с приложением)."""
@@ -225,7 +242,11 @@ class TestScheduledPostgresBackupService:
         assert "--profile backup-schedule run --rm --entrypoint sh db-backup-scheduled" in section
         for key, default in (("BACKUP_INTERVAL_SECONDS", "86400"), ("BACKUP_KEEP", "14")):
             assert f"{key}:-{default}" in service["environment"][key] and f"`{default}`" in section, key
-        assert "в приложении пока нет" in section, "плановой копии SQLite ещё нет — README не должен обещать обратного"
+        # Плановая копия SQLite средствами приложения есть (пакет исполнителя 2): раздел не должен утверждать обратного
+        # и обязан назвать её параметры.
+        assert "в приложении пока нет" not in section and "Плановой копии средствами приложения пока нет" not in section
+        for variable in ("INFRA_REGISTRY_BACKUP_INTERVAL_HOURS", "INFRA_REGISTRY_BACKUP_KEEP", "INFRA_REGISTRY_BACKUP_DIR"):
+            assert variable in section, f"{variable}: параметр плановой копии SQLite не описан в разделе о периодических копиях"
 
     # --- поведение скрипта: настоящая оболочка, заглушки pg_dump / pg_restore -------------------------------------------------------
     @pytest.fixture()

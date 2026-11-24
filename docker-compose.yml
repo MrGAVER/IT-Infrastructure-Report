@@ -148,6 +148,11 @@ services:
       INFRA_REGISTRY_DB_POOL_SIZE: ${INFRA_REGISTRY_DB_POOL_SIZE:-}
       INFRA_REGISTRY_DB_MAX_OVERFLOW: ${INFRA_REGISTRY_DB_MAX_OVERFLOW:-}
       INFRA_REGISTRY_DB_POOL_TIMEOUT: ${INFRA_REGISTRY_DB_POOL_TIMEOUT:-}
+      # Плановые копии SQLite средствами приложения (только при DATABASE_URL на SQLite; на PostgreSQL их делает сервис
+      # db-backup-scheduled). Пусто — умолчания приложения: раз в 24 ч, 7 копий, каталог backups внутри тома данных.
+      INFRA_REGISTRY_BACKUP_INTERVAL_HOURS: ${INFRA_REGISTRY_BACKUP_INTERVAL_HOURS:-}
+      INFRA_REGISTRY_BACKUP_KEEP: ${INFRA_REGISTRY_BACKUP_KEEP:-}
+      INFRA_REGISTRY_BACKUP_DIR: ${INFRA_REGISTRY_BACKUP_DIR:-}
       # INFRA_REGISTRY_CSP здесь намеренно НЕТ: пустая строка означает «отключить Content-Security-Policy», и `${…:-}` выключил бы
       # защиту у каждого, кто переменную не задавал. Нужна своя политика — docker-compose.override.yml с явным значением.
     volumes:
