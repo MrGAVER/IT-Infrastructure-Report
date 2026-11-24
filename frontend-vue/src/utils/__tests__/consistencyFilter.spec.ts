@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_FILTERS, countActive, filterFindings, hasActiveFilters, sheetsWithFindings } from '../consistencyFilter'
+import { DEFAULT_FILTERS, countActive, filterFindings, filtersFromQuery, hasActiveFilters, sheetsWithFindings } from '../consistencyFilter'
 import type { ConsistencyFilters } from '../consistencyFilter'
 import { approvedFinding, finding } from '../../__tests__/consistencyFixtures'
 
@@ -99,5 +99,41 @@ describe('hasActiveFilters', () => {
 describe('sheetsWithFindings', () => {
   it('номера листов без повторов и пустых, по возрастанию', () => {
     expect(sheetsWithFindings(FINDINGS)).toEqual([1, 2, 4])
+  })
+})
+
+describe('filtersFromQuery', () => {
+  it('допустимые параметры ссылки превращаются в фильтры', () => {
+    expect(filtersFromQuery({ sheet: '2', category: 'completeness', severity: 'error', approval: 'all', rule: 'device_location_incomplete' })).toEqual({
+      sheet: 2,
+      category: 'completeness',
+      severity: 'error',
+      approval: 'all',
+      rule: 'device_location_incomplete',
+    })
+  })
+
+  it('пустая ссылка — без фильтров', () => {
+    expect(filtersFromQuery({})).toEqual({})
+  })
+
+  it.each([
+    [{ sheet: '5' }],
+    [{ sheet: '0' }],
+    [{ sheet: '2abc' }],
+    [{ sheet: '' }],
+    [{ category: 'другое' }],
+    [{ severity: 'fatal' }],
+    [{ approval: 'maybe' }],
+    [{ rule: 'Не-код правила!' }],
+    [{ rule: 'x'.repeat(101) }],
+    [{ sheet: ['9'] }],
+    [{ sheet: 2 }],
+  ])('испорченное значение %o отбрасывается, а не превращается в пустую выборку', (query) => {
+    expect(filtersFromQuery(query)).toEqual({})
+  })
+
+  it('повторяющийся параметр (?sheet=2&sheet=3) — берётся первое значение', () => {
+    expect(filtersFromQuery({ sheet: ['2', '3'] })).toEqual({ sheet: 2 })
   })
 })

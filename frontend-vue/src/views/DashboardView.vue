@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
 import { api } from '../api/client'
 import type { DashboardCounts } from '../api/types'
+import ReportReadinessCard from '../components/ReportReadinessCard.vue'
 import StatCard from '../components/StatCard.vue'
 
 // Карточки сводки: каждое число ведёт на экран, где лежат эти записи. «Программные активы» отдельного экрана
@@ -39,6 +40,8 @@ onMounted(async () => {
     <div v-else-if="counts" class="stat-grid">
       <StatCard v-for="card in STAT_CARDS" :key="card.key" :value="counts[card.key]" :label="card.label" :to="card.to" />
     </div>
+    <!-- Блок грузится сам и не зависит от сводки: сбой подсчёта готовности не должен прятать счётчики, и наоборот. -->
+    <ReportReadinessCard />
   </div>
 </template>
 

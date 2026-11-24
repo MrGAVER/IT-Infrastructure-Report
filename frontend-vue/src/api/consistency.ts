@@ -89,6 +89,35 @@ export function revokeApproval(approvalId: string): Promise<void> {
 /** Предел комментария к одобрению — как на сервере (services/consistency/approvals.py: MAX_COMMENT_LENGTH). */
 export const MAX_APPROVAL_COMMENT_LENGTH = 1000
 
+/** Одна строка блока «Готовность отчёта»: лист Excel-отчёта и доля его объектов без проблем, требующих внимания. */
+export interface SheetReadiness {
+  sheet: number
+  title: string
+  /** Сколько всего объектов на листе (для листа 4 — ВМ и контейнеры вместе). */
+  total: number
+  /** false — для листа нет правил проверки: проценты не показываются, иначе отсутствие проверки выглядело бы как «всё в порядке». */
+  checked: boolean
+  /** Сколько разных объектов имеют проблемы, требующие внимания; null — лист не проверяется. */
+  affected: number | null
+  ready: number | null
+  /** Доля готовых объектов, округлённая вниз (100 — только когда готовы все); null — нет объектов или лист не проверяется. */
+  percent: number | null
+  /** Сколько проблем листа требуют внимания (у объекта их может быть несколько) и сколько одобрено. */
+  problems: number
+  approved: number
+  top_rules: { rule: string; title: string; count: number }[]
+}
+
+export interface ReportReadiness {
+  sheets: SheetReadiness[]
+  /** Проблемы без привязки к листу (повтор IP и т. п.): они задевают сразу несколько листов. */
+  unassigned: number
+}
+
+export function fetchReportReadiness(): Promise<ReportReadiness> {
+  return api.get<ReportReadiness>('/integrity/consistency/readiness')
+}
+
 export const SEVERITY_LABELS: Record<FindingSeverity, string> = { error: 'Ошибка', warning: 'Предупреждение', info: 'Сведения' }
 export const CATEGORY_LABELS: Record<FindingCategory, string> = { consistency: 'Противоречие', completeness: 'Пробел в данных' }
 export const SHEET_LABELS: Record<number, string> = {

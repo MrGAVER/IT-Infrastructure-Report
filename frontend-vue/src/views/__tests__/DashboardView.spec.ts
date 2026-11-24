@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import DashboardView from '../DashboardView.vue'
 import { routes } from '../../router'
+import { READINESS } from '../../__tests__/consistencyFixtures'
 
 // Все числа разные: по ним тест находит нужную карточку, не завися от порядка.
 const COUNTS = {
@@ -27,7 +28,12 @@ beforeEach(() => {
   router = createRouter({ history: createMemoryHistory(), routes })
 })
 
-async function mountDashboard(fetchImpl: () => Promise<Response> = async () => jsonResponse(COUNTS)) {
+/** Сервер дашборда: сводка и готовность отчёта — разные запросы; `counts` / `readiness` подменяют ответ на каждый из них. */
+function dashboardServer(counts: () => Response = () => jsonResponse(COUNTS), readiness: () => Response = () => jsonResponse(READINESS)) {
+  return async (url: string) => (url.includes('/integrity/consistency/readiness') ? readiness() : counts())
+}
+
+async function mountDashboard(fetchImpl: (url: string) => Promise<Response> = dashboardServer()) {
   vi.stubGlobal('fetch', vi.fn(fetchImpl))
   const wrapper = mount(DashboardView, { global: { plugins: [router] } })
   await flushPromises()
@@ -70,7 +76,7 @@ describe('DashboardView.vue — ссылки от количеств', () => {
   })
 
   it('нулевое количество тоже остаётся ссылкой', async () => {
-    const wrapper = await mountDashboard(async () => jsonResponse({ ...COUNTS, containers: 0 }))
+    const wrapper = await mountDashboard(dashboardServer(() => jsonResponse({ ...COUNTS, containers: 0 })))
 
     const containers = wrapper.findAll('.stat-card').find((card) => card.text().includes('Контейнеры'))!
     expect(containers.find('a.num-link').text()).toBe('0')
@@ -85,9 +91,46 @@ describe('DashboardView.vue — ссылки от количеств', () => {
   })
 
   it('если сводка не загрузилась — сообщение об ошибке и ни одной ссылки', async () => {
-    const wrapper = await mountDashboard(async () => jsonResponse({ detail: 'сбой' }, 500))
+    const wrapper = await mountDashboard(dashboardServer(() => jsonResponse({ detail: 'сбой' }, 500)))
 
     expect(wrapper.find('.error-banner').exists()).toBe(true)
     expect(wrapper.find('a.num-link').exists()).toBe(false)
+  })
+})
+
+describe('DashboardView.vue — блок «Готовность отчёта»', () => {
+  it('показан под карточками сводки и не мешает их ссылкам', async () => {
+    const wrapper = await mountDashboard()
+
+    expect(wrapper.find('.readiness h2').text()).toBe('Готовность отчёта')
+    expect(wrapper.findAll('a.num-link')).toHaveLength(7)
+    const html = wrapper.html()
+    expect(html.indexOf('stat-grid')).toBeLessThan(html.indexOf('readiness'))
+  })
+
+  it('ссылки блока ведут на существующие маршруты, а лист попадает в параметры ссылки', async () => {
+    const wrapper = await mountDashboard()
+
+    const links = wrapper.findAll('.readiness a')
+    expect(links.length).toBeGreaterThan(0)
+    for (const link of links) {
+      const resolved = router.resolve(link.attributes('href')!)
+      expect(resolved.matched, `нет маршрута для ${link.attributes('href')}`).not.toHaveLength(0)
+    }
+    expect(wrapper.find('[data-sheet="2"] .show-link').attributes('href')).toBe('/consistency?sheet=2')
+  })
+
+  it('сбой подсчёта готовности не прячет сводку', async () => {
+    const wrapper = await mountDashboard(dashboardServer(undefined, () => jsonResponse({ detail: 'сбой' }, 500)))
+
+    expect(wrapper.findAll('a.num-link')).toHaveLength(7)
+    expect(wrapper.find('.readiness [role="alert"]').exists()).toBe(true)
+  })
+
+  it('сбой сводки не прячет готовность отчёта', async () => {
+    const wrapper = await mountDashboard(dashboardServer(() => jsonResponse({ detail: 'сбой' }, 500)))
+
+    expect(wrapper.find('.error-banner').exists()).toBe(true)
+    expect(wrapper.findAll('.readiness .sheet')).toHaveLength(4)
   })
 })

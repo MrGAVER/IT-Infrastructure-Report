@@ -5,11 +5,12 @@ import {
   entitySection,
   fetchConsistency,
   fetchConsistencyRules,
+  fetchReportReadiness,
   findingTargets,
   isEditableEntity,
   revokeApproval,
 } from '../consistency'
-import { approvalOf, finding, reportOf, RULES } from '../../__tests__/consistencyFixtures'
+import { approvalOf, finding, READINESS, reportOf, RULES } from '../../__tests__/consistencyFixtures'
 
 describe('fetchConsistency', () => {
   it('читает все находки одним запросом с пределом сервера и возвращает отчёт как есть', async () => {
@@ -142,5 +143,23 @@ describe('isEditableEntity', () => {
   it('IP-адрес и неизвестный тип окна редактирования не имеют', () => {
     expect(isEditableEntity('ip_address')).toBe(false)
     expect(isEditableEntity('что-то-новое')).toBe(false)
+  })
+})
+
+describe('fetchReportReadiness', () => {
+  it('читает готовность отчёта и возвращает ответ как есть', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(READINESS)))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(fetchReportReadiness()).resolves.toEqual(READINESS)
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toMatch(/\/integrity\/consistency\/readiness$/)
+  })
+
+  it('ошибку сервера не глотает: сбой подсчёта не должен выглядеть как «отчёт готов»', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ detail: 'Сбой' }), { status: 500 })),
+    )
+    await expect(fetchReportReadiness()).rejects.toThrow()
   })
 })
