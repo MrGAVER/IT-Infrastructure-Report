@@ -53,3 +53,24 @@ export function countActive(findings: readonly ConsistencyFinding[]): Record<Fin
   }
   return counts
 }
+
+/**
+ * Фильтры из параметров ссылки (`/consistency?sheet=2&category=completeness`): так блок «Готовность отчёта» ведёт на нужную выборку.
+ * Принимаются только допустимые значения; лишнее и испорченное молча отбрасывается, чтобы ссылка с мусором открывала экран без фильтра,
+ * а не пустой список.
+ */
+export function filtersFromQuery(query: Record<string, unknown>): Partial<ConsistencyFilters> {
+  const first = (value: unknown): string => (Array.isArray(value) ? String(value[0] ?? '') : typeof value === 'string' ? value : '')
+  const result: Partial<ConsistencyFilters> = {}
+  const sheet = first(query.sheet)
+  if (/^[1-4]$/.test(sheet)) result.sheet = Number(sheet)
+  const category = first(query.category)
+  if (category === 'consistency' || category === 'completeness') result.category = category
+  const severity = first(query.severity)
+  if (severity === 'error' || severity === 'warning' || severity === 'info') result.severity = severity
+  const approval = first(query.approval)
+  if (approval === 'active' || approval === 'approved' || approval === 'all') result.approval = approval
+  const rule = first(query.rule)
+  if (/^[a-z0-9_]{1,100}$/.test(rule)) result.rule = rule
+  return result
+}

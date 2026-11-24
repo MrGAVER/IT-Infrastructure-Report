@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import ConsistencyView from '../ConsistencyView.vue'
 import type { ConsistencyReport } from '../../api/consistency'
 import { useAuthStore } from '../../stores/auth'
@@ -410,5 +411,41 @@ describe('окно редактирования по имени объекта',
     expect(wrapper.findAll('.entity-link')).toHaveLength(0)
     expect(wrapper.findAll('tbody a').map((link) => [link.text(), link.attributes('href')])).toEqual([['vm-1', '/vms']])
     expect(rows(wrapper)[0].find('.object-cell').text()).toBe('10.0.0.5')
+  })
+})
+
+describe('выборка из параметров ссылки', () => {
+  async function mountAt(url: string) {
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/consistency', component: ConsistencyView }] })
+    await router.push(url)
+    await router.isReady()
+    const wrapper = mount(ConsistencyView, { global: { plugins: [router], stubs: STUBS } })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('?sheet=4 открывает экран сразу с этим листом: блок «Готовность отчёта» ведёт именно сюда', async () => {
+    stubServer(() => reportOf(MIXED))
+    const wrapper = await mountAt('/consistency?sheet=4')
+
+    expect((wrapper.find('select[aria-label="Лист отчёта"]').element as HTMLSelectElement).value).toBe('4')
+    expect(rows(wrapper)).toHaveLength(1)
+    expect(rows(wrapper)[0].text()).toContain('orphan')
+  })
+
+  it('испорченные параметры (?sheet=99&category=x) экран не обнуляют: открывается полный список', async () => {
+    stubServer(() => reportOf(MIXED))
+    const wrapper = await mountAt('/consistency?sheet=99&category=x')
+
+    expect(rows(wrapper)).toHaveLength(3)
+  })
+
+  it('без параметров фильтров нет, а «Сбросить» после перехода по ссылке возвращает полный список', async () => {
+    stubServer(() => reportOf([MIXED[0]]))
+    const wrapper = await mountAt('/consistency?category=completeness')
+
+    expect(wrapper.find('[data-empty="filtered"]').exists()).toBe(true)
+    await wrapper.find('[data-action="reset-filters"]').trigger('click')
+    expect(rows(wrapper)).toHaveLength(1)
   })
 })

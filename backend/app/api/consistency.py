@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..services.consistency import Category, Severity
 from ..services.consistency.approvals import approve_finding, revoke_approval
+from ..services.consistency.readiness import build_report_readiness
 from ..services.consistency.report import build_consistency_report, list_rules
 from .consistency_schemas import ApproveFindingBody
 
@@ -52,3 +53,9 @@ def approve_consistency_finding(body: ApproveFindingBody, session: Session = Dep
 def revoke_consistency_approval(approval_id: str, session: Session = Depends(get_db)):
     """Отзывает одобрение: проблема снова требует внимания."""
     return revoke_approval(session, approval_id)
+
+
+@router.get("/api/v1/integrity/consistency/readiness")
+def report_readiness(session: Session = Depends(get_db)):
+    """Готовность отчёта: по каждому листу — сколько объектов не имеют незакрытых проблем проверки данных. Лист 3 пока не проверяется."""
+    return build_report_readiness(session)

@@ -1,5 +1,5 @@
 // Общие данные для тестов «Проверки данных»: находка с разумными значениями по умолчанию и отчёт сервера вокруг списка находок.
-import type { ConsistencyApproval, ConsistencyFinding, ConsistencyReport, ConsistencyRule } from '../api/consistency'
+import type { ConsistencyApproval, ConsistencyFinding, ConsistencyReport, ConsistencyRule, ReportReadiness, SheetReadiness } from '../api/consistency'
 
 let counter = 0
 
@@ -51,3 +51,43 @@ export const RULES: ConsistencyRule[] = [
   { code: 'duplicate_ip', title: 'Один IP-адрес у разных объектов', severity: 'warning', category: 'consistency', sheet: null },
   { code: 'vm_without_host', title: 'Виртуальная машина не привязана к устройству', severity: 'warning', category: 'completeness', sheet: 4 },
 ]
+
+/** Строка блока «Готовность отчёта»: проверенный лист с 3 готовыми объектами из 4 и одной проблемой. */
+export function sheetReadiness(patch: Partial<SheetReadiness> = {}): SheetReadiness {
+  return {
+    sheet: 2,
+    title: 'Физические устройства',
+    total: 4,
+    checked: true,
+    affected: 1,
+    ready: 3,
+    percent: 75,
+    problems: 1,
+    approved: 0,
+    top_rules: [],
+    ...patch,
+  }
+}
+
+export function readinessOf(sheets: SheetReadiness[], unassigned = 0): ReportReadiness {
+  return { sheets, unassigned }
+}
+
+/** Четыре листа отчёта в состоянии «почти готово»; лист 3, как на сервере, не проверяется. */
+export const READINESS: ReportReadiness = readinessOf(
+  [
+    sheetReadiness({ sheet: 1, title: 'Информационные системы', total: 12, affected: 3, ready: 9, percent: 75, problems: 5 }),
+    sheetReadiness({
+      sheet: 2,
+      total: 34,
+      affected: 2,
+      ready: 32,
+      percent: 94,
+      problems: 3,
+      top_rules: [{ rule: 'device_location_incomplete', title: 'У устройства не указано здание или помещение', count: 2 }],
+    }),
+    sheetReadiness({ sheet: 3, title: 'Подключения', total: 91, checked: false, affected: null, ready: null, percent: null, problems: 0 }),
+    sheetReadiness({ sheet: 4, title: 'Виртуальные машины и контейнеры', total: 134, affected: 0, ready: 134, percent: 100, problems: 0 }),
+  ],
+  2,
+)

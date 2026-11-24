@@ -2,7 +2,8 @@
 // «Проверка данных»: противоречия между записями реестра и пробелы, из-за которых листы отчёта выйдут неполными.
 // Находки считает сервер (backend/app/services/consistency/engine.py); экран только показывает их и ведёт в раздел, где объект
 // исправляют. Ничего не меняется автоматически: какая из двух версий данных верна, решает человек.
-import { computed, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
+import { routeLocationKey } from 'vue-router'
 import { CATEGORY_LABELS, SEVERITY_LABELS, SHEET_LABELS, entitySection, findingTargets, isEditableEntity } from '../api/consistency'
 import type { ConsistencyFinding } from '../api/consistency'
 import ApproveFindingModal from '../components/ApproveFindingModal.vue'
@@ -19,12 +20,16 @@ import VMFormModal from '../components/VMFormModal.vue'
 import { useConsistencyReport } from '../composables/useConsistencyReport'
 import { useFindingEditor } from '../composables/useFindingEditor'
 import { useAuthStore } from '../stores/auth'
+import { filtersFromQuery } from '../utils/consistencyFilter'
 import { formatServerDateTime } from '../utils/dateTime'
 import { PAGE_SIZE_OPTIONS } from '../utils/pageSize'
 
 const auth = useAuthStore()
 const state = useConsistencyReport()
 const { filters, report } = state
+
+// Выборка из параметров ссылки (блок «Готовность отчёта» ведёт сюда с ?sheet=…). Роутер может быть не установлен (тесты), поэтому inject с запасным null.
+Object.assign(filters, filtersFromQuery(inject(routeLocationKey, null)?.query ?? {}))
 
 // Нажатие на имя объекта открывает его окно редактирования; после сохранения проверка запускается заново.
 const editor = useFindingEditor(state.load)
