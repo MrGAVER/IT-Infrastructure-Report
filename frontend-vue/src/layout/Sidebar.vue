@@ -65,6 +65,7 @@ const catalogNav = [
 const systemNav = [
   { to: '/reports', icon: 'i-file', label: 'Отчёты' },
   { to: '/report-templates', icon: 'i-template', label: 'Шаблоны отчётов' },
+  { to: '/consistency', icon: 'i-check', label: 'Проверка данных' },
   { to: '/port-sync-rules', icon: 'i-shuffle', label: 'Правила согласования портов' },
   { to: '/audit-log', icon: 'i-activity', label: 'Журнал аудита', adminOnly: true },
 ]

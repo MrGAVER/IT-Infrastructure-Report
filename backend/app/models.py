@@ -34,6 +34,25 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
 
 
+class ConsistencyApproval(TimestampMixin, Base):
+    """Одобренная проблема проверки данных: человек признал находку допустимой (общий адрес VRRP, намеренный повтор имени).
+
+    Привязана к отпечатку находки (services/consistency/model.py: Finding.fingerprint), а не к строке реестра: у большинства находок
+    нет «своей» записи. Снимок (имя, текст) хранится на случай, когда объекта уже нет, а одобрение осталось. created_at — когда одобрено.
+    """
+
+    __tablename__ = "consistency_approvals"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    fingerprint: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    rule: Mapped[str] = mapped_column(String(100))
+    entity_type: Mapped[str] = mapped_column(String(100))
+    entity_id: Mapped[str] = mapped_column(String(255))
+    entity_name: Mapped[str] = mapped_column(String(500))
+    message: Mapped[str] = mapped_column(Text)
+    comment: Mapped[Optional[str]] = mapped_column(Text)
+    approved_by: Mapped[Optional[str]] = mapped_column(String(150))
+
+
 class SupportOrganization(TimestampMixin, Base):
     __tablename__ = "support_organizations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

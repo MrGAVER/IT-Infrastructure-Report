@@ -11,10 +11,12 @@ import { createLatestRequest } from '../utils/latestRequest'
 
 /** Подписи разделов журнала аудита, которых нет в /api/v1/resources (записи о служебных настройках, а не о ресурсах реестра).
  * Раздел 'audit-settings' — изменение срока хранения журнала и очистка по сроку (backend/app/services/audit_retention.py);
- * 'backup-settings' — изменение интервала и числа плановых копий БД (backend/app/services/backup_settings.py). */
+ * 'backup-settings' — изменение интервала и числа плановых копий БД (backend/app/services/backup_settings.py);
+ * 'consistency-approvals' — одобрение и снятие одобрения проблем проверки данных (backend/app/services/consistency/approvals.py). */
 const SERVICE_SECTION_LABELS: Record<string, string> = {
   'audit-settings': 'Настройки аудита',
   'backup-settings': 'Настройки резервных копий',
+  'consistency-approvals': 'Одобрения проверки данных',
 }
 
 // Сортировка кириллицы регистронезависимо + numeric:true — числа внутри строки сравниваются как
