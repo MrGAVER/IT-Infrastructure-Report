@@ -9,9 +9,11 @@ export interface ConsistencyFilters {
   sheet: '' | number
   /** Код правила; '' — любое. */
   rule: string
+  /** active — требуют внимания (по умолчанию), approved — одобренные, all — все. */
+  approval: 'active' | 'approved' | 'all'
 }
 
-export const DEFAULT_FILTERS: Readonly<ConsistencyFilters> = { search: '', severity: 'all', category: '', sheet: '', rule: '' }
+export const DEFAULT_FILTERS: Readonly<ConsistencyFilters> = { search: '', severity: 'all', category: '', sheet: '', rule: '', approval: 'active' }
 
 export function hasActiveFilters(filters: ConsistencyFilters): boolean {
   return (Object.keys(DEFAULT_FILTERS) as (keyof ConsistencyFilters)[]).some((key) => {
@@ -29,6 +31,7 @@ export function filterFindings(findings: readonly ConsistencyFinding[], filters:
       (filters.category === '' || item.category === filters.category) &&
       (filters.sheet === '' || item.sheet === filters.sheet) &&
       (filters.rule === '' || item.rule === filters.rule) &&
+      (filters.approval === 'all' || item.approved === (filters.approval === 'approved')) &&
       (needle === '' || item.entity_name.toLowerCase().includes(needle) || item.message.toLowerCase().includes(needle)),
   )
 }
@@ -36,4 +39,17 @@ export function filterFindings(findings: readonly ConsistencyFinding[], filters:
 /** Номера листов, по которым есть находки, по возрастанию — для выбора «Лист». */
 export function sheetsWithFindings(findings: readonly ConsistencyFinding[]): number[] {
   return [...new Set(findings.map((item) => item.sheet).filter((sheet): sheet is number => sheet !== null))].sort((a, b) => a - b)
+}
+
+/** Находки, которые требуют внимания (не одобрены), по важности — для счётчиков экрана. */
+export function countActive(findings: readonly ConsistencyFinding[]): Record<FindingSeverity, number> & { total: number; approved: number } {
+  const counts = { error: 0, warning: 0, info: 0, total: 0, approved: 0 }
+  for (const item of findings) {
+    if (item.approved) counts.approved += 1
+    else {
+      counts[item.severity] += 1
+      counts.total += 1
+    }
+  }
+  return counts
 }

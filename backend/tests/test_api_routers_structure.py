@@ -35,6 +35,8 @@ EXPECTED_ROUTES = {
         {
             ("GET", "/api/v1/integrity/consistency"),
             ("GET", "/api/v1/integrity/consistency/rules"),
+            ("POST", "/api/v1/integrity/consistency/approvals"),
+            ("DELETE", "/api/v1/integrity/consistency/approvals/{approval_id}"),
         },
     ),
     "listings": (

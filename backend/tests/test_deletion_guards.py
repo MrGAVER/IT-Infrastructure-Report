@@ -52,6 +52,9 @@ APP_DIR = Path(__file__).resolve().parent.parent / "app"
 # Новый путь удаления устройства/ВМ/контейнера сюда добавлять НЕЛЬЗЯ — он должен идти через
 # crud.assert_deletable() (см. docstring services/integrity.py).
 ALLOWED_DELETIONS = {
+    # отзыв одобрения проблемы проверки данных: удаляется сама запись об одобрении (листовая таблица без потомков и ссылок на неё;
+    # тесты — test_consistency_approvals.py::TestRevoke)
+    ("app/services/consistency/approvals.py", "revoke_approval", "row"),
     # сессии и учётные записи
     ("app/services/auth/users.py", "delete_user", "user"),
     ("app/services/auth/sessions.py", "cleanup_expired_sessions", "AuthSession"),

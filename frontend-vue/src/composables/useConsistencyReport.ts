@@ -1,13 +1,16 @@
 // Состояние экрана «Проверка данных»: загрузка находок и каталога правил, фильтры и страницы.
 // Находки читаются одним запросом (api/consistency.ts), фильтрация и разбиение на страницы — на клиенте.
 import { computed, reactive, ref, watch } from 'vue'
-import { fetchConsistency, fetchConsistencyRules } from '../api/consistency'
-import type { ConsistencyReport, ConsistencyRule } from '../api/consistency'
-import { DEFAULT_FILTERS, filterFindings, hasActiveFilters, sheetsWithFindings } from '../utils/consistencyFilter'
+import { ApiError } from '../api/client'
+import { approveFinding, fetchConsistency, fetchConsistencyRules, revokeApproval } from '../api/consistency'
+import type { ConsistencyFinding, ConsistencyReport, ConsistencyRule } from '../api/consistency'
+import { DEFAULT_FILTERS, countActive, filterFindings, hasActiveFilters, sheetsWithFindings } from '../utils/consistencyFilter'
 import type { ConsistencyFilters } from '../utils/consistencyFilter'
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS, pageAfterSizeChange } from '../utils/pageSize'
+import { useToast } from './useToast'
 
 export function useConsistencyReport() {
+  const { notify, notifyError } = useToast()
   const report = ref<ConsistencyReport | null>(null)
   const rules = ref<ConsistencyRule[]>([])
   const loading = ref(false)
@@ -16,6 +19,9 @@ export function useConsistencyReport() {
   const page = ref(1)
   // Размер страницы здесь не запоминается: список настроек запоминаемых списков задаёт сервер (preferences), а этот экран — справочный.
   const pageSize = ref(DEFAULT_PAGE_SIZE)
+
+  /** Отпечаток находки, по которой сейчас идёт запрос на одобрение или отзыв: пока он не завершён, остальные кнопки заблокированы. */
+  const busy = ref<string | null>(null)
 
   // Ответ более раннего запроса не должен затереть более поздний («Обновить» дважды подряд).
   let requestSeq = 0
@@ -45,6 +51,8 @@ export function useConsistencyReport() {
   const pageItems = computed(() => filtered.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
   const filtersActive = computed(() => hasActiveFilters(filters))
   const sheets = computed(() => sheetsWithFindings(findings.value))
+  /** Счётчики экрана: «требуют внимания» по важности и число одобренных. */
+  const counts = computed(() => countActive(findings.value))
 
   const titles = computed(() => new Map(rules.value.map((rule) => [rule.code, rule.title])))
   /** Названия правил, по которым есть находки (для выбора «Правило»); код правила — запасное название. */
@@ -57,6 +65,57 @@ export function useConsistencyReport() {
 
   // Любое изменение фильтров возвращает на первую страницу: иначе после сужения выборки можно оказаться за её последней страницей.
   watch(filters, () => (page.value = 1))
+
+  // Одобрение убирает строку из списка «требуют внимания»: если это была последняя строка последней страницы, страница исчезает.
+  watch(pageCount, (count) => {
+    if (page.value > count) page.value = count
+  })
+
+  function patchFinding(fingerprint: string, patch: Partial<ConsistencyFinding>): void {
+    if (!report.value) return
+    report.value = { ...report.value, findings: report.value.findings.map((item) => (item.fingerprint === fingerprint ? { ...item, ...patch } : item)) }
+  }
+
+  /** Состояние могло измениться, пока экран был открыт (проблему исправили, одобрение отозвали): тогда перечитываем проверку. */
+  async function handleStale(err: unknown, message: string): Promise<void> {
+    if (err instanceof ApiError && err.status === 404) {
+      notify(message, 'error')
+      await load()
+    } else {
+      notifyError(err)
+    }
+  }
+
+  /** Одобряет проблему; true — одобрено (окно комментария можно закрывать). */
+  async function approve(finding: ConsistencyFinding, comment: string | null): Promise<boolean> {
+    busy.value = finding.fingerprint
+    try {
+      const { approval } = await approveFinding(finding.fingerprint, comment)
+      patchFinding(finding.fingerprint, { approved: true, approval })
+      notify('Проблема одобрена', 'success')
+      return true
+    } catch (err) {
+      await handleStale(err, 'Проблема уже изменилась или исправлена — проверка обновлена')
+      return false
+    } finally {
+      busy.value = null
+    }
+  }
+
+  /** Отзывает одобрение: проблема возвращается в список «требуют внимания». */
+  async function revoke(finding: ConsistencyFinding): Promise<void> {
+    if (!finding.approval) return
+    busy.value = finding.fingerprint
+    try {
+      await revokeApproval(finding.approval.id)
+      patchFinding(finding.fingerprint, { approved: false, approval: null })
+      notify('Одобрение отозвано', 'success')
+    } catch (err) {
+      await handleStale(err, 'Одобрение уже отозвано — проверка обновлена')
+    } finally {
+      busy.value = null
+    }
+  }
 
   function setPage(next: number): void {
     page.value = Math.min(Math.max(1, next), pageCount.value)
@@ -84,6 +143,10 @@ export function useConsistencyReport() {
     filtered,
     filtersActive,
     sheets,
+    counts,
+    busy,
+    approve,
+    revoke,
     ruleOptions,
     ruleTitle,
     load,

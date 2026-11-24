@@ -2,23 +2,45 @@
 // «Проверка данных»: противоречия между записями реестра и пробелы, из-за которых листы отчёта выйдут неполными.
 // Находки считает сервер (backend/app/services/consistency/engine.py); экран только показывает их и ведёт в раздел, где объект
 // исправляют. Ничего не меняется автоматически: какая из двух версий данных верна, решает человек.
-import { computed, onMounted } from 'vue'
-import { CATEGORY_LABELS, SEVERITY_LABELS, SHEET_LABELS, entitySection } from '../api/consistency'
+import { computed, onMounted, ref } from 'vue'
+import { CATEGORY_LABELS, SEVERITY_LABELS, SHEET_LABELS, entitySection, findingTargets, isEditableEntity } from '../api/consistency'
+import type { ConsistencyFinding } from '../api/consistency'
+import ApproveFindingModal from '../components/ApproveFindingModal.vue'
+import ContainerFormModal from '../components/ContainerFormModal.vue'
 import DataLoadNotice from '../components/DataLoadNotice.vue'
+import DeviceFormModal from '../components/DeviceFormModal.vue'
+import InformationSystemFormModal from '../components/InformationSystemFormModal.vue'
 import ListEmptyRow from '../components/ListEmptyRow.vue'
 import PageSizeSelect from '../components/PageSizeSelect.vue'
 import PagerNav from '../components/PagerNav.vue'
 import ScrollableTableWrap from '../components/ScrollableTableWrap.vue'
 import StatCard from '../components/StatCard.vue'
+import VMFormModal from '../components/VMFormModal.vue'
 import { useConsistencyReport } from '../composables/useConsistencyReport'
+import { useFindingEditor } from '../composables/useFindingEditor'
+import { useAuthStore } from '../stores/auth'
+import { formatServerDateTime } from '../utils/dateTime'
 import { PAGE_SIZE_OPTIONS } from '../utils/pageSize'
 
+const auth = useAuthStore()
 const state = useConsistencyReport()
 const { filters, report } = state
 
+// Нажатие на имя объекта открывает его окно редактирования; после сохранения проверка запускается заново.
+const editor = useFindingEditor(state.load)
+// Находка, для которой открыто окно одобрения (null — окно закрыто).
+const approving = ref<ConsistencyFinding | null>(null)
+
 onMounted(state.load)
 
-const summary = computed(() => report.value?.summary.by_severity ?? {})
+async function confirmApproval(comment: string | null): Promise<void> {
+  if (approving.value && (await state.approve(approving.value, comment))) approving.value = null
+}
+
+const columnCount = computed(() => (auth.canWrite ? 6 : 5))
+const emptyText = computed(() =>
+  state.counts.value.approved > 0 && state.counts.value.total === 0 ? 'Все найденные проблемы одобрены.' : 'Противоречий и пробелов в данных не найдено.',
+)
 const sheetLabel = (sheet: number) => SHEET_LABELS[sheet] ?? `Лист ${sheet}`
 const firstShown = computed(() => (state.pageItems.value.length ? (state.page.value - 1) * state.pageSize.value + 1 : 0))
 const lastShown = computed(() => (state.page.value - 1) * state.pageSize.value + state.pageItems.value.length)
@@ -27,10 +49,11 @@ const lastShown = computed(() => (state.page.value - 1) * state.pageSize.value +
 <template>
   <div class="consistency-view">
     <div class="stat-row">
-      <StatCard :value="report?.total ?? '—'" label="Всего находок" />
-      <StatCard :value="summary.error ?? 0" label="Ошибки" tone="warn" />
-      <StatCard :value="summary.warning ?? 0" label="Предупреждения" />
-      <StatCard :value="summary.info ?? 0" label="Сведения" />
+      <StatCard :value="report ? state.counts.value.total : '—'" label="Требуют внимания" />
+      <StatCard :value="state.counts.value.error" label="Ошибки" tone="warn" />
+      <StatCard :value="state.counts.value.warning" label="Предупреждения" />
+      <StatCard :value="state.counts.value.info" label="Сведения" />
+      <StatCard :value="state.counts.value.approved" label="Одобрено" />
     </div>
 
     <DataLoadNotice
@@ -59,6 +82,15 @@ const lastShown = computed(() => (state.page.value - 1) * state.pageSize.value +
         <option value="">Правило: все</option>
         <option v-for="option in state.ruleOptions.value" :key="option.code" :value="option.code">{{ option.title }}</option>
       </select>
+      <div class="chip-group" role="group" aria-label="Одобрение">
+        <button type="button" :class="{ on: filters.approval === 'active' }" @click="filters.approval = 'active'">
+          Требуют внимания ({{ state.counts.value.total }})
+        </button>
+        <button type="button" :class="{ on: filters.approval === 'approved' }" @click="filters.approval = 'approved'">
+          Одобренные ({{ state.counts.value.approved }})
+        </button>
+        <button type="button" :class="{ on: filters.approval === 'all' }" @click="filters.approval = 'all'">Все</button>
+      </div>
       <div class="chip-group" role="group" aria-label="Важность">
         <button type="button" :class="{ on: filters.severity === 'all' }" @click="filters.severity = 'all'">Все</button>
         <button v-for="(label, key) in SEVERITY_LABELS" :key="key" type="button" :class="{ on: filters.severity === key }" @click="filters.severity = key">
@@ -88,36 +120,66 @@ const lastShown = computed(() => (state.page.value - 1) * state.pageSize.value +
               <th>Объект</th>
               <th>Описание</th>
               <th>Лист отчёта</th>
+              <th v-if="auth.canWrite">Действие</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(item, index) in state.pageItems.value" :key="`${item.rule}:${item.entity_id}:${index}`">
+            <tr v-for="(item, index) in state.pageItems.value" :key="`${item.rule}:${item.entity_id}:${index}`" :class="{ approved: item.approved }">
               <td>
                 <span class="severity-badge" :class="item.severity">{{ SEVERITY_LABELS[item.severity] }}</span>
+                <span v-if="item.approved" class="approved-badge">Одобрено</span>
               </td>
               <td>
                 {{ state.ruleTitle(item.rule) }}
                 <div class="category">{{ CATEGORY_LABELS[item.category] }}</div>
               </td>
               <td class="object-cell">
-                <router-link
-                  v-if="entitySection(item.entity_type)"
-                  :to="entitySection(item.entity_type)!.to"
-                  :title="`Открыть раздел «${entitySection(item.entity_type)!.label}»`"
-                >
-                  {{ item.entity_name }}
-                </router-link>
-                <template v-else>{{ item.entity_name }}</template>
+                <template v-for="(target, targetIndex) in findingTargets(item)" :key="`${target.type}:${target.id}`">
+                  <template v-if="targetIndex">, </template>
+                  <!-- Пишущему имя открывает окно редактирования; наблюдателю — ссылка на раздел (править он не может). -->
+                  <button
+                    v-if="auth.canWrite && isEditableEntity(target.type)"
+                    type="button"
+                    class="entity-link"
+                    :disabled="editor.opening.value"
+                    :title="`Открыть окно редактирования: ${target.name}`"
+                    @click="editor.open(target)"
+                  >
+                    {{ target.name }}
+                  </button>
+                  <router-link
+                    v-else-if="entitySection(target.type)"
+                    :to="entitySection(target.type)!.to"
+                    :title="`Открыть раздел «${entitySection(target.type)!.label}»`"
+                  >
+                    {{ target.name }}
+                  </router-link>
+                  <template v-else>{{ target.name }}</template>
+                </template>
               </td>
-              <td class="message-cell">{{ item.message }}</td>
+              <td class="message-cell">
+                {{ item.message }}
+                <div v-if="item.approval" class="approval-note">
+                  Одобрено: {{ item.approval.approved_by ?? 'без учётной записи' }}, {{ formatServerDateTime(item.approval.approved_at) }}
+                  <template v-if="item.approval.comment"> — {{ item.approval.comment }}</template>
+                </div>
+              </td>
               <td>{{ item.sheet === null ? '—' : sheetLabel(item.sheet) }}</td>
+              <td v-if="auth.canWrite" class="action-cell">
+                <button v-if="!item.approved" type="button" class="btn btn-secondary" :disabled="state.busy.value !== null" @click="approving = item">
+                  Одобрить
+                </button>
+                <button v-else type="button" class="btn btn-secondary" :disabled="state.busy.value !== null" @click="state.revoke(item)">
+                  Отозвать одобрение
+                </button>
+              </td>
             </tr>
             <!-- Пустой результат — хорошая новость, а не «записей пока нет»: текст другой, кнопки создания нет. -->
             <ListEmptyRow
               v-if="!state.pageItems.value.length"
-              :colspan="5"
+              :colspan="columnCount"
               :registry-empty="!state.filtersActive.value"
-              empty-text="Противоречий и пробелов в данных не найдено."
+              :empty-text="emptyText"
               @reset="state.resetFilters()"
             />
           </tbody>
@@ -129,13 +191,19 @@ const lastShown = computed(() => (state.page.value - 1) * state.pageSize.value +
         <PagerNav :page="state.page.value" :page-count="state.pageCount.value" @update:page="state.setPage" />
       </div>
     </div>
+
+    <ApproveFindingModal v-if="approving" :finding="approving" :busy="state.busy.value !== null" @close="approving = null" @confirm="confirmApproval" />
+    <DeviceFormModal v-if="editor.device.value" :device="editor.device.value" @close="editor.close()" @saved="editor.saved('physical_device')" />
+    <VMFormModal v-if="editor.vm.value" :vm="editor.vm.value" @close="editor.close()" @saved="editor.saved('virtual_machine')" />
+    <ContainerFormModal v-if="editor.container.value" :container="editor.container.value" @close="editor.close()" @saved="editor.saved('container')" />
+    <InformationSystemFormModal v-if="editor.system.value" :system="editor.system.value" @close="editor.close()" @saved="editor.saved('information_system')" />
   </div>
 </template>
 
 <style scoped>
 .stat-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -227,6 +295,43 @@ const lastShown = computed(() => (state.page.value - 1) * state.pageSize.value +
   color: var(--brand-ink);
   background: var(--brand-soft);
 }
+.approved-badge {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--status-ok, var(--brand-ink));
+  background: var(--status-ok-soft, var(--brand-soft));
+}
+tr.approved td {
+  opacity: 0.78;
+}
+.approval-note {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+.entity-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--brand-ink);
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+.entity-link:hover:not(:disabled) {
+  text-decoration-style: solid;
+}
+.action-cell {
+  white-space: nowrap;
+}
 .category {
   color: var(--ink-muted);
   font-size: 11px;
@@ -264,7 +369,7 @@ const lastShown = computed(() => (state.page.value - 1) * state.pageSize.value +
 }
 @media (max-width: 980px) {
   .stat-row {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
   }
 }
 @media (max-width: 760px) {

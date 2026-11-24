@@ -11,7 +11,10 @@ import { createLatestRequest } from '../utils/latestRequest'
 
 /** Подписи разделов журнала аудита, которых нет в /api/v1/resources (записи о служебных настройках, а не о ресурсах реестра).
  * Раздел 'audit-settings' — изменение срока хранения журнала и очистка по сроку (backend/app/services/audit_retention.py). */
-const SERVICE_SECTION_LABELS: Record<string, string> = { 'audit-settings': 'Настройки аудита' }
+const SERVICE_SECTION_LABELS: Record<string, string> = {
+  'audit-settings': 'Настройки аудита',
+  'consistency-approvals': 'Одобрения проверки данных',
+}
 
 // Сортировка кириллицы регистронезависимо + numeric:true — числа внутри строки сравниваются как
 // числа, а не посимвольно ("Gi1/0/2" раньше "Gi1/0/19", а не наоборот, как было бы при обычном

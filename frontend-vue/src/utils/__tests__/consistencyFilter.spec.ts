@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_FILTERS, filterFindings, hasActiveFilters, sheetsWithFindings } from '../consistencyFilter'
+import { DEFAULT_FILTERS, countActive, filterFindings, hasActiveFilters, sheetsWithFindings } from '../consistencyFilter'
 import type { ConsistencyFilters } from '../consistencyFilter'
-import { finding } from '../../__tests__/consistencyFixtures'
+import { approvedFinding, finding } from '../../__tests__/consistencyFixtures'
 
 const filters = (patch: Partial<ConsistencyFilters>): ConsistencyFilters => ({ ...DEFAULT_FILTERS, ...patch })
 
@@ -44,6 +44,41 @@ describe('filterFindings', () => {
     const copy = [...FINDINGS]
     filterFindings(FINDINGS, filters({ severity: 'error' }))
     expect(FINDINGS).toEqual(copy)
+  })
+})
+
+describe('одобрение', () => {
+  const mixed = [finding({ entity_name: 'активная' }), approvedFinding({ entity_name: 'одобренная' })]
+
+  it('по умолчанию показываются только требующие внимания', () => {
+    expect(filterFindings(mixed, DEFAULT_FILTERS).map((item) => item.entity_name)).toEqual(['активная'])
+  })
+
+  it('«Одобренные» и «Все» отбирают как ожидается', () => {
+    expect(filterFindings(mixed, filters({ approval: 'approved' })).map((item) => item.entity_name)).toEqual(['одобренная'])
+    expect(filterFindings(mixed, filters({ approval: 'all' }))).toHaveLength(2)
+  })
+
+  it('значение по умолчанию («требуют внимания») — не фильтр, а любое другое — фильтр', () => {
+    expect(hasActiveFilters(filters({ approval: 'active' }))).toBe(false)
+    expect(hasActiveFilters(filters({ approval: 'approved' }))).toBe(true)
+    expect(hasActiveFilters(filters({ approval: 'all' }))).toBe(true)
+  })
+})
+
+describe('countActive', () => {
+  it('одобренные не входят в счётчики важности, а считаются отдельно', () => {
+    const counts = countActive([
+      finding({ severity: 'error' }),
+      finding({ severity: 'warning' }),
+      finding({ severity: 'warning' }),
+      approvedFinding({ severity: 'error' }),
+    ])
+    expect(counts).toEqual({ error: 1, warning: 2, info: 0, total: 3, approved: 1 })
+  })
+
+  it('пустой список — нули', () => {
+    expect(countActive([])).toEqual({ error: 0, warning: 0, info: 0, total: 0, approved: 0 })
   })
 })
 
