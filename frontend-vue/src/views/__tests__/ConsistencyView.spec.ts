@@ -7,6 +7,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import ConsistencyView from '../ConsistencyView.vue'
 import type { ConsistencyReport } from '../../api/consistency'
 import { useAuthStore } from '../../stores/auth'
+import { useConnectionsStore } from '../../stores/connections'
 import { useContainersStore } from '../../stores/containers'
 import { useDevicesStore } from '../../stores/devices'
 import { useInformationSystemsStore } from '../../stores/informationSystems'
@@ -45,6 +46,7 @@ const editorStub = (kind: string, prop: string) =>
     },
   })
 const STUBS = {
+  ConnectionFormModal: editorStub('connection', 'connection'),
   DeviceFormModal: editorStub('device', 'device'),
   VMFormModal: editorStub('vm', 'vm'),
   ContainerFormModal: editorStub('container', 'container'),
@@ -290,6 +292,112 @@ describe('одобрение проблем', () => {
   })
 })
 
+describe('пакетное одобрение', () => {
+  const many = (count: number) =>
+    Array.from({ length: count }, (_, index) => finding({ entity_id: `10.0.0.${index}`, entity_name: `10.0.0.${index}`, message: `проблема ${index}` }))
+  const batchButton = (wrapper: Wrapper) => wrapper.findAll('button').find((button) => button.text().startsWith('Одобрить все найденные'))
+
+  const batchServer = (items: ReturnType<typeof many>) =>
+    stubServer(
+      () => reportOf(items),
+      () =>
+        new Response(
+          JSON.stringify({
+            approved: items.length,
+            already: 0,
+            missing: [],
+            approvals: Object.fromEntries(items.map((item) => [item.fingerprint, approvalOf({ comment: 'VRRP' })])),
+          }),
+        ),
+    )
+
+  it('кнопка считает все требующие внимания проблемы под фильтрами — на всех страницах, а не только на этой', async () => {
+    batchServer(many(25))
+    const wrapper = await mountView()
+
+    expect(rows(wrapper)).toHaveLength(10)
+    expect(batchButton(wrapper)!.text()).toBe('Одобрить все найденные (25)')
+  })
+
+  it('число следует за фильтрами, а одобренные в него не входят', async () => {
+    const items = [...many(3), approvedFinding({ entity_name: 'уже одобренная' })]
+    stubServer(() => reportOf(items))
+    const wrapper = await mountView()
+    await chip(wrapper, 'Все').trigger('click') // фильтр «одобрение: все» — одобренная в списке, но не в пакете
+
+    expect(batchButton(wrapper)!.text()).toBe('Одобрить все найденные (3)')
+
+    await wrapper.find('.search-box input').setValue('проблема 1')
+    expect(batchButton(wrapper)!.text()).toBe('Одобрить все найденные (1)')
+  })
+
+  it('окно показывает число проблем; подтверждение шлёт ОДИН запрос со всеми отпечатками и комментарием', async () => {
+    const items = many(25)
+    batchServer(items)
+    const wrapper = await mountView()
+
+    await batchButton(wrapper)!.trigger('click')
+    expect(wrapper.find('[role="dialog"] h2').text()).toBe('Одобрить 25 проблем?')
+    await wrapper.find('textarea').setValue('VRRP')
+    await wrapper.find('.actions .btn-primary').trigger('click')
+    await flushPromises()
+
+    const posts = calls.filter((call) => call.method === 'POST')
+    expect(posts).toHaveLength(1)
+    expect(posts[0].url).toMatch(/approvals\/batch$/)
+    expect((posts[0].body as { fingerprints: string[]; comment: string }).fingerprints).toEqual(items.map((item) => item.fingerprint))
+    expect((posts[0].body as { comment: string }).comment).toBe('VRRP')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(rows(wrapper)).toHaveLength(0)
+    expect(wrapper.findAll('.stat-card').map((card) => card.text())).toContain('25Одобрено')
+  })
+
+  it('«Отмена» ничего не отправляет', async () => {
+    batchServer(many(3))
+    const wrapper = await mountView()
+
+    await batchButton(wrapper)!.trigger('click')
+    await buttonByText(wrapper, 'Отмена').trigger('click')
+
+    expect(calls.filter((call) => call.method === 'POST')).toHaveLength(0)
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('когда одобрять нечего, кнопка заблокирована; в чипе «Одобренные» её нет', async () => {
+    stubServer(() => reportOf([approvedFinding()]))
+    const wrapper = await mountView()
+
+    expect(batchButton(wrapper)!.attributes('disabled')).toBeDefined()
+    await chip(wrapper, 'Одобренные').trigger('click')
+    expect(batchButton(wrapper)).toBeUndefined()
+  })
+
+  it('наблюдателю кнопки пакетного одобрения нет', async () => {
+    const auth = useAuthStore()
+    auth.enabled = true
+    auth.user = { id: 'u1', username: 'viewer', role: 'viewer', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' }
+    batchServer(many(3))
+    const wrapper = await mountView()
+
+    expect(batchButton(wrapper)).toBeUndefined()
+  })
+
+  it('отказ сервера: окно остаётся открытым, ничего не считается одобренным', async () => {
+    stubServer(
+      () => reportOf(many(3)),
+      () => new Response(JSON.stringify({ detail: 'Сбой' }), { status: 500 }),
+    )
+    const wrapper = await mountView()
+
+    await batchButton(wrapper)!.trigger('click')
+    await wrapper.find('.actions .btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
+    expect(wrapper.findAll('.stat-card').map((card) => card.text())).toContain('0Одобрено')
+  })
+})
+
 describe('окно редактирования по имени объекта', () => {
   const device = { id: 'dev-1', system_name: 'srv-1' }
 
@@ -306,7 +414,10 @@ describe('окно редактирования по имени объекта',
     const systems = useInformationSystemsStore()
     systems.all = [{ id: 'is-1', name: 'ИС' }] as never
     systems.loaded = true
-    return { devices, vms, containers, systems }
+    const connections = useConnectionsStore()
+    connections.all = [{ id: 'conn-1' }] as never
+    connections.loaded = true
+    return { devices, vms, containers, systems, connections }
   }
 
   const named = (wrapper: Wrapper, name: string) => wrapper.findAll('.entity-link').find((link) => link.text() === name)!
@@ -316,6 +427,7 @@ describe('окно редактирования по имени объекта',
     ['virtual_machine', 'vm-1', 'vm'],
     ['container', 'c-1', 'container'],
     ['information_system', 'is-1', 'system'],
+    ['connection', 'conn-1', 'connection'],
   ])('имя объекта типа %s открывает его окно редактирования', async (type, id, kind) => {
     stores()
     stubServer(() => reportOf([finding({ rule: 'vm_without_host', entity_type: type, entity_id: id, entity_name: `имя-${id}`, message: 'м' })]))

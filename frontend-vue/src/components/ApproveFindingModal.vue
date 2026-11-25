@@ -1,27 +1,41 @@
 <script setup lang="ts">
-// Окно одобрения проблемы проверки данных (ConsistencyView.vue): человек признаёт находку допустимой и по желанию объясняет, почему.
-// Само ничего не отправляет: комментарий отдаётся родителю событием confirm, а родитель закрывает окно после успешного ответа.
-import { ref } from 'vue'
+// Окно одобрения проблемы (или нескольких сразу) в проверке данных (ConsistencyView.vue): человек признаёт находки допустимыми и по желанию
+// объясняет, почему. Само ничего не отправляет: комментарий отдаётся родителю событием confirm, а родитель закрывает окно после ответа.
+import { computed, ref } from 'vue'
 import { MAX_APPROVAL_COMMENT_LENGTH } from '../api/consistency'
 import type { ConsistencyFinding } from '../api/consistency'
+import { pluralRu } from '../utils/plural'
 import BaseModal from './BaseModal.vue'
 
-defineProps<{ finding: ConsistencyFinding; busy: boolean }>()
+const props = defineProps<{ findings: ConsistencyFinding[]; busy: boolean }>()
 const emit = defineEmits<{ close: []; confirm: [comment: string | null] }>()
 
 const comment = ref('')
+const many = computed(() => props.findings.length > 1)
+// В списке — первые проблемы, остальные числом: окно не должно вырастать на сотни строк.
+const SHOWN = 5
+const shown = computed(() => props.findings.slice(0, SHOWN))
+const hidden = computed(() => Math.max(0, props.findings.length - SHOWN))
+const count = computed(() => `${props.findings.length} ${pluralRu(props.findings.length, ['проблему', 'проблемы', 'проблем'])}`)
 </script>
 
 <template>
   <BaseModal align="center" @close="emit('close')">
-    <div class="approve-modal card" role="dialog" aria-modal="true" aria-label="Одобрение проблемы">
+    <div class="approve-modal card" role="dialog" aria-modal="true" :aria-label="many ? 'Одобрение проблем' : 'Одобрение проблемы'">
       <div class="modal-head">
-        <h2>Одобрить проблему?</h2>
+        <h2>{{ many ? `Одобрить ${count}?` : 'Одобрить проблему?' }}</h2>
         <button type="button" class="icon-btn" aria-label="Закрыть" @click="emit('close')">
           <svg class="icon"><use href="/icons.svg#i-x" /></svg>
         </button>
       </div>
-      <p class="problem">{{ finding.message }}</p>
+      <p v-if="!many" class="problem">{{ findings[0].message }}</p>
+      <template v-else>
+        <p class="scope">Будут одобрены все найденные проблемы, подходящие под текущие фильтры, а не только показанные на этой странице.</p>
+        <ul class="problems">
+          <li v-for="item in shown" :key="item.fingerprint">{{ item.message }}</li>
+          <li v-if="hidden > 0" class="more">и ещё {{ hidden }}</li>
+        </ul>
+      </template>
       <p class="hint">
         Проблема перестанет требовать внимания. Одобрение действует, пока она остаётся такой же: если изменится (например, адрес появится у ещё одного
         устройства), она вернётся в список.
@@ -36,7 +50,9 @@ const comment = ref('')
       ></textarea>
       <div class="actions">
         <button type="button" class="btn btn-secondary" :disabled="busy" @click="emit('close')">Отмена</button>
-        <button type="button" class="btn btn-primary" :disabled="busy" @click="emit('confirm', comment.trim() || null)">Одобрить</button>
+        <button type="button" class="btn btn-primary" :disabled="busy" @click="emit('confirm', comment.trim() || null)">
+          {{ many ? `Одобрить все (${findings.length})` : 'Одобрить' }}
+        </button>
       </div>
     </div>
   </BaseModal>
@@ -64,6 +80,21 @@ const comment = ref('')
   margin: 0 0 8px;
   font-size: 13px;
   font-weight: 500;
+}
+.scope {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.problems {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 12.5px;
+}
+.problems .more {
+  color: var(--ink-muted);
+  list-style: none;
+  margin-left: -18px;
 }
 .hint {
   margin: 0 0 14px;

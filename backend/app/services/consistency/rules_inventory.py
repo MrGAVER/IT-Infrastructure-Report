@@ -77,14 +77,16 @@ def check_location_incomplete(session: Session, spec: RuleSpec) -> Iterable[Find
 
 @rule("device_identity_incomplete", "В паспорте устройства не хватает данных", Severity.WARNING, Category.COMPLETENESS, sheet=2)
 def check_identity_incomplete(session: Session, spec: RuleSpec) -> Iterable[Finding]:
-    """Производитель, модель и операционная система — обязательные столбцы листа 2; встроенная ОС заменяет обычную."""
+    """Производитель, модель и операционная система — обязательные столбцы листа 2. ОС устройства лист 2 (и лист 3) берёт только из
+    поля «Встроенная ОС» (embedded_os_id): его же редактирует форма устройства, а обычная `operating_system_id` в отчёт не попадает —
+    устройство, у которого заполнено только оно, выйдет в отчёте с пустой ОС."""
     for device in _devices(session):
         missing = [
             label
             for label, filled in (
                 ("производитель", device.manufacturer_id),
                 ("модель", device.model_id),
-                ("операционная система", device.operating_system_id or device.embedded_os_id),
+                ("операционная система", device.embedded_os_id),
             )
             if is_blank(filled)
         ]

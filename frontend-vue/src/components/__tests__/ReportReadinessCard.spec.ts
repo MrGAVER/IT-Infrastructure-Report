@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import ReportReadinessCard from '../ReportReadinessCard.vue'
 import type { ReportReadiness } from '../../api/consistency'
-import { READINESS, readinessOf, sheetReadiness } from '../../__tests__/consistencyFixtures'
+import { READINESS, UNCHECKED_SHEET, readinessOf, sheetReadiness } from '../../__tests__/consistencyFixtures'
 
 function stubServer(body: () => Response | ReportReadiness) {
   const fetchMock = vi.fn(async () => {
@@ -56,14 +56,24 @@ describe('ReportReadinessCard', () => {
   })
 
   it('лист без проверок не получает ни процента, ни шкалы, ни слов «готово» — только пояснение', async () => {
-    stubServer(() => READINESS)
+    stubServer(() => readinessOf([UNCHECKED_SHEET]))
     const wrapper = await mountCard()
     const third = sheet(wrapper, 3)
 
     expect(third.find('.percent').exists()).toBe(false)
     expect(third.find('[role="progressbar"]').exists()).toBe(false)
     expect(third.text()).toContain('Проверки для этого листа пока не реализованы')
-    expect(third.text()).toContain('Подключений в реестре: 91')
+    expect(third.text()).toContain('Объектов на листе: 91')
+  })
+
+  it('лист подключений проверяется: процент, шкала и частая проблема', async () => {
+    stubServer(() => READINESS)
+    const wrapper = await mountCard()
+    const third = sheet(wrapper, 3)
+
+    expect(third.find('.percent').text()).toBe('94 %')
+    expect(third.find('.top-rules').text()).toContain('У подключения не указано назначение линии связи (5)')
+    expect(third.find('.show-link').attributes('href')).toBe('/consistency?sheet=3')
   })
 
   it('когда готовы все объекты — 100 %, «Все объекты готовы» и отметка выполнения, без ссылки «Показать»', async () => {

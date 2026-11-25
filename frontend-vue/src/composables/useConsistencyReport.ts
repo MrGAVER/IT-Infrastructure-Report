@@ -2,12 +2,16 @@
 // Находки читаются одним запросом (api/consistency.ts), фильтрация и разбиение на страницы — на клиенте.
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiError } from '../api/client'
-import { approveFinding, fetchConsistency, fetchConsistencyRules, revokeApproval } from '../api/consistency'
+import { APPROVAL_BATCH_LIMIT, approveFinding, approveFindings, fetchConsistency, fetchConsistencyRules, revokeApproval } from '../api/consistency'
 import type { ConsistencyFinding, ConsistencyReport, ConsistencyRule } from '../api/consistency'
 import { DEFAULT_FILTERS, countActive, filterFindings, hasActiveFilters, sheetsWithFindings } from '../utils/consistencyFilter'
 import type { ConsistencyFilters } from '../utils/consistencyFilter'
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS, pageAfterSizeChange } from '../utils/pageSize'
+import { pluralRu } from '../utils/plural'
 import { useToast } from './useToast'
+
+/** Значение `busy` на время пакетного одобрения: настоящему отпечатку (64 hex) оно не равно. */
+const BATCH_BUSY = 'batch'
 
 export function useConsistencyReport() {
   const { notify, notifyError } = useToast()
@@ -102,6 +106,48 @@ export function useConsistencyReport() {
     }
   }
 
+  /**
+   * Одобряет сразу несколько проблем одним комментарием. Список режется на части по APPROVAL_BATCH_LIMIT (предел одного запроса) и уходит
+   * по очереди; проблемы, которых уже нет или которые изменились, сервер не одобряет, а возвращает — тогда проверка перечитывается.
+   * true — что-то одобрено (окно комментария можно закрывать); при сбое посреди списка уже одобренное остаётся одобренным, а причина
+   * и число одобренных показываются сообщением.
+   */
+  async function approveMany(items: ConsistencyFinding[], comment: string | null): Promise<boolean> {
+    busy.value = BATCH_BUSY
+    let approved = 0
+    let already = 0
+    let stale = 0
+    try {
+      for (let start = 0; start < items.length; start += APPROVAL_BATCH_LIMIT) {
+        const chunk = items.slice(start, start + APPROVAL_BATCH_LIMIT)
+        const result = await approveFindings(
+          chunk.map((item) => item.fingerprint),
+          comment,
+        )
+        approved += result.approved
+        already += result.already
+        stale += result.missing.length
+        for (const [fingerprint, approval] of Object.entries(result.approvals)) patchFinding(fingerprint, { approved: true, approval })
+      }
+    } catch (err) {
+      if (approved + already === 0) {
+        await handleStale(err, 'Проблемы уже изменились или исправлены — проверка обновлена')
+        return false
+      }
+      notify(`Одобрено ${approved} из ${items.length}: ${err instanceof Error ? err.message : String(err)}`, 'error')
+      return true
+    } finally {
+      busy.value = null
+    }
+    const problems = (n: number) => pluralRu(n, ['проблема', 'проблемы', 'проблем'])
+    notify(`Одобрено: ${approved} ${problems(approved)}${already ? `, уже были одобрены: ${already}` : ''}`, 'success')
+    if (stale > 0) {
+      notify(`${stale} ${problems(stale)} уже изменились или исправлены — проверка обновлена`, 'error')
+      await load()
+    }
+    return true
+  }
+
   /** Отзывает одобрение: проблема возвращается в список «требуют внимания». */
   async function revoke(finding: ConsistencyFinding): Promise<void> {
     if (!finding.approval) return
@@ -146,6 +192,7 @@ export function useConsistencyReport() {
     counts,
     busy,
     approve,
+    approveMany,
     revoke,
     ruleOptions,
     ruleTitle,

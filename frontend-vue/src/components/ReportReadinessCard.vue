@@ -52,7 +52,7 @@ const isDone = (sheet: SheetReadiness) => sheet.checked && sheet.total > 0 && sh
           </div>
 
           <template v-if="!sheet.checked">
-            <p class="muted">Проверки для этого листа пока не реализованы. Подключений в реестре: {{ sheet.total }}.</p>
+            <p class="muted">Проверки для этого листа пока не реализованы. Объектов на листе: {{ sheet.total }}.</p>
           </template>
           <p v-else-if="sheet.total === 0" class="muted">На листе пока нет объектов.</p>
           <template v-else>
