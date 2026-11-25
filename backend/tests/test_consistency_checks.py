@@ -194,6 +194,17 @@ class TestInventory:
         assert by_id[bare.id] == ["производитель", "модель", "операционная система"]
         assert by_id[complete.id] == ["операционная система"]
 
+    def test_only_the_embedded_os_counts_because_the_report_prints_only_it(self, client, db_session):
+        from app.models import OperatingSystem, OperatingSystemCategory
+
+        category = _save(db_session, OperatingSystemCategory(name=f"os-{_uid()}"))
+        legacy = _save(db_session, OperatingSystem(category_id=category.id, name="ESXi"))
+        only_legacy = _device(db_session, system_name="legacy", operating_system_id=legacy.id)
+
+        found = {item["entity_id"]: item["details"]["missing"] for item in _of_rule(client, "device_identity_incomplete")}
+
+        assert found[only_legacy.id] == ["операционная система"]  # обычная ОС в столбец отчёта не попадает
+
     def test_managed_device_needs_a_management_address_unless_its_stack_has_one(self, client, db_session):
         naked = _device(db_session, system_name="naked")
         _device(db_session, serial_number="unmanaged-serial")  # без системного имени — не управляемое

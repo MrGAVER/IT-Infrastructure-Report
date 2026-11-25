@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useFindingEditor } from '../useFindingEditor'
 import { useToast } from '../useToast'
+import { useConnectionsStore } from '../../stores/connections'
 import { useDevicesStore } from '../../stores/devices'
 import { useVMsStore } from '../../stores/vms'
 
@@ -90,5 +91,19 @@ describe('useFindingEditor', () => {
     expect(editor.device.value).toBeNull()
     expect(reload).toHaveBeenCalledOnce()
     expect(rerun).toHaveBeenCalledOnce()
+  })
+
+  it('подключение открывается из справочника подключений', async () => {
+    const connections = useConnectionsStore()
+    connections.all = [{ id: 'conn-1' }] as never
+    connections.loaded = true
+    const editor = useFindingEditor(vi.fn())
+
+    await editor.open({ type: 'connection', id: 'conn-1', name: 'sw-a (Gi0/1) ↔ sw-b (Gi0/2)' })
+
+    expect(editor.connection.value).toMatchObject({ id: 'conn-1' })
+    expect(editor.device.value).toBeNull()
+    editor.close()
+    expect(editor.connection.value).toBeNull()
   })
 })

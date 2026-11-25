@@ -16,8 +16,7 @@ from app.models import (
     Container,
     InformationSystem,
     InformationSystemSource,
-    OperatingSystem,
-    OperatingSystemCategory,
+    EmbeddedOperatingSystem,
     PhysicalDevice,
     Room,
     VirtualMachine,
@@ -25,7 +24,7 @@ from app.models import (
 from app.services.consistency import run_checks
 from app.services.consistency.approvals import approve_finding
 from app.services.consistency.readiness import TOP_RULES, affected_objects
-from test_consistency_checks import _device, _ip, _port, _save
+from test_consistency_checks import _device, _ip, _port, _save, _uid
 
 URL = "/api/v1/integrity/consistency/readiness"
 
@@ -37,13 +36,12 @@ def _sheets(client) -> dict[int, dict]:
 
 
 def _located_device(session, **fields) -> PhysicalDevice:
-    """Устройство без пробелов в паспорте и размещении (здание, помещение, производитель, модель, ОС): на листе 2 у него нет проблем,
-    кроме отсутствующего IP управления, если у устройства есть системное имя."""
+    """Устройство без пробелов в паспорте и размещении (здание, помещение, производитель, модель, встроенная ОС): на листе 2 у него нет
+    проблем, кроме отсутствующего IP управления, если у устройства есть системное имя."""
     building = _save(session, Building(name=f"Здание {fields.get('system_name', '')}"))
     room = _save(session, Room(building_id=building.id, name="Серверная"))
-    category = _save(session, OperatingSystemCategory(name=f"os-cat-{building.id[:8]}"))
-    system = _save(session, OperatingSystem(category_id=category.id, name="Linux"))
-    return _device(session, building_id=building.id, room_id=room.id, operating_system_id=system.id, **fields)
+    system = _save(session, EmbeddedOperatingSystem(name="Linux"))
+    return _device(session, building_id=building.id, room_id=room.id, embedded_os_id=system.id, **fields)
 
 
 def test_empty_registry_has_four_sheets_without_percentages(client):
@@ -54,27 +52,50 @@ def test_empty_registry_has_four_sheets_without_percentages(client):
     assert body["unassigned"] == 0
 
 
-def test_sheet_three_is_not_checked_so_it_never_claims_readiness(client, db_session):
-    device = _device(db_session, system_name="a")
-    _save(
-        db_session,
-        Connection(
-            source_interface_id=_port(db_session, device, "Gi0/1").id,
-            destination_interface_id=_port(db_session, device, "Gi0/2").id,
-            connection_type_id=_connection_type(db_session),
-        ),
-    )
-
-    sheet = _sheets(client)[3]
-
-    assert sheet["total"] == 1 and sheet["checked"] is False
-    assert sheet["affected"] is None and sheet["ready"] is None and sheet["percent"] is None and sheet["top_rules"] == []
-
-
 def _connection_type(session) -> str:
     from app.models import ConnectionType
 
-    return _save(session, ConnectionType(name="витая пара")).id
+    return _save(session, ConnectionType(name=f"витая пара {_uid()}")).id
+
+
+def _connect(session, name_a: str, name_b: str, *, active: bool = True, purpose: bool = True) -> Connection:
+    """Подключение между портами двух новых устройств; purpose — отмечено ли назначение «передача данных» у обоих портов."""
+    ports = [_port(session, _device(session, system_name=name), "Gi0/1", is_data_transfer=purpose) for name in (name_a, name_b)]
+    return _save(
+        session,
+        Connection(
+            source_interface_id=ports[0].id,
+            destination_interface_id=ports[1].id,
+            connection_type_id=_connection_type(session),
+            is_active=active,
+        ),
+    )
+
+
+class TestSheetThree:
+    def test_sheet_three_is_checked_and_counts_only_active_connections(self, client, db_session):
+        _connect(db_session, "a", "b")
+        _connect(db_session, "c", "d", active=False)  # неактивное подключение в отчёт не попадает
+
+        sheet = _sheets(client)[3]
+
+        assert sheet["checked"] is True and sheet["total"] == 1
+
+    def test_a_connection_without_purpose_lowers_the_sheet_and_a_complete_one_does_not(self, client, db_session):
+        _connect(db_session, "a", "b")
+        _connect(db_session, "c", "d", purpose=False)
+
+        sheet = _sheets(client)[3]
+
+        assert sheet["total"] == 2 and sheet["affected"] == 1 and sheet["percent"] == 50
+        assert [item["rule"] for item in sheet["top_rules"]] == ["connection_without_purpose"]
+
+    def test_a_clean_sheet_three_is_one_hundred_percent(self, client, db_session):
+        _connect(db_session, "a", "b")
+
+        sheet = _sheets(client)[3]
+
+        assert sheet["affected"] == 0 and sheet["percent"] == 100
 
 
 class TestSheetTwo:

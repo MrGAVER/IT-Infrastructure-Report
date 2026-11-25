@@ -2,8 +2,7 @@
 
 Считается по тем же находкам, что и экран «Проверка данных», поэтому числа на дашборде и на экране проверки не расходятся. Объект
 «готов», если у него нет находок, требующих внимания; одобренные находки (services/consistency/approvals.py) не мешают. Лист 3
-(подключения) пока не проверяется: правил для него нет, и показывать для него проценты значило бы выдавать отсутствие проверки
-за отсутствие проблем.
+считается по активным подключениям: неактивное в отчёт не попадает.
 """
 
 from __future__ import annotations
@@ -30,13 +29,16 @@ class SheetSpec:
     # Типы объектов листа (entity_type находок) и таблицы, по которым считается их общее число.
     entity_types: tuple[str, ...]
     models: tuple[type, ...]
+    # False — для листа нет правил (сейчас проверяются все четыре, поле оставлено для будущих листов).
     checked: bool = True
+    # Считать только активные записи (у подключения есть признак активности: неактивное в отчёт не попадает).
+    active_only: bool = False
 
 
 SHEETS: tuple[SheetSpec, ...] = (
     SheetSpec(1, "Информационные системы", ("information_system",), (InformationSystem,)),
     SheetSpec(2, "Физические устройства", ("physical_device",), (PhysicalDevice,)),
-    SheetSpec(3, "Подключения", (), (Connection,), checked=False),
+    SheetSpec(3, "Подключения", ("connection",), (Connection,), active_only=True),
     SheetSpec(4, "Виртуальные машины и контейнеры", ("virtual_machine", "container"), (VirtualMachine, Container)),
 )
 
@@ -57,7 +59,11 @@ def affected_objects(finding: Finding) -> set[tuple[str, str]]:
 
 
 def _total(session: Session, spec: SheetSpec) -> int:
-    return sum(session.scalar(select(func.count()).select_from(model)) or 0 for model in spec.models)
+    def count(model: type) -> int:
+        query = select(func.count()).select_from(model)
+        return session.scalar(query.where(model.is_active.is_(True)) if spec.active_only else query) or 0
+
+    return sum(count(model) for model in spec.models)
 
 
 def _percent(ready: int, total: int) -> int | None:

@@ -81,6 +81,24 @@ export function approveFinding(fingerprint: string, comment: string | null): Pro
   return api.post('/integrity/consistency/approvals', { fingerprint, comment })
 }
 
+/** Предел пакетного одобрения за один запрос (services/consistency/approvals.py: MAX_BATCH); длинные списки режутся на части. */
+export const APPROVAL_BATCH_LIMIT = 500
+
+export interface BatchApprovalResult {
+  /** Сколько проблем одобрено сейчас, сколько уже было одобрено раньше. */
+  approved: number
+  already: number
+  /** Отпечатки проблем, которых уже нет или которые изменились: они не одобрены, остальные одобрены. */
+  missing: string[]
+  /** Отпечаток → одобрение для всех одобренных (новых и прежних): строки обновляются без перечитывания проверки. */
+  approvals: Record<string, ConsistencyApproval>
+}
+
+/** Одобрить сразу несколько проблем одной транзакцией и одним комментарием (не больше APPROVAL_BATCH_LIMIT за запрос). */
+export function approveFindings(fingerprints: string[], comment: string | null): Promise<BatchApprovalResult> {
+  return api.post('/integrity/consistency/approvals/batch', { fingerprints, comment })
+}
+
 /** Отозвать одобрение: проблема снова требует внимания. */
 export function revokeApproval(approvalId: string): Promise<void> {
   return api.delete<void>(`/integrity/consistency/approvals/${encodeURIComponent(approvalId)}`)
@@ -137,6 +155,7 @@ const ENTITY_SECTIONS: Record<string, EntitySection> = {
   virtual_machine: { to: '/vms', label: 'Виртуальные машины' },
   container: { to: '/containers', label: 'Контейнеры' },
   information_system: { to: '/information-systems', label: 'Информационные системы' },
+  connection: { to: '/connections', label: 'Подключения' },
 }
 
 /** Раздел, где исправляют объект находки; null — у объекта нет своего раздела (например, IP-адрес). */
@@ -144,10 +163,10 @@ export function entitySection(entityType: string): EntitySection | null {
   return ENTITY_SECTIONS[entityType] ?? null
 }
 
-/** Типы объектов, у которых есть окно редактирования (устройство, ВМ, контейнер, ИС). */
-export type EditableEntityType = 'physical_device' | 'virtual_machine' | 'container' | 'information_system'
+/** Типы объектов, у которых есть окно редактирования (устройство, ВМ, контейнер, ИС, подключение). */
+export type EditableEntityType = 'physical_device' | 'virtual_machine' | 'container' | 'information_system' | 'connection'
 
-const EDITABLE_TYPES: readonly string[] = ['physical_device', 'virtual_machine', 'container', 'information_system']
+const EDITABLE_TYPES: readonly string[] = ['physical_device', 'virtual_machine', 'container', 'information_system', 'connection']
 
 export function isEditableEntity(entityType: string): entityType is EditableEntityType {
   return EDITABLE_TYPES.includes(entityType)

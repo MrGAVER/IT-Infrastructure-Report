@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..services.consistency import Category, Severity
-from ..services.consistency.approvals import approve_finding, revoke_approval
+from ..services.consistency.approvals import approve_finding, approve_findings, revoke_approval
 from ..services.consistency.readiness import build_report_readiness
 from ..services.consistency.report import build_consistency_report, list_rules
-from .consistency_schemas import ApproveFindingBody
+from .consistency_schemas import ApproveFindingBody, ApproveFindingsBody
 
 router = APIRouter(tags=["Consistency"])
 
@@ -47,6 +47,13 @@ def approve_consistency_finding(body: ApproveFindingBody, session: Session = Dep
     """Одобряет проблему (признаёт допустимой) по отпечатку из отчёта. Повторное одобрение ничего не меняет. 404 — проблемы уже нет
     или она изменилась. Одобрение теряет силу, когда проблема меняется."""
     return approve_finding(session, body.fingerprint, body.comment)
+
+
+@router.post("/api/v1/integrity/consistency/approvals/batch")
+def approve_consistency_findings(body: ApproveFindingsBody, session: Session = Depends(get_db)):
+    """Одобряет сразу несколько проблем одной транзакцией. Проблемы, которых уже нет или которые изменились, возвращаются в `missing`, а не
+    отменяют остальные; уже одобренные считаются в `already`. За один запрос — не больше 500 отпечатков."""
+    return approve_findings(session, body.fingerprints, body.comment)
 
 
 @router.delete("/api/v1/integrity/consistency/approvals/{approval_id}", status_code=204)

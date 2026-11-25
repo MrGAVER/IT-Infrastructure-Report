@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useConsistencyReport } from '../useConsistencyReport'
 import { approvalOf, approvedFinding, finding, reportOf, RULES } from '../../__tests__/consistencyFixtures'
+import { useToast } from '../useToast'
 import type { ConsistencyReport } from '../../api/consistency'
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
@@ -95,14 +96,14 @@ describe('одобрение и отзыв', () => {
   const two = () => [finding({ entity_name: 'первая' }), finding({ entity_name: 'вторая' })]
 
   /** Сервер: отчёт (меняется между запросами), каталог правил и ответы на POST/DELETE одобрений. */
-  function stubServer(options: { report: () => unknown; write?: (method: string, url: string) => Response }) {
+  function stubServer(options: { report: () => unknown; write?: (method: string, url: string, body: { fingerprints?: string[] } | null) => Response }) {
     const calls: { method: string; url: string; body: unknown }[] = []
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init: RequestInit = {}) => {
         const method = init.method ?? 'GET'
         calls.push({ method, url, body: init.body ? JSON.parse(init.body as string) : null })
-        if (method !== 'GET') return options.write!(method, url)
+        if (method !== 'GET') return options.write!(method, url, init.body ? JSON.parse(init.body as string) : null)
         return json(url.endsWith('/rules') ? { rules: RULES } : options.report())
       }),
     )
@@ -184,5 +185,143 @@ describe('одобрение и отзыв', () => {
 
     expect(state.page.value).toBe(1)
     expect(state.pageItems.value).toHaveLength(10)
+  })
+})
+
+describe('пакетное одобрение', () => {
+  const many = (count: number) => Array.from({ length: count }, (_, index) => finding({ entity_name: `ip-${index}` }))
+
+  /** Ответ сервера на пакет: все отпечатки запроса одобрены, кроме перечисленных в `missing`. */
+  const answer = (body: { fingerprints?: string[] } | null, missing: string[] = [], already = 0) => {
+    const ok = (body?.fingerprints ?? []).filter((fingerprint) => !missing.includes(fingerprint))
+    return json({
+      approved: ok.length - already,
+      already,
+      missing,
+      approvals: Object.fromEntries(ok.map((fingerprint) => [fingerprint, approvalOf({ comment: 'пакет' })])),
+    })
+  }
+
+  function stubServer(items: ReturnType<typeof many>, write: (body: { fingerprints?: string[] } | null, call: number) => Response) {
+    const calls: { method: string; url: string; body: { fingerprints?: string[] } | null }[] = []
+    let batches = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit = {}) => {
+        const method = init.method ?? 'GET'
+        const body = init.body ? JSON.parse(init.body as string) : null
+        calls.push({ method, url, body })
+        if (method === 'POST') return write(body, ++batches)
+        return json(url.endsWith('/rules') ? { rules: RULES } : reportOf(items))
+      }),
+    )
+    return calls
+  }
+
+  const messages = () => useToast().toasts.map((toast) => toast.message)
+
+  beforeEach(() => useToast().toasts.splice(0))
+
+  it('все проблемы уходят одним запросом, строки обновляются на месте, счётчики пересчитываются', async () => {
+    const items = many(3)
+    const calls = stubServer(items, (body) => answer(body))
+    const state = useConsistencyReport()
+    await state.load()
+
+    await expect(state.approveMany(items, 'пакет')).resolves.toBe(true)
+
+    const posts = calls.filter((call) => call.method === 'POST')
+    expect(posts).toHaveLength(1)
+    expect(posts[0].body).toEqual({ fingerprints: items.map((item) => item.fingerprint), comment: 'пакет' })
+    expect(state.counts.value).toMatchObject({ total: 0, approved: 3 })
+    expect(state.busy.value).toBeNull()
+    expect(messages()).toEqual(['Одобрено: 3 проблемы'])
+  })
+
+  it('длинный список режется на запросы по 500 (предел сервера)', async () => {
+    const items = many(501)
+    const calls = stubServer(items, (body) => answer(body))
+    const state = useConsistencyReport()
+    await state.load()
+
+    await state.approveMany(items, null)
+
+    const sizes = calls.filter((call) => call.method === 'POST').map((call) => call.body?.fingerprints?.length)
+    expect(sizes).toEqual([500, 1])
+    expect(state.counts.value).toMatchObject({ total: 0, approved: 501 })
+  })
+
+  it('пока идёт пакет, кнопки заблокированы: busy занят, после ответа свободен', async () => {
+    const items = many(2)
+    stubServer(items, (body) => answer(body))
+    const state = useConsistencyReport()
+    await state.load()
+
+    const running = state.approveMany(items, null)
+    expect(state.busy.value).not.toBeNull()
+    await running
+
+    expect(state.busy.value).toBeNull()
+  })
+
+  it('проблемы, которых уже нет, не одобряются: об этом сказано, проверка перечитывается, остальные одобрены', async () => {
+    const items = many(3)
+    const calls = stubServer(items, (body) => answer(body, [items[1].fingerprint]))
+    const state = useConsistencyReport()
+    await state.load()
+    const reports = calls.filter((call) => call.method === 'GET' && !call.url.endsWith('/rules')).length
+
+    await expect(state.approveMany(items, null)).resolves.toBe(true)
+
+    expect(messages()[0]).toBe('Одобрено: 2 проблемы')
+    expect(messages()[1]).toBe('1 проблема уже изменились или исправлены — проверка обновлена')
+    expect(calls.filter((call) => call.method === 'GET' && !call.url.endsWith('/rules'))).toHaveLength(reports + 1)
+  })
+
+  it('уже одобренные называются отдельно, а не выдаются за новые', async () => {
+    const items = many(3)
+    stubServer(items, (body) => answer(body, [], 1))
+    const state = useConsistencyReport()
+    await state.load()
+
+    await state.approveMany(items, null)
+
+    expect(messages()).toEqual(['Одобрено: 2 проблемы, уже были одобрены: 1'])
+  })
+
+  it('сбой на первом же запросе: ничего не одобрено, окно остаётся открытым (false), причина показана', async () => {
+    const items = many(2)
+    stubServer(items, () => json({ detail: 'Сбой' }, 500))
+    const state = useConsistencyReport()
+    await state.load()
+
+    await expect(state.approveMany(items, null)).resolves.toBe(false)
+
+    expect(state.counts.value).toMatchObject({ total: 2, approved: 0 })
+    expect(state.busy.value).toBeNull()
+    expect(messages().some((text) => text.includes('Сбой'))).toBe(true)
+  })
+
+  it('404 на первом запросе: проверка перечитывается, а не выглядит как «одобрено»', async () => {
+    const items = many(2)
+    const calls = stubServer(items, () => json({ detail: 'нет' }, 404))
+    const state = useConsistencyReport()
+    await state.load()
+
+    await expect(state.approveMany(items, null)).resolves.toBe(false)
+
+    expect(calls.filter((call) => call.method === 'GET' && !call.url.endsWith('/rules'))).toHaveLength(2)
+  })
+
+  it('сбой посреди списка: уже одобренное остаётся одобренным, сообщение называет «одобрено N из M»', async () => {
+    const items = many(501)
+    stubServer(items, (body, call) => (call === 1 ? answer(body) : json({ detail: 'Сбой на второй части' }, 500)))
+    const state = useConsistencyReport()
+    await state.load()
+
+    await expect(state.approveMany(items, null)).resolves.toBe(true)
+
+    expect(state.counts.value).toMatchObject({ total: 1, approved: 500 })
+    expect(messages().some((text) => text.startsWith('Одобрено 500 из 501'))).toBe(true)
   })
 })

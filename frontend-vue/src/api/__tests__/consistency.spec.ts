@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   CONSISTENCY_LIMIT,
+  APPROVAL_BATCH_LIMIT,
   approveFinding,
+  approveFindings,
   entitySection,
   fetchConsistency,
   fetchConsistencyRules,
@@ -48,6 +50,7 @@ describe('entitySection', () => {
     ['virtual_machine', '/vms'],
     ['container', '/containers'],
     ['information_system', '/information-systems'],
+    ['connection', '/connections'],
   ])('%s ведёт в раздел %s', (type, path) => {
     expect(entitySection(type)?.to).toBe(path)
   })
@@ -136,7 +139,7 @@ describe('findingTargets', () => {
 })
 
 describe('isEditableEntity', () => {
-  it.each(['physical_device', 'virtual_machine', 'container', 'information_system'])('%s открывается в окне редактирования', (type) => {
+  it.each(['physical_device', 'virtual_machine', 'container', 'information_system', 'connection'])('%s открывается в окне редактирования', (type) => {
     expect(isEditableEntity(type)).toBe(true)
   })
 
@@ -161,5 +164,24 @@ describe('fetchReportReadiness', () => {
       vi.fn(async () => new Response(JSON.stringify({ detail: 'Сбой' }), { status: 500 })),
     )
     await expect(fetchReportReadiness()).rejects.toThrow()
+  })
+})
+
+describe('approveFindings', () => {
+  it('пакет уходит одним POST-ом со списком отпечатков и комментарием, ответ возвращается как есть', async () => {
+    const answer = { approved: 2, already: 1, missing: ['f'.repeat(64)], approvals: { ['a'.repeat(64)]: approvalOf() } }
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(answer)))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(approveFindings(['a'.repeat(64), 'b'.repeat(64)], 'VRRP')).resolves.toEqual(answer)
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toMatch(/\/integrity\/consistency\/approvals\/batch$/)
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ fingerprints: ['a'.repeat(64), 'b'.repeat(64)], comment: 'VRRP' })
+  })
+
+  it('предел пакета совпадает с серверным', () => {
+    expect(APPROVAL_BATCH_LIMIT).toBe(500)
   })
 })

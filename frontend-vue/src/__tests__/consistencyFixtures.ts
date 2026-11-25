@@ -73,7 +73,7 @@ export function readinessOf(sheets: SheetReadiness[], unassigned = 0): ReportRea
   return { sheets, unassigned }
 }
 
-/** Четыре листа отчёта в состоянии «почти готово»; лист 3, как на сервере, не проверяется. */
+/** Четыре листа отчёта в состоянии «почти готово»: три листа не дотягивают до 100 %, лист 4 готов полностью. */
 export const READINESS: ReportReadiness = readinessOf(
   [
     sheetReadiness({ sheet: 1, title: 'Информационные системы', total: 12, affected: 3, ready: 9, percent: 75, problems: 5 }),
@@ -86,8 +86,30 @@ export const READINESS: ReportReadiness = readinessOf(
       problems: 3,
       top_rules: [{ rule: 'device_location_incomplete', title: 'У устройства не указано здание или помещение', count: 2 }],
     }),
-    sheetReadiness({ sheet: 3, title: 'Подключения', total: 91, checked: false, affected: null, ready: null, percent: null, problems: 0 }),
+    sheetReadiness({
+      sheet: 3,
+      title: 'Подключения',
+      total: 91,
+      affected: 5,
+      ready: 86,
+      percent: 94,
+      problems: 6,
+      approved: 1,
+      top_rules: [{ rule: 'connection_without_purpose', title: 'У подключения не указано назначение линии связи', count: 5 }],
+    }),
     sheetReadiness({ sheet: 4, title: 'Виртуальные машины и контейнеры', total: 134, affected: 0, ready: 134, percent: 100, problems: 0 }),
   ],
   2,
 )
+
+/** Лист, для которого нет правил проверки (поле `checked` оставлено для будущих листов): проценты показывать нельзя. */
+export const UNCHECKED_SHEET: SheetReadiness = sheetReadiness({
+  sheet: 3,
+  title: 'Подключения',
+  total: 91,
+  checked: false,
+  affected: null,
+  ready: null,
+  percent: null,
+  problems: 0,
+})
