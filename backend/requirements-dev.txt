@@ -2,7 +2,7 @@
 # (backend/Dockerfile их не устанавливает). Устанавливаются поверх requirements.txt.
 -r requirements.txt
 pytest>=9.2.0,<10
-pytest-cov>=6,<8
+pytest-cov>=7.1.0,<8
 pytest-xdist>=3.8.0,<4
 httpx2>=2.16.2,<3
 ruff>=0.17.5,<1
