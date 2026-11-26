@@ -47,7 +47,7 @@ from .gate import (
     WRITE_METHODS,
     AuthGateMiddleware,
 )
-from .guards import require_admin, require_admin_if_auth_enabled, require_setup_access
+from .guards import require_admin, require_admin_for_backup_settings, require_admin_if_auth_enabled, require_setup_access
 from .login import authenticate
 from .passwords import hash_password, validate_password_strength, verify_password
 from .sessions import (
@@ -112,6 +112,7 @@ __all__ = [
     "AuthGateMiddleware",
     # guards
     "require_admin",
+    "require_admin_for_backup_settings",
     "require_admin_if_auth_enabled",
     "require_setup_access",
     # _common

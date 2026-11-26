@@ -65,11 +65,14 @@ def test_ci_runs_weekly_on_a_schedule_and_can_be_started_by_hand(workflow):
 
 def test_only_the_windows_build_runs_on_a_schedule(workflow):
     jobs = workflow["jobs"]
-    guarded = {name: job.get("if", "") for name, job in jobs.items() if name != "build-windows"}
+    # `changes` — вспомогательное дешёвое задание: решает, нужна ли проверка под Windows, и по расписанию обязано работать (от него зависит
+    # build-windows); само по себе оно ничего не проверяет. Остальные задания по расписанию пропускаются.
+    guarded = {name: job.get("if", "") for name, job in jobs.items() if name not in ("build-windows", "changes")}
     assert guarded, "в ci.yml есть и другие job"
     for name, condition in guarded.items():
         assert "github.event_name != 'schedule'" in condition, f"job {name} не должен запускаться по расписанию"
-    assert "if" not in jobs["build-windows"], "build-windows по расписанию как раз и нужен"
+    assert "schedule" not in jobs["build-windows"].get("if", ""), "build-windows по расписанию как раз и нужен"
+    assert "if" not in jobs["changes"], "по расписанию решение для build-windows должно приниматься"
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -107,6 +110,17 @@ def test_the_smoke_step_reads_the_version_from_openapi_because_the_public_health
     run = _smoke(steps)["run"]
     assert "INFRA_REGISTRY_ENABLE_DOCS" in run and "/openapi.json" in run and "$openapi.info.version" in run
     assert "$health.version" not in run, "версии в health нет"
+
+
+def test_the_smoke_step_reads_only_fields_that_health_actually_returns(steps, client):
+    """Тест-контракт на стыке «потребитель — источник» (F-01 код-ревью). Раньше шаг читал `$health.version`, а ветка П1 убрала это поле
+    из ответа: git слил без конфликтов, а текстовые проверки подстрок дефекта не видели. Здесь сверяется то, что шаг читает из ответа
+    `/api/v1/health`, с тем, что приложение отдаёт на самом деле (в PowerShell отсутствующее свойство — `$null`, и сравнение падает)."""
+    run = _smoke(steps)["run"]
+    used = set(re.findall(r"\$health\.(\w+)", run))
+    assert used, "шаг должен проверять хотя бы одно поле ответа health"
+    returned = set(client.get("/api/v1/health").json())
+    assert used <= returned, f"шаг читает из health поля, которых нет в ответе: {sorted(used - returned)}"
 
 
 def test_the_smoke_step_stops_the_exe_with_its_children_and_fails_when_it_dies_early(steps):

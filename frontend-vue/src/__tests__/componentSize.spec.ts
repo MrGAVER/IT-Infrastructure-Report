@@ -15,7 +15,7 @@ const FROZEN_OVER_LIMIT: Record<string, number> = {
   'views/VLANsView.vue': 517,
   'views/DiagramView.vue': 487,
   'views/DevicesView.vue': 474,
-  'components/VMFormModal.vue': 454,
+  'components/VMFormModal.vue': 453,
   'views/ReportDocxEditorView.vue': 466,
   'components/PortConfigReviewModal.vue': 459,
   'components/InterfaceConnectionEditor.vue': 434,

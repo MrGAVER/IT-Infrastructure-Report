@@ -382,6 +382,11 @@ export function createResource<T>(resource: string, payload: Record<string, unkn
   return api.post<T>(`/resources/${resource}`, payload)
 }
 
+/** Одна запись ресурса по id (GET /resources/{resource}/{id}): например, чтобы узнать её актуальный `updated_at`. */
+export function getResource<T>(resource: string, id: string) {
+  return api.get<T>(`/resources/${resource}/${id}`)
+}
+
 /**
  * Обновление записи. `expectedUpdatedAt` — `updated_at` записи в том виде, в каком форма её получила: сервер сверит его с текущим и, если запись
  * успели изменить, ответит 409 STALE_RECORD вместо того, чтобы молча затереть чужую правку (оптимистичная блокировка). Без значения (null, undefined,

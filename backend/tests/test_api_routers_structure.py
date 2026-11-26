@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from app import main as app_main
-from app.api import device_stacks, frontend_assets, listings, reports, system, vlan, vms
+from app.api import consistency, device_stacks, frontend_assets, listings, reports, system, vlan, vms
 
 API_DIR = Path(system.__file__).parent
 
@@ -28,6 +28,17 @@ EXPECTED_ROUTES = {
             ("GET", "/api/v1/integrity/stale-subinterfaces"),
             ("GET", "/api/v1/dashboard"),
             ("POST", "/api/v1/seed"),
+        },
+    ),
+    "consistency": (
+        consistency,
+        {
+            ("GET", "/api/v1/integrity/consistency"),
+            ("GET", "/api/v1/integrity/consistency/rules"),
+            ("GET", "/api/v1/integrity/consistency/readiness"),
+            ("POST", "/api/v1/integrity/consistency/approvals"),
+            ("POST", "/api/v1/integrity/consistency/approvals/batch"),
+            ("DELETE", "/api/v1/integrity/consistency/approvals/{approval_id}"),
         },
     ),
     "listings": (
@@ -111,7 +122,7 @@ def test_no_endpoint_is_declared_twice():
             seen[key] = name
 
 
-@pytest.mark.parametrize("module_name", ["vlan", "device_stacks"])
+@pytest.mark.parametrize("module_name", ["vlan", "device_stacks", "consistency"])
 def test_thin_controllers_do_not_touch_models_or_sql(module_name):
     tree = ast.parse((API_DIR / f"{module_name}.py").read_text(encoding="utf-8"))
     imported = {(node.module or "") for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)} | {

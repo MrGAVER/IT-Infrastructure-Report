@@ -34,6 +34,7 @@ from .interface_groups import (
     list_interface_groups,
 )
 from .owned_rows import sync_owner_open_ports
+from .versioning import touch_parent, track_nested_changes
 from .subinterfaces import purge_subinterfaces_of_interfaces, subinterfaces_by_parent, sync_subinterfaces, validate_device_subinterfaces
 
 
@@ -261,10 +262,33 @@ def _resolve_port_object(
 
 
 def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
+    """Атомарная синхронизация портов устройства с payload (полное желаемое состояние: порты, группы, подинтерфейсы, подключения).
+
+    Версия устройства (updated_at) сдвигается, только если реально изменилась хоть одна вложенная строка: форма устройства сохраняется
+    целиком, и повторное «Сохранить» без правок не должно давать другой вкладке ложный STALE_RECORD (см. versioning)."""
     device = session.get(PhysicalDevice, device_id)
     if not device:
         raise HTTPException(404, "Физическое устройство не найдено")
     items, groups_payload, manage_groups = _read_sync_payload(payload)
+    try:
+        with track_nested_changes(session, ignore=device) as nested:
+            summary = _apply_interfaces(device, items, groups_payload, manage_groups, session)
+        if nested.changed:
+            touch_parent(device)
+        audit(session, "interfaces", device_id, AuditAction.SYNC, summary)
+        session.commit()
+        return _synced_interfaces_response(device_id, session)
+    except HTTPException:
+        session.rollback()
+        raise
+    except IntegrityError as exc:
+        session.rollback()
+        raise integrity_error_response("device-interfaces", exc) from exc
+
+
+def _apply_interfaces(device: PhysicalDevice, items: list[Any], groups_payload: Any, manage_groups: bool, session: Session) -> str:
+    """Записывает порты, группы, подинтерфейсы и подключения устройства (без коммита) и возвращает текст записи журнала аудита."""
+    device_id = device.id
     existing = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id)).all()
     existing_map = {x.id: x for x in existing}
     incoming_ids: set[str] = set()
@@ -274,59 +298,46 @@ def sync_interfaces(device_id: str, payload: dict[str, Any], session: Session):
     connection_requests: list[tuple[DeviceInterface, Any]] = []
     row_objects: list[DeviceInterface] = []  # порты всех элементов payload по порядку — на них ссылается connection.peer_row
     subinterface_total = 0  # подинтерфейсов в payload — для записи в журнал аудита
-    try:
-        group_states = _sync_interface_groups(device_id, groups_payload, allowed_vlans, session) if manage_groups else {}
-        for position, item in enumerate(items):
-            obj = _resolve_port_object(item, device_id, existing_map, incoming_ids, session)
-            # Порядок портов — порядок элементов payload (стрелки в форме). Присваивается ДО первого flush() в
-            # _sync_single_interface: так новый порт вставляется сразу с нужной позицией, а не получает её отдельным UPDATE.
-            obj.sort_order = position
-            group_state = _resolve_interface_group(item, group_states) if manage_groups else None
-            if manage_groups:
-                obj.group_id = group_state.obj.id if group_state else None
-            _sync_single_interface(obj, item, device, session, allowed_vlans)
-            # Подинтерфейсы порта: ключ subinterfaces — полный список подинтерфейсов этого порта (как ips и
-            # open_ports); без ключа (старый клиент, окно без их редактирования) подинтерфейсы не трогаются.
-            if "subinterfaces" in item:
-                subinterface_total += sync_subinterfaces(obj, item["subinterfaces"], allowed_vlans, session)
-            # Параметры группы применяются ПОСЛЕ значений из payload и перекрывают их: группа —
-            # источник истины для заданных ею параметров, что бы ни прислал клиент.
-            if group_state:
-                _apply_group_to_interface(obj, group_state, session)
-            row_objects.append(obj)
-            if "connection" in item:
-                connection_requests.append((obj, item["connection"]))
-        _remove_stale_interfaces(existing, incoming_ids, session)
-        session.flush()
-        validate_device_subinterfaces(device_id, session)
+    group_states = _sync_interface_groups(device_id, groups_payload, allowed_vlans, session) if manage_groups else {}
+    for position, item in enumerate(items):
+        obj = _resolve_port_object(item, device_id, existing_map, incoming_ids, session)
+        # Порядок портов — порядок элементов payload (стрелки в форме). Присваивается ДО первого flush() в
+        # _sync_single_interface: так новый порт вставляется сразу с нужной позицией, а не получает её отдельным UPDATE.
+        obj.sort_order = position
+        group_state = _resolve_interface_group(item, group_states) if manage_groups else None
         if manage_groups:
-            _delete_stale_groups(device_id, {state.obj.id for state in group_states.values()}, session)
-        connections_changed = sync_interface_connections(connection_requests, session, row_objects) if connection_requests else 0
-        all_ifaces = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id)).all()
-        for iface in all_ifaces:
-            session.execute(
-                update(IPAddress)
-                .where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id)
-                .values(is_management=bool(iface.is_management))
-            )
-        audit(
-            session,
-            "interfaces",
-            device_id,
-            AuditAction.SYNC,
-            f"Синхронизация интерфейсов: {len(items)}"
-            + (f", групп: {len(groups_payload)}" if manage_groups else "")
-            + (f", подинтерфейсов: {subinterface_total}" if subinterface_total else "")
-            + (f", подключений изменено: {connections_changed}" if connections_changed else ""),
+            obj.group_id = group_state.obj.id if group_state else None
+        _sync_single_interface(obj, item, device, session, allowed_vlans)
+        # Подинтерфейсы порта: ключ subinterfaces — полный список подинтерфейсов этого порта (как ips и
+        # open_ports); без ключа (старый клиент, окно без их редактирования) подинтерфейсы не трогаются.
+        if "subinterfaces" in item:
+            subinterface_total += sync_subinterfaces(obj, item["subinterfaces"], allowed_vlans, session)
+        # Параметры группы применяются ПОСЛЕ значений из payload и перекрывают их: группа —
+        # источник истины для заданных ею параметров, что бы ни прислал клиент.
+        if group_state:
+            _apply_group_to_interface(obj, group_state, session)
+        row_objects.append(obj)
+        if "connection" in item:
+            connection_requests.append((obj, item["connection"]))
+    _remove_stale_interfaces(existing, incoming_ids, session)
+    session.flush()
+    validate_device_subinterfaces(device_id, session)
+    if manage_groups:
+        _delete_stale_groups(device_id, {state.obj.id for state in group_states.values()}, session)
+    connections_changed = sync_interface_connections(connection_requests, session, row_objects) if connection_requests else 0
+    all_ifaces = session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device_id)).all()
+    for iface in all_ifaces:
+        session.execute(
+            update(IPAddress)
+            .where(IPAddress.owner_type == OwnerType.DEVICE_INTERFACE, IPAddress.owner_id == iface.id)
+            .values(is_management=bool(iface.is_management))
         )
-        session.commit()
-        return _synced_interfaces_response(device_id, session)
-    except HTTPException:
-        session.rollback()
-        raise
-    except IntegrityError as exc:
-        session.rollback()
-        raise integrity_error_response("device-interfaces", exc) from exc
+    return (
+        f"Синхронизация интерфейсов: {len(items)}"
+        + (f", групп: {len(groups_payload)}" if manage_groups else "")
+        + (f", подинтерфейсов: {subinterface_total}" if subinterface_total else "")
+        + (f", подключений изменено: {connections_changed}" if connections_changed else "")
+    )
 
 
 def get_device_interface_vlans(device_id: str, session: Session) -> dict[str, Any]:

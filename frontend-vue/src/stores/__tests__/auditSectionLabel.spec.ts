@@ -27,3 +27,20 @@ describe.skipIf(!existsSync(auditRetentionModule))('раздел журнала 
     expect(store.resourceLabel(entity!)).toBe('Настройки аудита')
   })
 })
+
+// Тот же контракт для записей об изменении настроек плановых копий (backend/app/services/backup_settings.py: AUDIT_ENTITY).
+const backupSettingsModule = join(resolve(srcDir, '../..'), 'backend', 'app', 'services', 'backup_settings.py')
+
+describe.skipIf(!existsSync(backupSettingsModule))('раздел журнала аудита для настроек резервных копий: backend ↔ frontend', () => {
+  const entity = /^AUDIT_ENTITY\s*=\s*["']([^"']+)["']/m.exec(existsSync(backupSettingsModule) ? readFileSync(backupSettingsModule, 'utf-8') : '')?.[1]
+
+  it('константа AUDIT_ENTITY находится в backend/app/services/backup_settings.py (иначе проверка ничего не проверяет)', () => {
+    expect(entity).toBeTruthy()
+  })
+
+  it('у раздела из AUDIT_ENTITY есть подпись, а не сырое имя', () => {
+    const store = useCatalogsStore()
+
+    expect(store.resourceLabel(entity!)).toBe('Настройки резервных копий')
+  })
+})

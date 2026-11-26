@@ -25,6 +25,7 @@ from ..serialization import serialize
 from ..integrity import integrity_error_response
 from ..validation import validate_ipv4_field, validate_unique_open_port_numbers
 from .audit_log import audit
+from .versioning import touch_parent, track_nested_changes
 
 
 def _load_protocols(system_id: str, session: Session) -> list[ISProtocol]:
@@ -252,12 +253,15 @@ def sync_information_system_details(system_id: str, payload: dict[str, Any], ses
     if not system:
         raise HTTPException(404, "Информационная система не найдена")
     try:
-        for key, model in _LINKED_TABLE_SPECS:
-            items = payload.get(key, [])
-            if key == "protocols":
-                items = _prepare_protocol_items(items, system, session)
-            _sync_linked_table(key, model, items, system_id, session)
-        _sync_information_system_sources(system_id, payload.get("sources", []), session)
+        with track_nested_changes(session, ignore=system) as nested:
+            for key, model in _LINKED_TABLE_SPECS:
+                items = payload.get(key, [])
+                if key == "protocols":
+                    items = _prepare_protocol_items(items, system, session)
+                _sync_linked_table(key, model, items, system_id, session)
+            _sync_information_system_sources(system_id, payload.get("sources", []), session)
+        if nested.changed:
+            touch_parent(system)  # версия ИС сдвигается только при реальной правке вложенного (см. versioning)
         audit(
             session,
             "information-systems",

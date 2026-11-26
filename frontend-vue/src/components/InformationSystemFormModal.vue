@@ -254,7 +254,7 @@ async function submit() {
       ? await stale.update<InformationSystem>(props.system!.id, payload)
       : await createResource<InformationSystem>('information-systems', payload)
     if (!saved) return // при конфликте версий пользователь отказался сохранять
-    await api.put(`/resources/information-systems/${saved.id}/details`, buildDetailsPayload())
+    await stale.afterSave(saved.id, (id) => api.put(`/resources/information-systems/${id}/details`, buildDetailsPayload()))
     emit('saved', saved)
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'Не удалось сохранить информационную систему'

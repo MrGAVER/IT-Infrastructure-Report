@@ -125,16 +125,26 @@ def require_setup_access(request: Request) -> None:
     )
 
 
-def require_admin_if_auth_enabled(request: Request) -> None:
-    """Журнал аудита (имена пользователей, IP-адреса, неудачные попытки входа) — только администратору.
-
-    В отличие от `require_admin`, при выключенной аутентификации ничего не требует: однопользовательский режим по умолчанию
-    открыт, как и весь остальной API (иначе журнал пропал бы у владельца локальной установки)."""
+def _admin_if_auth_enabled(request: Request, denied_message: str) -> None:
+    """При включённой аутентификации пускает только администратора; при выключенной ничего не требует: однопользовательский режим по
+    умолчанию открыт, как и весь остальной API (иначе раздел пропал бы у владельца локальной установки). Отличается от
+    `require_admin` именно этим."""
     if not _auth_enabled(request):
         return
     user: Optional[User] = getattr(request.state, "user", None)
     if user is None or user.role != UserRole.ADMIN:
-        raise HTTPException(403, "Журнал аудита доступен только администратору.")
+        raise HTTPException(403, denied_message)
+
+
+def require_admin_if_auth_enabled(request: Request) -> None:
+    """Журнал аудита (имена пользователей, IP-адреса, неудачные попытки входа) — только администратору (см. `_admin_if_auth_enabled`)."""
+    _admin_if_auth_enabled(request, "Журнал аудита доступен только администратору.")
+
+
+def require_admin_for_backup_settings(request: Request) -> None:
+    """Настройки резервных копий (путь к каталогу копий, тексты ошибок копирования) — только администратору (см.
+    `_admin_if_auth_enabled`)."""
+    _admin_if_auth_enabled(request, "Настройки резервных копий доступны только администратору.")
 
 
 def require_admin(request: Request) -> None:

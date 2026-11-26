@@ -13,7 +13,7 @@ def collect_app_modules(backend_dir):
     позже), поэтому функция возвращала пустой список (проверено на PyInstaller 6.22.3: из корня без backend/ в sys.path — 0 модулей,
     с ним — 85) и молча. В EXE попадало лишь то, что достижимо обычным анализом импортов от launcher.py; всё, что импортируют только
     alembic/env.py и alembic/versions/*.py, приходилось перечислять вручную, а новый `app.alembic_filters` (его импортирует только
-    env.py, R1-02) в перечень не попал — EXE падал при запуске: `ModuleNotFoundError: No module named 'app.alembic_filters'`.
+    env.py) в перечень не попал — EXE падал при запуске: `ModuleNotFoundError: No module named 'app.alembic_filters'`.
     alembic/env.py и alembic/versions/*.py грузятся как ДАННЫЕ (см. datas ниже) и импортируются самим alembic в рантайме
     (alembic/util/pyfiles.py: load_python_file), уже после старта приложения, — для статического анализа PyInstaller они невидимы.
     Обход файловой системы от этого не зависит: ни от sys.path, ни от текущего каталога, ни от побочных эффектов импорта пакета.

@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
 from app.constants import MAX_SESSIONS_PER_USER
 from app.models import AuthSession, User
@@ -117,6 +117,40 @@ def test_trim_with_a_non_positive_keep_removes_nothing_unexpectedly(db_session, 
     assert _trim_user_sessions(db_session, users["alice"].id, keep=-5) == 3
     db_session.commit()
     assert _count(db_session, users["alice"]) == 0
+
+
+def test_trim_is_a_single_delete_that_does_not_depend_on_the_parameter_limit(db_session, users):
+    """Лишние id раньше выбирались в Python и подставлялись в `IN (...)`: при тысячах сессий это упёрлось бы в предел параметров
+    SQLite (999 в старых сборках). Теперь — один DELETE с подзапросом: число сессий ограничено только диском."""
+    seeded = _seed(db_session, users["alice"], 1500)
+    other = _seed(db_session, users["bob"], 4)
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement.lstrip().split(None, 1)[0].upper())
+
+    event.listen(db_session.get_bind(), "before_cursor_execute", record)
+    try:
+        removed = _trim_user_sessions(db_session, users["alice"].id, keep=3)
+    finally:
+        event.remove(db_session.get_bind(), "before_cursor_execute", record)
+    db_session.commit()
+
+    assert removed == 1497
+    assert statements == ["DELETE"], "одна команда, без предварительной выборки id"
+    assert _alive(db_session, seeded) == seeded[-3:], "остаются три самых новых"
+    assert _alive(db_session, other) == other, "сессии другого пользователя не тронуты"
+
+
+def test_trim_with_zero_keep_removes_all_sessions_of_that_user_only(db_session, users):
+    _seed(db_session, users["alice"], 5)
+    other = _seed(db_session, users["bob"], 2)
+
+    assert _trim_user_sessions(db_session, users["alice"].id, keep=0) == 5
+    db_session.commit()
+
+    assert _count(db_session, users["alice"]) == 0
+    assert _alive(db_session, other) == other
 
 
 def test_create_session_keeps_the_limit_without_going_through_http(db_session, users):

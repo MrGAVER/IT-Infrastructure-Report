@@ -61,6 +61,11 @@ export const useAuthStore = defineStore('auth', {
     canViewAuditLog(state): boolean {
       return !state.enabled || state.user?.role === 'admin'
     },
+    /** Настройки резервных копий (путь к каталогу копий, тексты ошибок копирования) — тот же доступ, что у журнала: администратору, а пока
+     * аутентификация выключена — единственному пользователю (сервер отвечает viewer'у 403, backend/app/api/backup_settings.py). */
+    canManageBackups(state): boolean {
+      return !state.enabled || state.user?.role === 'admin'
+    },
     /** Инвертирована относительно isAuthenticated ради читаемости в router-guard'е
      * (router/index.ts) — там нужно именно «требуется ли сейчас показать форму входа». */
     needsLogin(state): boolean {

@@ -58,16 +58,16 @@ def _trim_user_sessions(session: Session, user_id: str, *, keep: int) -> int:
 
     Порядок — по времени создания, при равенстве по id, чтобы результат был детерминированным. Без коммита: его делает вызывающий
     create_session вместе с добавлением новой строки, и обрезка с входом либо проходят обе, либо ни одна."""
-    surplus = session.scalars(
+    # Одним запросом, без выборки лишних id в Python: при очень большом числе сессий список id в `IN (...)` упёрся бы в предел
+    # параметров SQLite (999 в старых сборках). Подзапрос выбирает, какие сессии ОСТАЮТСЯ; keep=0 даёт пустой набор — удаляются все.
+    keep_ids = (
         select(AuthSession.id)
         .where(AuthSession.user_id == user_id)
         .order_by(AuthSession.created_at.desc(), AuthSession.id.desc())
-        .offset(max(keep, 0))
-    ).all()
-    if not surplus:
-        return 0
-    session.execute(delete(AuthSession).where(AuthSession.id.in_(surplus)))
-    return len(surplus)
+        .limit(max(keep, 0))
+    )
+    result = session.execute(delete(AuthSession).where(AuthSession.user_id == user_id, AuthSession.id.not_in(keep_ids)))
+    return result.rowcount or 0
 
 
 def cleanup_expired_sessions(session: Session) -> int:
