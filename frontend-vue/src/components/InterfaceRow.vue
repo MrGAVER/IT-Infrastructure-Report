@@ -170,7 +170,7 @@ const update = (patch: Partial<InterfaceDraftRow>) => emit('update', patch)
     <td class="col-check" :class="{ 'has-conflict': conflict?.flagsDiffer }">
       <input type="checkbox" :checked="row.is_data_transfer" @change="update({ is_data_transfer: ($event.target as HTMLInputElement).checked })" />
     </td>
-    <td>
+    <td class="col-summary">
       <button type="button" class="expand-toggle" @click="emit('toggle-expand')">
         <svg
           v-if="duplicatePorts.length"
@@ -318,6 +318,14 @@ const update = (patch: Partial<InterfaceDraftRow>) => emit('update', patch)
   top: 2px;
   right: 2px;
 }
+/* Сводка строки («VLAN · IP · подключение · группа») может быть сколь угодно длинной. Раньше она задавала ширину столбца, раздувала
+   таблицу, и раскрытый блок (<td colspan> на всю таблицу) растягивался за пределы окна. Теперь ширина столбца не зависит от текста:
+   max-width: 0 убирает вклад ячейки в «естественную» ширину таблицы, а width — доля от ширины таблицы, которую столбец получает.
+   Лишний текст обрезается многоточием, полный текст — во всплывающей подсказке (v-truncate-tooltip на <span>). */
+.iface-table .col-summary {
+  width: 20%;
+  max-width: 0;
+}
 .expand-toggle {
   display: flex;
   align-items: center;
@@ -329,6 +337,15 @@ const update = (patch: Partial<InterfaceDraftRow>) => emit('update', patch)
   color: var(--ink-muted);
   cursor: pointer;
   white-space: nowrap;
+  max-width: 100%;
+}
+.expand-toggle > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.expand-toggle > .icon {
+  flex-shrink: 0;
 }
 .expand-toggle:hover {
   color: var(--ink);
