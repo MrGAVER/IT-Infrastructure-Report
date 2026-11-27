@@ -11,7 +11,7 @@ RUN npm ci
 COPY frontend-vue/ ./
 RUN npm run build
 
-FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
+FROM python:3.12-slim@sha256:191083cdf6c7bda8c76158983163ead5d5cf7b77cf3033e805bb0f5296f51b4b
 WORKDIR /app
 # Версии берутся из requirements.lock (с хешами), а не из диапазонов requirements.txt: образ, собранный завтра, получает те
 # же пакеты, что и сегодня. Обновление lock — см. README, раздел «Зависимости backend».
