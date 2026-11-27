@@ -120,6 +120,16 @@ describe('Sidebar.vue — вёрстка меню (UI-1, UI-5, UI-10)', () => {
     expect(declaration(body, 'overflow-y')).toBe('auto')
   })
 
+  // Пункт «Проверка данных» сделал меню выше 900 px, и «Выйти» на 1440×900 ушёл за край окна (e2e UI-5 в CI): до этого меню помещалось впритык.
+  it('UI-5: на невысоком окне отступы меню компактнее, а на высоком прежние', () => {
+    const compact = mediaBlock(styles, '(min-width: 761px) and (max-height: 960px)') ?? ''
+    expect(compact, 'нет блока для невысокого окна').not.toBe('')
+    expect(compact).toMatch(/\.nav a,\s*\.nav-button\s*\{[^}]*padding-top:\s*6px[^}]*padding-bottom:\s*6px/)
+    expect(compact).toMatch(/\.nav-group-label\s*\{[^}]*padding:\s*10px 10px 4px/)
+    // Полный вид — вне этого блока: базовые отступы пунктов остались 8px.
+    expect(styles).toMatch(/\.nav a\s*\{[^}]*padding:\s*8px 10px/)
+  })
+
   // UI-10: закрытое меню было только сдвинуто за экран — первый Tab попадал на скрытую ссылку «Дашборд».
   it('UI-10: закрытое мобильное меню скрыто из порядка фокуса (visibility: hidden с задержкой после анимации)', () => {
     const body = ruleBody(mobile, '.sidebar:not(.open)')

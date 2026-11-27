@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from app.constants import OwnerType
-from app.models import Connection, ConnectionType, DeviceSubinterface, VLAN
+from app.models import Connection, ConnectionType, DeviceSubinterface, InterfaceVLAN, VLAN
 from app.services.consistency import run_checks
 from app.services.consistency.approvals import approve_finding
 from test_consistency_checks import _device, _ip, _of_rule, _port, _save, _uid
@@ -170,6 +170,68 @@ class TestDifferentSubnets:
         _link(db_session, source, destination)
 
         assert _of_rule(client, "connection_ends_in_different_subnets") == []
+
+
+class TestAccessPorts:
+    """Правила VLAN: судят только по ЯВНО заданному режиму access — порт без режима считается trunk, а порты без VLAN бывают законными."""
+
+    def _access_pair(self, session, *, vlans_a=0, vlans_b=0, mode_a="access", mode_b="access"):
+        source = _port(session, _device(session, system_name=f"a-{_uid()}"), "Gi0/1", is_data_transfer=True, vlan_mode=mode_a)
+        destination = _port(session, _device(session, system_name=f"b-{_uid()}"), "Gi0/2", is_data_transfer=True, vlan_mode=mode_b)
+        for port, count in ((source, vlans_a), (destination, vlans_b)):
+            for _ in range(count):
+                vlan = _save(session, VLAN(vlan_id=100 + len(session.query(VLAN).all()), name=f"v-{_uid()}"))
+                _save(session, InterfaceVLAN(interface_id=port.id, vlan_id=vlan.id, mode="access"))
+        return _link(session, source, destination), source, destination
+
+    def test_an_access_port_without_vlan_is_reported_and_one_with_a_vlan_is_not(self, client, db_session):
+        link, bad, good = self._access_pair(db_session, vlans_a=0, vlans_b=1)
+
+        (found,) = _of_rule(client, "connection_access_port_without_vlan")
+
+        assert found["entity_id"] == link.id and found["sheet"] == 3 and found["severity"] == "warning"
+        assert [port["entity_id"] for port in found["details"]["ports"]] == [bad.id]  # назван только порт без VLAN
+        assert good.id not in found["message"]
+
+    def test_trunk_and_unset_mode_without_vlan_are_not_judged(self, client, db_session):
+        self._access_pair(db_session, mode_a="trunk", mode_b=None)
+
+        assert _of_rule(client, "connection_access_port_without_vlan") == []
+
+    def test_an_access_port_with_several_vlans_is_an_error_naming_the_count(self, client, db_session):
+        link, overloaded, _ = self._access_pair(db_session, vlans_a=2, vlans_b=1)
+
+        (found,) = _of_rule(client, "connection_access_port_with_several_vlans")
+
+        assert found["entity_id"] == link.id and found["severity"] == "error" and found["category"] == "consistency"
+        assert [port["entity_id"] for port in found["details"]["ports"]] == [overloaded.id]
+        assert "2 VLAN" in found["message"]
+
+    def test_one_vlan_per_access_port_and_several_on_a_trunk_are_fine(self, client, db_session):
+        self._access_pair(db_session, vlans_a=1, vlans_b=1)
+        self._access_pair(db_session, vlans_a=3, vlans_b=2, mode_a="trunk", mode_b="trunk")
+
+        assert _of_rule(client, "connection_access_port_with_several_vlans") == []
+
+    def test_inactive_connections_and_ports_outside_connections_are_not_checked(self, client, db_session):
+        link, _, _ = self._access_pair(db_session)
+        link.is_active = False
+        db_session.commit()
+        _port(db_session, _device(db_session, system_name="lonely"), "Gi0/9", vlan_mode="access")  # порт вне подключений
+
+        assert _of_rule(client, "connection_access_port_without_vlan") == []
+
+    def test_adding_one_more_vlan_makes_it_a_new_problem_but_a_rename_does_not(self, client, db_session):
+        _, overloaded, _ = self._access_pair(db_session, vlans_a=2, vlans_b=1)
+        before = _of_rule(client, "connection_access_port_with_several_vlans")[0]["fingerprint"]
+
+        overloaded.name = "Gi0/9"
+        db_session.commit()
+        assert _of_rule(client, "connection_access_port_with_several_vlans")[0]["fingerprint"] == before
+
+        vlan = _save(db_session, VLAN(vlan_id=900, name="extra"))
+        _save(db_session, InterfaceVLAN(interface_id=overloaded.id, vlan_id=vlan.id, mode="access"))
+        assert _of_rule(client, "connection_access_port_with_several_vlans")[0]["fingerprint"] != before
 
 
 class TestFingerprintAndApproval:

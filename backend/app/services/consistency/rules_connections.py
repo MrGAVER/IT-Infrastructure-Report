@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from ...constants import OwnerType
 from ...models import Connection, DeviceInterface, DeviceSubinterface, IPAddress
+from ..port_config import VLAN_MODE_ACCESS
+from ..port_vlans import effective_vlan_ids
 from ._support import chunked, device_labels
 from .engine import RuleSpec, rule
 from .model import Category, Finding, Severity
@@ -33,6 +35,9 @@ class End:
     device_id: str
     device_name: str
     has_purpose: bool
+    # Режим VLAN порта (None — не задан, как trunk) и число его VLAN с учётом «Все VLAN»; заполняются, только если запрошены (with_vlans).
+    vlan_mode: str | None = None
+    vlan_count: int = 0
 
     @property
     def title(self) -> str:
@@ -58,15 +63,16 @@ class Link:
         return f"{self.source.title} ↔ {self.destination.title}"
 
 
-def load_links(session: Session) -> list[Link]:
-    """Активные подключения с обоими концами. Число запросов постоянно: порты, их подинтерфейсы и устройства читаются пачками."""
+def load_links(session: Session, *, with_vlans: bool = False) -> list[Link]:
+    """Активные подключения с обоими концами. Число запросов постоянно: порты, их подинтерфейсы и устройства читаются пачками;
+    VLAN портов (через services/port_vlans: с учётом «Все VLAN») читаются только по `with_vlans`."""
     rows = session.execute(
         select(Connection.id, Connection.source_interface_id, Connection.destination_interface_id)
         .where(Connection.is_active.is_(True))
         .order_by(Connection.id)
     ).all()
     port_ids = {port_id for row in rows for port_id in (row.source_interface_id, row.destination_interface_id)}
-    ports: dict[str, tuple[str, str, bool]] = {}
+    ports: dict[str, tuple[str, str, bool, str | None]] = {}
     for batch in chunked(port_ids):
         for row in session.execute(
             select(
@@ -75,9 +81,10 @@ def load_links(session: Session) -> list[Link]:
                 DeviceInterface.physical_device_id,
                 DeviceInterface.is_management,
                 DeviceInterface.is_data_transfer,
+                DeviceInterface.vlan_mode,
             ).where(DeviceInterface.id.in_(batch))
         ):
-            ports[row.id] = (row.name, row.physical_device_id, bool(row.is_management or row.is_data_transfer))
+            ports[row.id] = (row.name, row.physical_device_id, bool(row.is_management or row.is_data_transfer), row.vlan_mode)
     with_sub_purpose: set[str] = set()
     for batch in chunked(port_ids):
         with_sub_purpose.update(
@@ -88,11 +95,20 @@ def load_links(session: Session) -> list[Link]:
                 )
             )
         )
-    labels = device_labels(session, {device_id for _, device_id, _ in ports.values()})
+    labels = device_labels(session, {device_id for _, device_id, _, _ in ports.values()})
+    vlans = effective_vlan_ids(session, port_ids) if with_vlans else {}
 
     def end(port_id: str) -> End:
-        name, device_id, has_purpose = ports[port_id]
-        return End(port_id, name, device_id, labels.get(device_id, device_id), has_purpose or port_id in with_sub_purpose)
+        name, device_id, has_purpose, vlan_mode = ports[port_id]
+        return End(
+            port_id,
+            name,
+            device_id,
+            labels.get(device_id, device_id),
+            has_purpose or port_id in with_sub_purpose,
+            vlan_mode,
+            len(vlans.get(port_id, ())),
+        )
 
     return [Link(row.id, end(row.source_interface_id), end(row.destination_interface_id)) for row in rows]
 
@@ -192,3 +208,50 @@ def check_different_subnets(session: Session, spec: RuleSpec) -> Iterable[Findin
             f"{link.name}: адреса концов в разных подсетях ({text[0]} и {text[1]}).",
             addresses={"source": text[0], "destination": text[1]},
         )
+
+
+def _access_ends(link: Link) -> list[End]:
+    """Концы подключения с ЯВНО заданным режимом access. Режим не задан — порт считается trunk, и по нему судить нельзя: порты без VLAN
+    бывают законными (L3, Fibre Channel, управление)."""
+    return [end for end in link.ends if end.vlan_mode == VLAN_MODE_ACCESS]
+
+
+@rule("connection_access_port_without_vlan", "Порт подключения в режиме access без VLAN", Severity.WARNING, Category.COMPLETENESS, sheet=3)
+def check_access_without_vlan(session: Session, spec: RuleSpec) -> Iterable[Finding]:
+    """Порт access всегда несёт ровно один VLAN; без него столбцы «VLAN ID» и «VLAN Name» листа 3 пусты,
+    если и у соседнего порта VLAN нет."""
+    for link in load_links(session, with_vlans=True):
+        lacking = [end for end in _access_ends(link) if end.vlan_count == 0]
+        if lacking:
+            where = ", ".join(end.title for end in lacking)
+            yield spec.finding(
+                ENTITY,
+                link.id,
+                link.name,
+                f"{link.name}: порт {where} в режиме access без VLAN.",
+                ports=[end.port_ref() for end in lacking],
+            )
+
+
+@rule(
+    "connection_access_port_with_several_vlans",
+    "Порт подключения в режиме access с несколькими VLAN",
+    Severity.ERROR,
+    Category.CONSISTENCY,
+    sheet=3,
+)
+def check_access_with_several_vlans(session: Session, spec: RuleSpec) -> Iterable[Finding]:
+    """Порт access не может нести больше одного VLAN: либо режим указан неверно (нужен trunk),
+    либо лишние VLAN остались от старой настройки."""
+    for link in load_links(session, with_vlans=True):
+        overloaded = [end for end in _access_ends(link) if end.vlan_count > 1]
+        if overloaded:
+            where = ", ".join(f"{end.title} ({end.vlan_count} VLAN)" for end in overloaded)
+            yield spec.finding(
+                ENTITY,
+                link.id,
+                link.name,
+                f"{link.name}: порт в режиме access несёт несколько VLAN — {where}.",
+                ports=[end.port_ref() for end in overloaded],
+                vlan_counts={end.port_id: end.vlan_count for end in overloaded},
+            )

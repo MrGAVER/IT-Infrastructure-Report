@@ -8,6 +8,8 @@ import {
   fetchConsistency,
   fetchConsistencyRules,
   fetchReportReadiness,
+  removeStaleApprovals,
+  revokeApprovals,
   findingTargets,
   isEditableEntity,
   revokeApproval,
@@ -183,5 +185,40 @@ describe('approveFindings', () => {
 
   it('предел пакета совпадает с серверным', () => {
     expect(APPROVAL_BATCH_LIMIT).toBe(500)
+  })
+})
+
+describe('revokeApprovals / removeStaleApprovals', () => {
+  it('пакетный отзыв — один POST со списком идентификаторов, ответ возвращается как есть', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ revoked: 2, missing: ['x'] })))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(revokeApprovals(['a', 'b', 'x'])).resolves.toEqual({ revoked: 2, missing: ['x'] })
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toMatch(/\/integrity\/consistency\/approvals\/revoke$/)
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ ids: ['a', 'b', 'x'] })
+  })
+
+  it('очистка устаревших — DELETE на /approvals/stale, а не на идентификатор одобрения', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ removed: 4 })))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(removeStaleApprovals()).resolves.toEqual({ removed: 4 })
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toMatch(/\/integrity\/consistency\/approvals\/stale$/)
+    expect(init.method).toBe('DELETE')
+  })
+
+  it('ошибки сервера не глотаются', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ detail: 'Сбой' }), { status: 500 })),
+    )
+
+    await expect(revokeApprovals(['a'])).rejects.toThrow()
+    await expect(removeStaleApprovals()).rejects.toThrow()
   })
 })

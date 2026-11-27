@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..services.consistency import Category, Severity
-from ..services.consistency.approvals import approve_finding, approve_findings, revoke_approval
+from ..services.consistency.approvals import approve_finding, approve_findings, remove_stale_approvals, revoke_approval, revoke_approvals
 from ..services.consistency.readiness import build_report_readiness
 from ..services.consistency.report import build_consistency_report, list_rules
-from .consistency_schemas import ApproveFindingBody, ApproveFindingsBody
+from .consistency_schemas import ApproveFindingBody, ApproveFindingsBody, RevokeApprovalsBody
 
 router = APIRouter(tags=["Consistency"])
 
@@ -54,6 +54,19 @@ def approve_consistency_findings(body: ApproveFindingsBody, session: Session = D
     """Одобряет сразу несколько проблем одной транзакцией. Проблемы, которых уже нет или которые изменились, возвращаются в `missing`, а не
     отменяют остальные; уже одобренные считаются в `already`. За один запрос — не больше 500 отпечатков."""
     return approve_findings(session, body.fingerprints, body.comment)
+
+
+@router.post("/api/v1/integrity/consistency/approvals/revoke")
+def revoke_consistency_approvals(body: RevokeApprovalsBody, session: Session = Depends(get_db)):
+    """Отзывает сразу несколько одобрений одной транзакцией (до 500). Уже отсутствующие возвращаются в `missing` и не мешают остальным."""
+    return revoke_approvals(session, body.ids)
+
+
+# Маршрут `/approvals/stale` объявлен ДО `/approvals/{approval_id}`: иначе «stale» разобралось бы как идентификатор одобрения.
+@router.delete("/api/v1/integrity/consistency/approvals/stale")
+def remove_stale_consistency_approvals(session: Session = Depends(get_db)):
+    """Удаляет устаревшие одобрения — те, которым не соответствует ни одна текущая проблема (её исправили или она изменилась)."""
+    return remove_stale_approvals(session)
 
 
 @router.delete("/api/v1/integrity/consistency/approvals/{approval_id}", status_code=204)

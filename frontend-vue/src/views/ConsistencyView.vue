@@ -7,6 +7,7 @@ import { routeLocationKey } from 'vue-router'
 import { CATEGORY_LABELS, SEVERITY_LABELS, SHEET_LABELS } from '../api/consistency'
 import type { ConsistencyFinding } from '../api/consistency'
 import ApproveFindingModal from '../components/ApproveFindingModal.vue'
+import ConfirmActionModal from '../components/ConfirmActionModal.vue'
 import ConnectionFormModal from '../components/ConnectionFormModal.vue'
 import ConsistencyFindingsTable from '../components/ConsistencyFindingsTable.vue'
 import ContainerFormModal from '../components/ContainerFormModal.vue'
@@ -19,6 +20,7 @@ import StatCard from '../components/StatCard.vue'
 import VMFormModal from '../components/VMFormModal.vue'
 import { useConsistencyReport } from '../composables/useConsistencyReport'
 import { useFindingEditor } from '../composables/useFindingEditor'
+import { pluralRu } from '../utils/plural'
 import { useAuthStore } from '../stores/auth'
 import { filtersFromQuery } from '../utils/consistencyFilter'
 import { PAGE_SIZE_OPTIONS } from '../utils/pageSize'
@@ -46,6 +48,34 @@ async function confirmApproval(comment: string | null): Promise<void> {
 
 // «Одобрить все найденные»: все требующие внимания проблемы, подходящие под текущие фильтры, — на всех страницах, а не только на видимой.
 const approvable = computed(() => state.filtered.value.filter((item) => !item.approved))
+// «Отозвать все одобрения»: одобренные проблемы, подходящие под текущие фильтры, — на всех страницах.
+const revocable = computed(() => state.filtered.value.filter((item) => item.approved))
+const stale = computed(() => state.report.value?.stale_approvals ?? 0)
+// Какое действие ждёт подтверждения в окне (null — окно закрыто).
+const confirming = ref<'revoke' | 'stale' | null>(null)
+const approvalsWord = (n: number) => `${n} ${pluralRu(n, ['одобрение', 'одобрения', 'одобрений'])}`
+
+const confirmTexts = computed(() =>
+  confirming.value === 'stale'
+    ? {
+        title: 'Удалить устаревшие одобрения?',
+        message: `Устаревшим одобрениям (${stale.value}) уже не соответствует ни одна проблема: её исправили или она изменилась. Они ничего не скрывают, но подействовали бы снова, если бы такая же проблема появилась вновь. Записи будут удалены, действие попадёт в журнал аудита.`,
+        confirmLabel: `Удалить (${stale.value})`,
+      }
+    : {
+        title: `Отозвать ${approvalsWord(revocable.value.length)}?`,
+        message:
+          'Отзываются все одобрения, подходящие под текущие фильтры, а не только показанные на этой странице: эти проблемы снова станут требовать внимания.',
+        confirmLabel: `Отозвать все (${revocable.value.length})`,
+      },
+)
+
+async function confirmAction(): Promise<void> {
+  const action = confirming.value
+  if (!action) return
+  const done = action === 'stale' ? await state.removeStale() : await state.revokeMany(revocable.value)
+  if (done) confirming.value = null
+}
 
 const emptyText = computed(() =>
   state.counts.value.approved > 0 && state.counts.value.total === 0 ? 'Все найденные проблемы одобрены.' : 'Противоречий и пробелов в данных не найдено.',
@@ -63,6 +93,12 @@ const lastShown = computed(() => (state.page.value - 1) * state.pageSize.value +
       <StatCard :value="state.counts.value.warning" label="Предупреждения" />
       <StatCard :value="state.counts.value.info" label="Сведения" />
       <StatCard :value="state.counts.value.approved" label="Одобрено" />
+    </div>
+
+    <!-- Устаревшие одобрения ничего не скрывают, но подействовали бы снова, если такая же проблема появится вновь: пишущему предлагаем их убрать. -->
+    <div v-if="auth.canWrite && stale > 0" class="stale-notice" role="status">
+      <span>Устаревших одобрений: {{ stale }} — им уже не соответствует ни одна проблема (её исправили или она изменилась).</span>
+      <button type="button" class="btn btn-secondary" :disabled="state.busy.value !== null" @click="confirming = 'stale'">Удалить устаревшие</button>
     </div>
 
     <DataLoadNotice
@@ -108,6 +144,15 @@ const lastShown = computed(() => (state.page.value - 1) * state.pageSize.value +
       </div>
       <div class="spacer"></div>
       <button
+        v-if="auth.canWrite && filters.approval !== 'active'"
+        type="button"
+        class="btn btn-secondary"
+        :disabled="state.busy.value !== null || revocable.length === 0"
+        @click="confirming = 'revoke'"
+      >
+        Отозвать все одобрения ({{ revocable.length }})
+      </button>
+      <button
         v-if="auth.canWrite && filters.approval !== 'approved'"
         type="button"
         class="btn btn-secondary"
@@ -150,6 +195,15 @@ const lastShown = computed(() => (state.page.value - 1) * state.pageSize.value +
       </div>
     </div>
 
+    <ConfirmActionModal
+      v-if="confirming"
+      :title="confirmTexts.title"
+      :message="confirmTexts.message"
+      :confirm-label="confirmTexts.confirmLabel"
+      :busy="state.busy.value !== null"
+      @close="confirming = null"
+      @confirm="confirmAction"
+    />
     <ApproveFindingModal v-if="approving" :findings="approving" :busy="state.busy.value !== null" @close="approving = null" @confirm="confirmApproval" />
     <DeviceFormModal v-if="editor.device.value" :device="editor.device.value" @close="editor.close()" @saved="editor.saved('physical_device')" />
     <VMFormModal v-if="editor.vm.value" :vm="editor.vm.value" @close="editor.close()" @saved="editor.saved('virtual_machine')" />
@@ -233,6 +287,19 @@ const lastShown = computed(() => (state.page.value - 1) * state.pageSize.value +
 }
 .spacer {
   flex: 1;
+}
+.stale-notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  color: var(--ink-muted);
 }
 .error-banner {
   display: flex;

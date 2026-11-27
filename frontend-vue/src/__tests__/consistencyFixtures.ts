@@ -41,6 +41,7 @@ export function reportOf(findings: ConsistencyFinding[], patch: Partial<Consiste
     total: findings.length,
     returned: findings.length,
     truncated: false,
+    stale_approvals: 0,
     summary: { by_severity, by_category: {}, by_sheet: {}, by_rule: {}, by_approval: { active: findings.length - approved, approved } },
     findings,
     ...patch,

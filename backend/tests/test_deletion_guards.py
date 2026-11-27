@@ -55,6 +55,10 @@ ALLOWED_DELETIONS = {
     # отзыв одобрения проблемы проверки данных: удаляется сама запись об одобрении (листовая таблица без потомков и ссылок на неё;
     # тесты — test_consistency_approvals.py::TestRevoke)
     ("app/services/consistency/approvals.py", "revoke_approval", "row"),
+    # очистка устаревших одобрений и пакетный отзыв: удаляются записи об одобрении (листовая таблица без потомков);
+    # тесты — test_consistency_approvals.py::TestStale и ::TestRevokeBatch
+    ("app/services/consistency/approvals.py", "remove_stale_approvals", "row"),
+    ("app/services/consistency/approvals.py", "revoke_approvals", "row"),
     # сессии и учётные записи
     ("app/services/auth/users.py", "delete_user", "user"),
     ("app/services/auth/sessions.py", "cleanup_expired_sessions", "AuthSession"),
