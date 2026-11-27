@@ -5,10 +5,12 @@ import { ref } from 'vue'
 import type { EntityTarget } from '../api/consistency'
 import { isEditableEntity } from '../api/consistency'
 import type { Connection, Container, Device, InformationSystem, VirtualMachine } from '../api/types'
+import { useCatalogsStore } from '../stores/catalogs'
 import { useConnectionsStore } from '../stores/connections'
 import { useContainersStore } from '../stores/containers'
 import { useDevicesStore } from '../stores/devices'
 import { useInformationSystemsStore } from '../stores/informationSystems'
+import { useVLANsStore } from '../stores/vlans'
 import { useVMsStore } from '../stores/vms'
 import { useToast } from './useToast'
 
@@ -19,6 +21,8 @@ export function useFindingEditor(onSaved: () => Promise<void> | void) {
   const containers = useContainersStore()
   const systems = useInformationSystemsStore()
   const connections = useConnectionsStore()
+  const catalogs = useCatalogsStore()
+  const vlans = useVLANsStore()
 
   // Открыто не больше одного окна: у каждого типа своя форма, поэтому и ссылка своя.
   const device = ref<Device | null>(null)
@@ -39,6 +43,19 @@ export function useFindingEditor(onSaved: () => Promise<void> | void) {
     return null
   }
 
+  /** Сторы, которые форма объекта читает помимо самой записи: справочники (типы, модели, здания…), VLAN, устройства, ВМ.
+   * В своём разделе их подгружает его onMounted; здесь раздела нет, и без явной загрузки форма открывалась с пустыми списками,
+   * пока их случайно не загрузит другой раздел. Состав повторяет onMounted соответствующих разделов (Devices/VMs/Containers/
+   * InformationSystems/Connections). */
+  function relatedOf(type: string): { ensureLoaded(): Promise<void> }[] {
+    if (type === 'physical_device') return [catalogs, vlans]
+    if (type === 'virtual_machine') return [catalogs, devices]
+    if (type === 'container') return [catalogs, devices, vms]
+    if (type === 'information_system') return [catalogs, devices, vms, containers]
+    if (type === 'connection') return [catalogs, devices]
+    return []
+  }
+
   function close(): void {
     device.value = vm.value = container.value = system.value = connection.value = null
   }
@@ -48,7 +65,8 @@ export function useFindingEditor(onSaved: () => Promise<void> | void) {
     if (!section || opening.value) return
     opening.value = true
     try {
-      await section.ensureLoaded()
+      // Окно открывается только когда есть и сама запись, и всё, что нужно для заполнения формы.
+      await Promise.all([section, ...relatedOf(target.type)].map((store) => store.ensureLoaded()))
       const record = (section.all as { id: string }[]).find((item) => item.id === target.id)
       if (!record) {
         // Объект удалили или переименовали после проверки: окно открывать не на чем.

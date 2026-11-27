@@ -46,8 +46,7 @@ export const useContainersStore = defineStore('containers', {
   },
   actions: {
     async ensureLoaded() {
-      if (this.loaded || this.loading) return
-      await this.reload()
+      await latest.ensure(this, () => this.reload())
     },
     async reload() {
       await latest.run(this, {

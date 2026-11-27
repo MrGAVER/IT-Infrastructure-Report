@@ -77,6 +77,21 @@ describe('useCatalogsStore', () => {
     expect(fetchMock.mock.calls.length).toBe(callsAfterFirst)
   })
 
+  it('ensureLoaded() во время идущей загрузки ждёт её, а не возвращается с пустыми справочниками (форма открывалась незаполненной)', async () => {
+    const fetchMock = mockFetchFor()
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useCatalogsStore()
+
+    const first = store.ensureLoaded()
+    expect(store.loading).toBe(true)
+    await store.ensureLoaded() // второй вызов, пока первая загрузка ещё идёт
+
+    expect(store.loaded).toBe(true)
+    expect(store.items['buildings']?.length).toBeGreaterThan(0)
+    await first
+    expect(fetchMock.mock.calls.length).toBe(new Set(fetchMock.mock.calls.map((c) => c[0])).size) // повторных запросов нет
+  })
+
   it('резолвит человекочитаемое имя ресурса для журнала аудита через /api/v1/resources', async () => {
     vi.stubGlobal('fetch', mockFetchFor())
     const store = useCatalogsStore()

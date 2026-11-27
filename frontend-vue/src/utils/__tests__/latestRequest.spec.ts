@@ -207,3 +207,58 @@ describe('createLatestRequest: run', () => {
     expect(state.loading).toBe(false)
   })
 })
+
+describe('createLatestRequest: ensure', () => {
+  function makeState() {
+    return { loaded: false, loading: false, error: null as string | null, data: [] as string[] }
+  }
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((res) => (resolve = res))
+    return { promise, resolve }
+  }
+
+  it('не загружено и не грузится — запускает загрузку и ждёт её', async () => {
+    const latest = createLatestRequest()
+    const state = makeState()
+    const fetch = vi.fn(async () => ['a'])
+    const load = () => latest.run(state, { fetch, apply: (v) => void ((state.data = v), (state.loaded = true)), errorMessage: 'сбой' })
+
+    await latest.ensure(state, load)
+
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(state.data).toEqual(['a'])
+  })
+
+  it('уже загружено — второй запрос не шлёт', async () => {
+    const latest = createLatestRequest()
+    const state = { ...makeState(), loaded: true }
+    const load = vi.fn(async () => {})
+
+    await latest.ensure(state, load)
+
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it('идёт загрузка — ждёт её завершения, а не возвращается раньше данных, и не шлёт второй запрос', async () => {
+    const latest = createLatestRequest()
+    const state = makeState()
+    const request = deferred<string[]>()
+    const fetch = vi.fn(() => request.promise)
+    const load = () => latest.run(state, { fetch, apply: (v) => void ((state.data = v), (state.loaded = true)), errorMessage: 'сбой' })
+
+    const first = latest.ensure(state, load)
+    let secondDone = false
+    const second = latest.ensure(state, load).then(() => (secondDone = true))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(secondDone).toBe(false) // раньше здесь возвращалось сразу, и вызывающий читал ещё пустые данные
+
+    request.resolve(['a'])
+    await Promise.all([first, second])
+
+    expect(secondDone).toBe(true)
+    expect(state.data).toEqual(['a'])
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+})

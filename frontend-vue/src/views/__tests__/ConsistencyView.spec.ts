@@ -7,10 +7,12 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import ConsistencyView from '../ConsistencyView.vue'
 import type { ConsistencyReport } from '../../api/consistency'
 import { useAuthStore } from '../../stores/auth'
+import { useCatalogsStore } from '../../stores/catalogs'
 import { useConnectionsStore } from '../../stores/connections'
 import { useContainersStore } from '../../stores/containers'
 import { useDevicesStore } from '../../stores/devices'
 import { useInformationSystemsStore } from '../../stores/informationSystems'
+import { useVLANsStore } from '../../stores/vlans'
 import { useVMsStore } from '../../stores/vms'
 import { approvalOf, approvedFinding, finding, reportOf, RULES } from '../../__tests__/consistencyFixtures'
 
@@ -538,6 +540,9 @@ describe('окно редактирования по имени объекта',
     const connections = useConnectionsStore()
     connections.all = [{ id: 'conn-1' }] as never
     connections.loaded = true
+    // Справочники и VLAN форме тоже нужны (окно подгружает их перед открытием); здесь они «уже загружены», чтобы тест считал только запросы проверки.
+    useCatalogsStore().loaded = true
+    useVLANsStore().loaded = true
     return { devices, vms, containers, systems, connections }
   }
 

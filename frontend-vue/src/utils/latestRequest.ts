@@ -29,6 +29,11 @@ export interface LoadState {
   error: string | null
 }
 
+/** Для ensure(): ещё и признак, что данные уже получены. */
+export interface EnsureState extends LoadState {
+  loaded: boolean
+}
+
 export interface RunOptions<T> {
   /** Сам запрос. */
   fetch: () => Promise<T>
@@ -48,6 +53,8 @@ export interface RunOptions<T> {
 
 export function createLatestRequest() {
   let current = 0
+  // Последняя запущенная через run() загрузка: ensure() ждёт именно её (см. ensure ниже).
+  let inflight: Promise<void> = Promise.resolve()
 
   /** Начинает новый запрос; возвращённая функция отвечает, остаётся ли он последним запущенным. */
   function begin(): () => boolean {
@@ -72,28 +79,45 @@ export function createLatestRequest() {
 
     /** Загрузка с защитой «последний запрос побеждает»: ведёт `loading`/`error` стора
      * и отбрасывает ответы, пришедшие после более позднего запроса. */
-    async run<T>(state: LoadState, options: RunOptions<T>): Promise<void> {
-      const isLatest = begin()
-      if (options.prepare) {
-        await options.prepare()
-        if (!isLatest()) return
-      }
-      state.loading = true
-      state.error = null
-      options.onStart?.()
-      try {
-        const value = await options.fetch()
-        if (!isLatest()) return // устаревший ответ: finally ниже его `loading` не тронет
-        await options.apply(value)
-      } catch (e) {
-        if (isLatest()) {
-          const { errorMessage } = options
-          state.error = typeof errorMessage === 'function' ? errorMessage(e) : e instanceof Error ? e.message : errorMessage
-          options.onError?.()
-        }
-      } finally {
-        if (isLatest()) state.loading = false
-      }
+    run<T>(state: LoadState, options: RunOptions<T>): Promise<void> {
+      const task = execute(state, options)
+      inflight = task
+      return task
     },
+
+    /** `ensureLoaded()` стора: данные уже есть — ничего не делает; загрузка идёт — дожидается её; иначе запускает `load`.
+     *
+     * Раньше при `loading === true` возвращались сразу: вызывающий (форма, открывшаяся пока список ещё грузится) продолжал с пустыми
+     * или устаревшими данными, и форма открывалась незаполненной, а через несколько секунд, когда загрузка кончалась, — уже нормальной.
+     * Второй запрос при этом по-прежнему не шлётся. */
+    async ensure(state: EnsureState, load: () => Promise<void>): Promise<void> {
+      if (state.loaded) return
+      if (state.loading) return inflight
+      await load()
+    },
+  }
+
+  async function execute<T>(state: LoadState, options: RunOptions<T>): Promise<void> {
+    const isLatest = begin()
+    if (options.prepare) {
+      await options.prepare()
+      if (!isLatest()) return
+    }
+    state.loading = true
+    state.error = null
+    options.onStart?.()
+    try {
+      const value = await options.fetch()
+      if (!isLatest()) return // устаревший ответ: finally ниже его `loading` не тронет
+      await options.apply(value)
+    } catch (e) {
+      if (isLatest()) {
+        const { errorMessage } = options
+        state.error = typeof errorMessage === 'function' ? errorMessage(e) : e instanceof Error ? e.message : errorMessage
+        options.onError?.()
+      }
+    } finally {
+      if (isLatest()) state.loading = false
+    }
   }
 }
