@@ -36,7 +36,9 @@ def build_consistency_report(
     `approval` отбирает по одобрению: `active` — требуют внимания, `approved` — одобренные, `all` — все. У каждой находки есть
     `approved` и `approval` (кто, когда и зачем одобрил). `summary.by_approval` считается по выбору ДО отбора по одобрению, чтобы
     клиент видел оба числа при любом значении `approval`. `ok` — в выборке нет находок, требующих внимания.
-    `total` — число находок до разбиения на страницы, `truncated` — есть ли находки за пределами возвращённой страницы.
+    `stale_approvals` — сколько одобрений не соответствует ни одной текущей проблеме (None при отборе по правилам, категории, важности
+    или листу: по неполному набору это не определить). `total` — число находок до разбиения на страницы, `truncated` — есть ли находки
+    за пределами возвращённой страницы.
     Неизвестный код правила, номер листа или значение `approval` — 422.
     """
     bad_sheets = sorted(set(sheets or ()) - set(SHEETS))
@@ -52,6 +54,11 @@ def build_consistency_report(
     pairs = [(item, item.fingerprint) for item in findings]
     approved_count = sum(1 for _, fingerprint in pairs if fingerprint in approvals)
     by_approval = {"active": len(pairs) - approved_count, "approved": approved_count}
+    # Устаревшие одобрения видны только по ПОЛНОМУ набору находок: при отборе по правилам, категории, важности или листу их не отличить от
+    # одобрений проблем, чьё правило просто не запускали.
+    unfiltered = rules is None and categories is None and severities is None and sheets is None
+    current = {fingerprint for _, fingerprint in pairs}
+    stale = sum(1 for fingerprint in approvals if fingerprint not in current) if unfiltered else None
     if approval != "all":
         pairs = [(item, fingerprint) for item, fingerprint in pairs if (fingerprint in approvals) == (approval == "approved")]
     selected = [item for item, _ in pairs]
@@ -63,6 +70,7 @@ def build_consistency_report(
         "total": len(selected),
         "returned": len(page),
         "truncated": offset + len(page) < len(selected),
+        "stale_approvals": stale,
         "summary": summary,
         "findings": [
             {

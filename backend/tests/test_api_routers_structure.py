@@ -38,6 +38,8 @@ EXPECTED_ROUTES = {
             ("GET", "/api/v1/integrity/consistency/readiness"),
             ("POST", "/api/v1/integrity/consistency/approvals"),
             ("POST", "/api/v1/integrity/consistency/approvals/batch"),
+            ("POST", "/api/v1/integrity/consistency/approvals/revoke"),
+            ("DELETE", "/api/v1/integrity/consistency/approvals/stale"),
             ("DELETE", "/api/v1/integrity/consistency/approvals/{approval_id}"),
         },
     ),

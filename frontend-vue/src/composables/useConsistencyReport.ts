@@ -2,7 +2,16 @@
 // Находки читаются одним запросом (api/consistency.ts), фильтрация и разбиение на страницы — на клиенте.
 import { computed, reactive, ref, watch } from 'vue'
 import { ApiError } from '../api/client'
-import { APPROVAL_BATCH_LIMIT, approveFinding, approveFindings, fetchConsistency, fetchConsistencyRules, revokeApproval } from '../api/consistency'
+import {
+  APPROVAL_BATCH_LIMIT,
+  approveFinding,
+  approveFindings,
+  fetchConsistency,
+  fetchConsistencyRules,
+  removeStaleApprovals,
+  revokeApproval,
+  revokeApprovals,
+} from '../api/consistency'
 import type { ConsistencyFinding, ConsistencyReport, ConsistencyRule } from '../api/consistency'
 import { DEFAULT_FILTERS, countActive, filterFindings, hasActiveFilters, sheetsWithFindings } from '../utils/consistencyFilter'
 import type { ConsistencyFilters } from '../utils/consistencyFilter'
@@ -163,6 +172,55 @@ export function useConsistencyReport() {
     }
   }
 
+  /**
+   * Отзывает одобрения у нескольких проблем сразу. Список режется на части по APPROVAL_BATCH_LIMIT. Одобрение, которого уже нет
+   * (отозвано другим пользователем), для экрана то же, что отозванное: строка возвращается в «требуют внимания». true — что-то отозвано.
+   */
+  async function revokeMany(items: ConsistencyFinding[]): Promise<boolean> {
+    const withApproval = items.filter((item) => item.approval)
+    busy.value = BATCH_BUSY
+    let revoked = 0
+    let gone = 0
+    try {
+      for (let start = 0; start < withApproval.length; start += APPROVAL_BATCH_LIMIT) {
+        const chunk = withApproval.slice(start, start + APPROVAL_BATCH_LIMIT)
+        const result = await revokeApprovals(chunk.map((item) => item.approval!.id))
+        revoked += result.revoked
+        gone += result.missing.length
+        for (const item of chunk) patchFinding(item.fingerprint, { approved: false, approval: null })
+      }
+    } catch (err) {
+      if (revoked + gone === 0) {
+        notifyError(err)
+        return false
+      }
+      notify(`Отозвано ${revoked} из ${withApproval.length}: ${err instanceof Error ? err.message : String(err)}`, 'error')
+      await load() // часть строк уже обновлена, остальные — нет: единственный надёжный способ показать правду
+      return true
+    } finally {
+      busy.value = null
+    }
+    const approvals = (n: number) => pluralRu(n, ['одобрение', 'одобрения', 'одобрений'])
+    notify(`Отозвано: ${revoked} ${approvals(revoked)}${gone ? `, уже были отозваны: ${gone}` : ''}`, 'success')
+    return true
+  }
+
+  /** Удаляет устаревшие одобрения (проблему исправили или она изменилась); true — запрос выполнен. */
+  async function removeStale(): Promise<boolean> {
+    busy.value = BATCH_BUSY
+    try {
+      const { removed } = await removeStaleApprovals()
+      if (report.value) report.value = { ...report.value, stale_approvals: 0 }
+      notify(`Удалено устаревших одобрений: ${removed}`, 'success')
+      return true
+    } catch (err) {
+      notifyError(err)
+      return false
+    } finally {
+      busy.value = null
+    }
+  }
+
   function setPage(next: number): void {
     page.value = Math.min(Math.max(1, next), pageCount.value)
   }
@@ -194,6 +252,8 @@ export function useConsistencyReport() {
     approve,
     approveMany,
     revoke,
+    revokeMany,
+    removeStale,
     ruleOptions,
     ruleTitle,
     load,

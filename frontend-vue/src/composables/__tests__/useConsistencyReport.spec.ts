@@ -325,3 +325,124 @@ describe('пакетное одобрение', () => {
     expect(messages().some((text) => text.startsWith('Одобрено 500 из 501'))).toBe(true)
   })
 })
+
+describe('пакетный отзыв и очистка устаревших', () => {
+  const approved = (count: number) => Array.from({ length: count }, (_, index) => approvedFinding({ entity_name: `ip-${index}` }, { id: `appr-${index}` }))
+
+  function stubServer(
+    items: ReturnType<typeof approved>,
+    write: (method: string, url: string, body: { ids?: string[] } | null, call: number) => Response,
+    stale = 0,
+  ) {
+    const calls: { method: string; url: string; body: { ids?: string[] } | null }[] = []
+    let writes = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit = {}) => {
+        const method = init.method ?? 'GET'
+        const body = init.body ? JSON.parse(init.body as string) : null
+        calls.push({ method, url, body })
+        if (method !== 'GET') return write(method, url, body, ++writes)
+        return json(url.endsWith('/rules') ? { rules: RULES } : reportOf(items, { stale_approvals: stale }))
+      }),
+    )
+    return calls
+  }
+
+  const messages = () => useToast().toasts.map((toast) => toast.message)
+  beforeEach(() => useToast().toasts.splice(0))
+
+  it('отзыв шлёт идентификаторы одобрений одним запросом; строки возвращаются в «требуют внимания»', async () => {
+    const items = approved(3)
+    const calls = stubServer(items, (_m, _u, body) => json({ revoked: (body?.ids ?? []).length, missing: [] }))
+    const state = useConsistencyReport()
+    await state.load()
+    expect(state.counts.value).toMatchObject({ total: 0, approved: 3 })
+
+    await expect(state.revokeMany(items)).resolves.toBe(true)
+
+    const posts = calls.filter((call) => call.method === 'POST')
+    expect(posts).toHaveLength(1)
+    expect(posts[0].body).toEqual({ ids: ['appr-0', 'appr-1', 'appr-2'] })
+    expect(state.counts.value).toMatchObject({ total: 3, approved: 0 })
+    expect(state.busy.value).toBeNull()
+    expect(messages()).toEqual(['Отозвано: 3 одобрения'])
+  })
+
+  it('уже отсутствующие одобрения для экрана то же, что отозванные, а в сообщении названы отдельно', async () => {
+    const items = approved(2)
+    stubServer(items, () => json({ revoked: 1, missing: ['appr-1'] }))
+    const state = useConsistencyReport()
+    await state.load()
+
+    await state.revokeMany(items)
+
+    expect(state.counts.value).toMatchObject({ total: 2, approved: 0 })
+    expect(messages()).toEqual(['Отозвано: 1 одобрение, уже были отозваны: 1'])
+  })
+
+  it('длинный список режется на запросы по 500', async () => {
+    const items = approved(501)
+    const calls = stubServer(items, (_m, _u, body) => json({ revoked: (body?.ids ?? []).length, missing: [] }))
+    const state = useConsistencyReport()
+    await state.load()
+
+    await state.revokeMany(items)
+
+    expect(calls.filter((call) => call.method === 'POST').map((call) => call.body?.ids?.length)).toEqual([500, 1])
+  })
+
+  it('находки без одобрения в запрос не попадают', async () => {
+    const items = [...approved(1), finding({ entity_name: 'обычная' })]
+    const calls = stubServer(items, (_m, _u, body) => json({ revoked: (body?.ids ?? []).length, missing: [] }))
+    const state = useConsistencyReport()
+    await state.load()
+
+    await state.revokeMany(items)
+
+    expect(calls.find((call) => call.method === 'POST')?.body).toEqual({ ids: ['appr-0'] })
+  })
+
+  it('сбой на первом запросе: ничего не отозвано (false), причина показана; сбой посреди списка — часть отозвана, проверка перечитана', async () => {
+    const first = approved(2)
+    stubServer(first, () => json({ detail: 'Сбой' }, 500))
+    const state = useConsistencyReport()
+    await state.load()
+    await expect(state.revokeMany(first)).resolves.toBe(false)
+    expect(state.counts.value).toMatchObject({ approved: 2 })
+    expect(messages().some((text) => text.includes('Сбой'))).toBe(true)
+
+    useToast().toasts.splice(0)
+    const long = approved(501)
+    const calls = stubServer(long, (_m, _u, body, call) =>
+      call === 1 ? json({ revoked: (body?.ids ?? []).length, missing: [] }) : json({ detail: 'Сбой на второй части' }, 500),
+    )
+    const second = useConsistencyReport()
+    await second.load()
+    const reportsBefore = calls.filter((call) => call.method === 'GET' && !call.url.endsWith('/rules')).length
+
+    await expect(second.revokeMany(long)).resolves.toBe(true)
+
+    expect(messages().some((text) => text.startsWith('Отозвано 500 из 501'))).toBe(true)
+    expect(calls.filter((call) => call.method === 'GET' && !call.url.endsWith('/rules'))).toHaveLength(reportsBefore + 1)
+  })
+
+  it('очистка устаревших: DELETE, счётчик обнуляется, сообщение называет число; сбой — false и без обнуления', async () => {
+    const calls = stubServer(approved(1), () => json({ removed: 4 }), 4)
+    const state = useConsistencyReport()
+    await state.load()
+    expect(state.report.value?.stale_approvals).toBe(4)
+
+    await expect(state.removeStale()).resolves.toBe(true)
+
+    expect(calls.find((call) => call.method === 'DELETE')?.url).toMatch(/approvals\/stale$/)
+    expect(state.report.value?.stale_approvals).toBe(0)
+    expect(messages()).toEqual(['Удалено устаревших одобрений: 4'])
+
+    stubServer(approved(1), () => json({ detail: 'Сбой' }, 500), 4)
+    const failing = useConsistencyReport()
+    await failing.load()
+    await expect(failing.removeStale()).resolves.toBe(false)
+    expect(failing.report.value?.stale_approvals).toBe(4)
+  })
+})

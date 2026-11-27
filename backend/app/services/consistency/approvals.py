@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections.abc import Iterable
 from typing import Any
 
 from fastapi import HTTPException
@@ -21,6 +22,7 @@ from ...constants import AuditAction
 from ...models import ConsistencyApproval
 from ..actor_context import current_actor
 from ..crud import audit
+from ._support import chunked
 from .engine import run_checks
 from .model import Finding
 
@@ -164,3 +166,63 @@ def approve_findings(session: Session, fingerprints: object, comment: object = N
             "approvals": approvals,
         }
     raise AssertionError("недостижимо: вторая попытка либо возвращает результат, либо поднимает исключение")  # pragma: no cover
+
+
+def stale_approvals(session: Session, findings: Iterable[Finding] | None = None) -> list[ConsistencyApproval]:
+    """Одобрения, которым не соответствует ни одна текущая проблема: проблему исправили или она изменилась (отпечаток другой).
+
+    Они ничего не скрывают, но подействуют снова, если точно такая же проблема появится вновь — поэтому их стоит убирать. Чтобы
+    судить, нужен ПОЛНЫЙ набор текущих находок (все правила): по набору, суженному фильтрами, одобрение «исчезнувшей» проблемы
+    нельзя отличить от одобрения проблемы, чьё правило просто не запускали. Без `findings` проверки запускаются здесь.
+    """
+    current = {item.fingerprint for item in (findings if findings is not None else run_checks(session))}
+    return [row for fingerprint, row in load_approvals(session).items() if fingerprint not in current]
+
+
+def remove_stale_approvals(session: Session) -> dict[str, int]:
+    """Удаляет устаревшие одобрения одной транзакцией; на каждое — запись аудита. Что устарело, решает сервер, а не клиент."""
+    rows = stale_approvals(session)
+    for row in rows:
+        audit(
+            session,
+            AUDIT_ENTITY,
+            row.id,
+            AuditAction.DELETE,
+            f"Удалено устаревшее одобрение проблемы проверки данных (проблемы уже нет или она изменилась): {row.message}",
+        )
+        session.delete(row)
+    session.commit()
+    return {"removed": len(rows)}
+
+
+def parse_ids(value: object) -> list[str]:
+    """Идентификаторы одобрений для пакетного отзыва: непустой список не длиннее MAX_BATCH из непустых строк; повторы убираются."""
+    if not isinstance(value, list) or not value:
+        raise HTTPException(422, "Нужен непустой список идентификаторов одобрений")
+    if len(value) > MAX_BATCH:
+        raise HTTPException(422, f"За один раз можно отозвать не больше {MAX_BATCH} одобрений")
+    if not all(isinstance(item, str) and item.strip() for item in value):
+        raise HTTPException(422, "Идентификатор одобрения должен быть непустой строкой")
+    return list(dict.fromkeys(value))
+
+
+def revoke_approvals(session: Session, ids: object) -> dict[str, Any]:
+    """Отзывает сразу несколько одобрений одной транзакцией; на каждое — запись аудита. Несуществующие (уже отозваны другим
+    пользователем) возвращаются в `missing` и не мешают остальным."""
+    wanted = parse_ids(ids)
+    rows: dict[str, ConsistencyApproval] = {}
+    for batch in chunked(wanted):
+        rows.update({row.id: row for row in session.scalars(select(ConsistencyApproval).where(ConsistencyApproval.id.in_(batch)))})
+    for approval_id in wanted:
+        row = rows.get(approval_id)
+        if row is not None:
+            audit(
+                session,
+                AUDIT_ENTITY,
+                row.id,
+                AuditAction.DELETE,
+                f"Отозвано одобрение проблемы проверки данных (пакетный отзыв): {row.message}",
+            )
+            session.delete(row)
+    session.commit()
+    return {"revoked": len(rows), "missing": [approval_id for approval_id in wanted if approval_id not in rows]}

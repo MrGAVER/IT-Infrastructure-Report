@@ -52,6 +52,8 @@ export interface ConsistencyReport {
   returned: number
   /** Сервер вернул не все находки: их больше предела одного запроса. */
   truncated: boolean
+  /** Сколько одобрений не соответствует ни одной текущей проблеме (проблему исправили или она изменилась); null — по неполному набору не определить. */
+  stale_approvals: number | null
   summary: ConsistencySummary
   findings: ConsistencyFinding[]
 }
@@ -97,6 +99,22 @@ export interface BatchApprovalResult {
 /** Одобрить сразу несколько проблем одной транзакцией и одним комментарием (не больше APPROVAL_BATCH_LIMIT за запрос). */
 export function approveFindings(fingerprints: string[], comment: string | null): Promise<BatchApprovalResult> {
   return api.post('/integrity/consistency/approvals/batch', { fingerprints, comment })
+}
+
+export interface BatchRevokeResult {
+  revoked: number
+  /** Идентификаторы одобрений, которых уже нет (отозваны другим пользователем): остальные отозваны. */
+  missing: string[]
+}
+
+/** Отозвать сразу несколько одобрений одной транзакцией (не больше APPROVAL_BATCH_LIMIT за запрос). */
+export function revokeApprovals(ids: string[]): Promise<BatchRevokeResult> {
+  return api.post('/integrity/consistency/approvals/revoke', { ids })
+}
+
+/** Удалить устаревшие одобрения: что устарело, решает сервер по полному набору текущих проблем. */
+export function removeStaleApprovals(): Promise<{ removed: number }> {
+  return api.delete<{ removed: number }>('/integrity/consistency/approvals/stale')
 }
 
 /** Отозвать одобрение: проблема снова требует внимания. */

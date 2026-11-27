@@ -13,16 +13,18 @@ import pytest
 from sqlalchemy import select
 
 from app.constants import AuditAction, OwnerType
-from app.models import AuditLog, ConsistencyApproval
+from app.models import AuditLog, ConsistencyApproval, IPAddress
 from app.services.actor_context import Actor, current_actor
 from app.services.consistency import run_checks
 from app.services.consistency import approvals as approvals_module
-from app.services.consistency.approvals import MAX_BATCH, MAX_COMMENT_LENGTH, approve_finding, approve_findings
+from app.services.consistency.approvals import MAX_BATCH, MAX_COMMENT_LENGTH, approve_finding, approve_findings, stale_approvals
 from test_consistency_checks import _device, _ip, _port
 
 URL = "/api/v1/integrity/consistency"
 APPROVALS = f"{URL}/approvals"
 BATCH = f"{APPROVALS}/batch"
+REVOKE_BATCH = f"{APPROVALS}/revoke"
+STALE = f"{APPROVALS}/stale"
 
 
 def _duplicate_ip(session, address="10.0.0.5", names=("srv-1", "srv-2")):
@@ -31,6 +33,13 @@ def _duplicate_ip(session, address="10.0.0.5", names=("srv-1", "srv-2")):
     for device in devices:
         _ip(session, OwnerType.DEVICE_INTERFACE, _port(session, device).id, address)
     return devices
+
+
+def _port_of(session, device):
+    """Единственный порт устройства, созданного через _duplicate_ip."""
+    from app.models import DeviceInterface
+
+    return session.scalars(select(DeviceInterface).where(DeviceInterface.physical_device_id == device.id)).one()
 
 
 def _report(client, **params) -> dict:
@@ -321,6 +330,140 @@ class TestBatch:
         approve_findings(db_session, wanted)
 
         assert runs["count"] == 1  # а не по запуску на каждую из трёх проблем
+
+
+class TestStale:
+    """Одобрение, которому не соответствует ни одна текущая проблема (её исправили или она изменилась), — устаревшее."""
+
+    def _approved_duplicate(self, client, db_session):
+        devices = _duplicate_ip(db_session)
+        fingerprint = _duplicate_finding(client)["fingerprint"]
+        approval = client.post(APPROVALS, json={"fingerprint": fingerprint, "comment": "VRRP"}).json()["approval"]
+        return devices, approval
+
+    def test_matching_approvals_are_not_stale(self, client, db_session):
+        self._approved_duplicate(client, db_session)
+
+        assert _report(client)["stale_approvals"] == 0
+        assert client.delete(STALE).json() == {"removed": 0}
+        assert len(db_session.scalars(select(ConsistencyApproval)).all()) == 1
+
+    def test_once_the_problem_is_fixed_its_approval_becomes_stale_and_can_be_removed_with_an_audit_entry(self, client, db_session):
+        (first, second), approval = self._approved_duplicate(client, db_session)
+        db_session.query(IPAddress).filter(
+            IPAddress.owner_id == _port_of(db_session, second).id
+        ).delete()  # адрес второго убрали: повтора нет
+        db_session.commit()
+
+        assert _report(client)["stale_approvals"] == 1
+
+        assert client.delete(STALE).json() == {"removed": 1}
+        assert db_session.scalars(select(ConsistencyApproval)).all() == []
+        entries = db_session.scalars(
+            select(AuditLog).where(AuditLog.entity_type == "consistency-approvals", AuditLog.action == AuditAction.DELETE)
+        ).all()
+        assert len(entries) == 1 and "устаревшее" in entries[0].details and entries[0].entity_id == approval["id"]
+        assert _report(client)["stale_approvals"] == 0
+
+    def test_a_changed_problem_leaves_the_old_approval_stale_while_the_new_problem_stays_active(self, client, db_session):
+        self._approved_duplicate(client, db_session)
+        third = _device(db_session, system_name="srv-3")
+        _ip(db_session, OwnerType.DEVICE_INTERFACE, _port(db_session, third).id, "10.0.0.5")  # у адреса появился третий владелец
+
+        body = _report(client, rule="duplicate_ip", approval="all")
+        assert body["stale_approvals"] is None  # при отборе по правилу устаревшие не определяются
+        full = _report(client)
+        assert full["stale_approvals"] == 1
+        assert [item["approved"] for item in full["findings"] if item["rule"] == "duplicate_ip"] == [False]
+
+        client.delete(STALE)
+
+        assert [item["approved"] for item in _report(client)["findings"] if item["rule"] == "duplicate_ip"] == [False]
+
+    def test_only_stale_approvals_are_removed_the_matching_ones_stay(self, client, db_session):
+        (_, second), _ = self._approved_duplicate(client, db_session)
+        _duplicate_ip(db_session, "10.0.9.5", ("keep-1", "keep-2"))
+        keep = next(item for item in _report(client)["findings"] if item["rule"] == "duplicate_ip" and not item["approved"])
+        client.post(APPROVALS, json={"fingerprint": keep["fingerprint"]})
+        db_session.query(IPAddress).filter(IPAddress.owner_id == _port_of(db_session, second).id).delete()
+        db_session.commit()
+
+        assert client.delete(STALE).json() == {"removed": 1}
+
+        remaining = db_session.scalars(select(ConsistencyApproval)).all()
+        assert [row.fingerprint for row in remaining] == [keep["fingerprint"]]
+
+    def test_stale_helper_needs_the_full_set_of_findings(self, db_session):
+        _duplicate_ip(db_session)
+        problem = run_checks(db_session, rules=["duplicate_ip"])[0]
+        approve_finding(db_session, problem.fingerprint)
+
+        assert stale_approvals(db_session) == []
+        # По набору, из которого правило «выпало», одобрение выглядело бы устаревшим — поэтому полный набор обязателен.
+        assert len(stale_approvals(db_session, run_checks(db_session, rules=["invalid_ip"]))) == 1
+
+    def test_the_stale_route_is_not_taken_for_an_approval_id(self, client):
+        response = client.delete(STALE)
+
+        assert response.status_code == 200  # а не 404 «Одобрение не найдено» от маршрута /approvals/{approval_id}
+
+
+class TestRevokeBatch:
+    def _approved(self, client, db_session, count=3):
+        for number in range(count):
+            _duplicate_ip(db_session, f"10.0.{number}.5", (f"a-{number}", f"b-{number}"))
+        fingerprints = [item["fingerprint"] for item in _report(client)["findings"] if item["rule"] == "duplicate_ip"]
+        result = client.post(BATCH, json={"fingerprints": fingerprints}).json()
+        return [approval["id"] for approval in result["approvals"].values()]
+
+    def test_revokes_all_listed_approvals_and_the_problems_return_to_the_active_list(self, client, db_session):
+        ids = self._approved(client, db_session)
+        assert _report(client, rule="duplicate_ip", approval="active")["findings"] == []
+
+        body = client.post(REVOKE_BATCH, json={"ids": ids}).json()
+
+        assert body == {"revoked": 3, "missing": []}
+        assert len(_report(client, rule="duplicate_ip", approval="active")["findings"]) == 3
+        assert db_session.scalars(select(ConsistencyApproval)).all() == []
+
+    def test_every_revocation_gets_its_own_audit_entry_marked_as_batch(self, client, db_session):
+        ids = self._approved(client, db_session)
+
+        client.post(REVOKE_BATCH, json={"ids": ids})
+
+        entries = db_session.scalars(
+            select(AuditLog).where(AuditLog.entity_type == "consistency-approvals", AuditLog.action == AuditAction.DELETE)
+        ).all()
+        assert len(entries) == 3 and all("пакетный отзыв" in item.details for item in entries)
+
+    def test_already_missing_ids_are_reported_and_do_not_cancel_the_rest(self, client, db_session):
+        ids = self._approved(client, db_session)
+
+        body = client.post(REVOKE_BATCH, json={"ids": [ids[0], "no-such-id", ids[1]]}).json()
+
+        assert body["revoked"] == 2 and body["missing"] == ["no-such-id"]
+        assert len(db_session.scalars(select(ConsistencyApproval)).all()) == 1
+
+    def test_repeats_in_the_request_are_collapsed(self, client, db_session):
+        ids = self._approved(client, db_session)
+
+        body = client.post(REVOKE_BATCH, json={"ids": [ids[0], ids[0]]}).json()
+
+        assert body == {"revoked": 1, "missing": []}
+        entries = db_session.scalars(
+            select(AuditLog).where(AuditLog.entity_type == "consistency-approvals", AuditLog.action == AuditAction.DELETE)
+        ).all()
+        assert len(entries) == 1  # повтор в запросе не даёт второй записи аудита
+
+    @pytest.mark.parametrize(
+        "body",
+        [{"ids": []}, {"ids": ["x"] * (MAX_BATCH + 1)}, {"ids": [5]}, {"ids": ["  "]}, {"ids": ["x" * 37]}, {"ids": "abc"}, {}],
+    )
+    def test_malformed_requests_are_rejected_with_422_and_delete_nothing(self, client, db_session, body):
+        self._approved(client, db_session, count=1)
+
+        assert client.post(REVOKE_BATCH, json=body).status_code == 422
+        assert len(db_session.scalars(select(ConsistencyApproval)).all()) == 1
 
 
 def test_unknown_approval_filter_is_rejected(client):

@@ -17,14 +17,14 @@ import { approvalOf, approvedFinding, finding, reportOf, RULES } from '../../__t
 let calls: { method: string; url: string; body: unknown }[]
 
 /** Сервер проверок: отчёт и каталог правил; запись (POST/DELETE) отвечает `write`. */
-function stubServer(report: () => Response | ConsistencyReport, write: (method: string) => Response = () => new Response('{}', { status: 500 })) {
+function stubServer(report: () => Response | ConsistencyReport, write: (method: string, url: string) => Response = () => new Response('{}', { status: 500 })) {
   calls = []
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init: RequestInit = {}) => {
       const method = init.method ?? 'GET'
       calls.push({ method, url, body: init.body ? JSON.parse(init.body as string) : null })
-      if (method !== 'GET') return write(method)
+      if (method !== 'GET') return write(method, url)
       if (url.endsWith('/consistency/rules')) return new Response(JSON.stringify({ rules: RULES }))
       const body = report()
       return body instanceof Response ? body : new Response(JSON.stringify(body))
@@ -395,6 +395,127 @@ describe('пакетное одобрение', () => {
 
     expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
     expect(wrapper.findAll('.stat-card').map((card) => card.text())).toContain('0Одобрено')
+  })
+})
+
+describe('устаревшие одобрения и пакетный отзыв', () => {
+  const approved = (count: number) =>
+    Array.from({ length: count }, (_, index) => approvedFinding({ entity_id: `10.0.1.${index}`, entity_name: `10.0.1.${index}` }, { id: `appr-${index}` }))
+  const staleNotice = (wrapper: Wrapper) => wrapper.find('.stale-notice')
+  const viewer = () => {
+    const auth = useAuthStore()
+    auth.enabled = true
+    auth.user = { id: 'u1', username: 'viewer', role: 'viewer', is_active: true, last_login_at: null, locked: false, created_at: '2026-01-01T00:00:00' }
+  }
+
+  it('плашка об устаревших одобрениях видна пишущему только когда они есть, наблюдателю — никогда', async () => {
+    stubServer(() => reportOf([finding()], { stale_approvals: 3 }))
+    const wrapper = await mountView()
+    expect(staleNotice(wrapper).text()).toContain('Устаревших одобрений: 3')
+
+    stubServer(() => reportOf([finding()], { stale_approvals: 0 }))
+    expect(staleNotice(await mountView()).exists()).toBe(false)
+
+    stubServer(() => reportOf([finding()], { stale_approvals: null }))
+    expect(staleNotice(await mountView()).exists()).toBe(false)
+
+    viewer()
+    stubServer(() => reportOf([finding()], { stale_approvals: 3 }))
+    expect(staleNotice(await mountView()).exists()).toBe(false)
+  })
+
+  it('«Удалить устаревшие» просит подтверждения с числом; подтверждение шлёт DELETE и убирает плашку', async () => {
+    stubServer(
+      () => reportOf([finding()], { stale_approvals: 2 }),
+      () => new Response(JSON.stringify({ removed: 2 })),
+    )
+    const wrapper = await mountView()
+
+    await buttonByText(wrapper, 'Удалить устаревшие').trigger('click')
+    expect(wrapper.find('[role="dialog"] h2').text()).toBe('Удалить устаревшие одобрения?')
+    expect(wrapper.find('[role="dialog"]').text()).toContain('(2)')
+    expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(0) // пока не подтвердили — ничего не отправлено
+
+    await buttonByText(wrapper, 'Удалить (2)').trigger('click')
+    await flushPromises()
+
+    expect(calls.find((call) => call.method === 'DELETE')?.url).toMatch(/approvals\/stale$/)
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(staleNotice(wrapper).exists()).toBe(false)
+  })
+
+  it('отказ сервера при очистке: окно остаётся открытым, плашка на месте', async () => {
+    stubServer(
+      () => reportOf([finding()], { stale_approvals: 2 }),
+      () => new Response(JSON.stringify({ detail: 'Сбой' }), { status: 500 }),
+    )
+    const wrapper = await mountView()
+
+    await buttonByText(wrapper, 'Удалить устаревшие').trigger('click')
+    await buttonByText(wrapper, 'Удалить (2)').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
+    expect(staleNotice(wrapper).exists()).toBe(true)
+  })
+
+  it('«Отозвать все одобрения» нет в чипе «Требуют внимания»; в «Одобренные» и «Все» она считает одобренные под фильтрами', async () => {
+    stubServer(() => reportOf([...approved(3), finding()]))
+    const wrapper = await mountView()
+    const revokeButton = () => wrapper.findAll('button').find((button) => button.text().startsWith('Отозвать все одобрения'))
+
+    expect(revokeButton()).toBeUndefined()
+    await chip(wrapper, 'Одобренные').trigger('click')
+    expect(revokeButton()!.text()).toBe('Отозвать все одобрения (3)')
+    await chip(wrapper, 'Все').trigger('click')
+    expect(revokeButton()!.text()).toBe('Отозвать все одобрения (3)')
+    await wrapper.find('.search-box input').setValue('10.0.1.1')
+    expect(revokeButton()!.text()).toBe('Отозвать все одобрения (1)')
+  })
+
+  it('подтверждение отзыва шлёт ОДИН запрос со всеми идентификаторами, строки возвращаются в «требуют внимания»', async () => {
+    const items = approved(25)
+    stubServer(
+      () => reportOf(items),
+      () => new Response(JSON.stringify({ revoked: 25, missing: [] })),
+    )
+    const wrapper = await mountView()
+    await chip(wrapper, 'Одобренные').trigger('click')
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('Отозвать все одобрения'))!
+      .trigger('click')
+    expect(wrapper.find('[role="dialog"] h2').text()).toBe('Отозвать 25 одобрений?')
+    await buttonByText(wrapper, 'Отозвать все (25)').trigger('click')
+    await flushPromises()
+
+    const posts = calls.filter((call) => call.method === 'POST')
+    expect(posts).toHaveLength(1)
+    expect(posts[0].url).toMatch(/approvals\/revoke$/)
+    expect((posts[0].body as { ids: string[] }).ids).toEqual(items.map((item) => item.approval!.id))
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(wrapper.findAll('.stat-card').map((card) => card.text())).toContain('25Требуют внимания')
+  })
+
+  it('«Отмена» ничего не отправляет; наблюдателю кнопки нет', async () => {
+    stubServer(() => reportOf(approved(2)))
+    const wrapper = await mountView()
+    await chip(wrapper, 'Одобренные').trigger('click')
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().startsWith('Отозвать все одобрения'))!
+      .trigger('click')
+    await buttonByText(wrapper, 'Отмена').trigger('click')
+    expect(calls.filter((call) => call.method !== 'GET')).toHaveLength(0)
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+
+    viewer()
+    stubServer(() => reportOf(approved(2)))
+    const readOnly = await mountView()
+    await chip(readOnly, 'Одобренные').trigger('click')
+    expect(readOnly.findAll('button').some((button) => button.text().startsWith('Отозвать все одобрения'))).toBe(false)
   })
 })
 

@@ -10,6 +10,7 @@ from ..services.consistency.approvals import MAX_BATCH, MAX_COMMENT_LENGTH
 from .schema_base import RequestBody
 
 FINGERPRINT_LENGTH = 64  # sha256 в hex (services/consistency/model.py: Finding.fingerprint)
+ID_LENGTH = 36  # uuid записи об одобрении
 
 
 class ApproveFindingBody(RequestBody):
@@ -24,3 +25,9 @@ class ApproveFindingsBody(RequestBody):
 
     fingerprints: Annotated[list[Annotated[str, StringConstraints(max_length=FINGERPRINT_LENGTH)]], Field(max_length=MAX_BATCH)]
     comment: str | None = Field(default=None, max_length=MAX_COMMENT_LENGTH)
+
+
+class RevokeApprovalsBody(RequestBody):
+    """Пакетный отзыв: идентификаторы одобрений (из поля `approval.id` находок), не больше MAX_BATCH за раз."""
+
+    ids: Annotated[list[Annotated[str, StringConstraints(max_length=ID_LENGTH)]], Field(max_length=MAX_BATCH)]
