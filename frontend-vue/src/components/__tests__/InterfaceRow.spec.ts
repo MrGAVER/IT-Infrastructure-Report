@@ -51,6 +51,24 @@ function mountRow(props: Partial<RowProps> = {}, options: { editConnections?: bo
 }
 const lastPatch = (wrapper: ReturnType<typeof mountRow>) => wrapper.emitted('update')!.at(-1)![0] as Partial<InterfaceDraftRow>
 
+// Вёрстка в jsdom не считается, поэтому проверяется контракт, на котором держится стабильная ширина раскрытого блока (замер — в Chromium,
+// см. CHANGELOG): ячейка сводки помечена .col-summary (ширина столбца — доля таблицы и не зависит от текста), а сама сводка лежит в <span>,
+// который обрезается многоточием и показывает подсказку с полным текстом.
+describe('InterfaceRow — сводка в свёрнутой строке', () => {
+  it('длинная сводка лежит в обрезаемом <span> внутри ячейки .col-summary: текст не задаёт ширину столбца', () => {
+    const long = 'п'.repeat(300)
+    const connection = { peer_device_id: 'dev-2', peer_interface_id: 'p9', connection_type_id: '', description: '', peer_device_name: long, peer_interface_name: 'Gi0/48' }
+    const row = makeRow({ id: 'if-1', name: 'Gi0/1', connection })
+    const wrapper = mountRow({ row, rows: [row], deviceId: 'dev-1' })
+
+    const cell = wrapper.get('td.col-summary')
+    const summary = cell.get('.expand-toggle > span')
+    expect(summary.text()).toContain(long)
+    expect(wrapper.findAll('td.col-summary')).toHaveLength(1)
+    wrapper.unmount()
+  })
+})
+
 describe('InterfaceRow — свёрнутая строка', () => {
   it('показывает номер, поля порта и сводку «VLAN / IP»; раскрытой части нет', () => {
     const row = makeRow({ id: 'if-1', name: 'Gi0/3', interface_type_id: 't-eth', mac_address: 'AA:BB', speed_id: 's-1g', is_management: true })
