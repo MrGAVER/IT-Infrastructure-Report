@@ -2,13 +2,21 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useFindingEditor } from '../useFindingEditor'
 import { useToast } from '../useToast'
+import { useCatalogsStore } from '../../stores/catalogs'
 import { useConnectionsStore } from '../../stores/connections'
+import { useContainersStore } from '../../stores/containers'
 import { useDevicesStore } from '../../stores/devices'
+import { useInformationSystemsStore } from '../../stores/informationSystems'
+import { useVLANsStore } from '../../stores/vlans'
 import { useVMsStore } from '../../stores/vms'
 
 beforeEach(() => {
   setActivePinia(createPinia())
   useToast().toasts.splice(0)
+  // Справочники и связанные списки, которые форма читает попутно, в этих тестах не грузятся по сети: их загрузку проверяет отдельный блок ниже.
+  for (const store of [useCatalogsStore(), useVLANsStore(), useDevicesStore(), useVMsStore(), useContainersStore(), useInformationSystemsStore(), useConnectionsStore()]) {
+    vi.spyOn(store, 'ensureLoaded').mockResolvedValue(undefined as never)
+  }
 })
 
 function loadedDevices() {
@@ -105,5 +113,61 @@ describe('useFindingEditor', () => {
     expect(editor.device.value).toBeNull()
     editor.close()
     expect(editor.connection.value).toBeNull()
+  })
+})
+
+// Форма объекта читает не только саму запись, но и справочники/списки (типы, модели, здания, VLAN, устройства, ВМ…). Обычные разделы
+// подгружают их при открытии; здесь раздела нет, поэтому без явной загрузки форма открывалась с пустыми выпадающими списками.
+describe('useFindingEditor: данные для формы', () => {
+  const CASES = [
+    { type: 'physical_device', field: 'device', related: ['catalogs', 'vlans'] },
+    { type: 'virtual_machine', field: 'vm', related: ['catalogs', 'devices'] },
+    { type: 'container', field: 'container', related: ['catalogs', 'devices', 'vms'] },
+    { type: 'information_system', field: 'system', related: ['catalogs', 'devices', 'vms', 'containers'] },
+    { type: 'connection', field: 'connection', related: ['catalogs', 'devices'] },
+  ] as const
+
+  function stores() {
+    return {
+      catalogs: useCatalogsStore(),
+      vlans: useVLANsStore(),
+      devices: useDevicesStore(),
+      vms: useVMsStore(),
+      containers: useContainersStore(),
+      systems: useInformationSystemsStore(),
+      connections: useConnectionsStore(),
+    }
+  }
+
+  it.each(CASES)('$type: окно открывается только после загрузки справочников и связанных списков', async ({ type, field, related }) => {
+    const all = stores()
+    const own = { physical_device: all.devices, virtual_machine: all.vms, container: all.containers, information_system: all.systems, connection: all.connections }[type]
+    ;(own as { all: unknown[] }).all = [{ id: 'rec-1' }]
+
+    // Каждая загрузка «висит», пока тест её не завершит: так видно, дождалось ли окно всех нужных данных.
+    const pending = new Map<string, () => void>()
+    for (const [name, store] of Object.entries(all)) {
+      vi.mocked(store.ensureLoaded).mockImplementation(() => new Promise<void>((done) => pending.set(name, done)))
+    }
+    const editor = useFindingEditor(vi.fn())
+
+    const opening = editor.open({ type, id: 'rec-1', name: 'rec-1' })
+    await Promise.resolve()
+
+    // Загружены собственный список раздела и всё, что нужно форме; лишнего не грузится.
+    const ownName = Object.entries(all).find(([, store]) => store === own)![0]
+    expect([...pending.keys()].sort()).toEqual([ownName, ...related].sort())
+    expect(editor[field].value).toBeNull()
+
+    for (const [name, done] of pending) {
+      if (name !== 'catalogs') done()
+    }
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(editor[field].value).toBeNull() // справочники ещё грузятся — окно рано открывать
+
+    pending.get('catalogs')!()
+    await opening
+    expect(editor[field].value).toMatchObject({ id: 'rec-1' })
   })
 })
