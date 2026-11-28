@@ -16,6 +16,9 @@ from typing import NoReturn
 logger = logging.getLogger(__name__)
 
 DB_FILENAME = "infra_registry.db"
+# Через столько секунд после запроса остановки сервер завершается принудительно, если не успел остановиться сам (потеря блокировки базы).
+LOCK_LOST_FORCE_EXIT_SECONDS = 15.0
+EXIT_CODE_LOCK_LOST = 3
 
 
 def bundle_dir() -> Path:
@@ -99,6 +102,75 @@ def migrate_or_fail() -> None:
         )
     except MigrationUpgradeError as exc:
         fail(exc.describe(SKIP_BACKUP_ENV))
+
+
+def acquire_instance_lock(db_path: Path, port: int):
+    """Берёт «аренду» базы: на одной базе SQLite работает только одна копия приложения — на этом и на других компьютерах.
+
+    Вызывается ДО миграций: вторая копия не должна ни делать резервную копию, ни обновлять базу, которую уже использует первая.
+    Возвращает ``InstanceLock`` (его нужно освободить в ``finally``) или ``None``, если проверка отключена переменной окружения.
+    Занятая база и неисправный файл блокировки — ``fail()`` с понятным текстом, а не трассировка.
+    """
+    from app.services.instance_lock import (
+        SKIP_LOCK_ENV,
+        InstanceAlreadyRunning,
+        InstanceLock,
+        InstanceLockError,
+        LockTiming,
+        lock_path_for,
+        lock_skipped_by_environment,
+    )
+
+    if lock_skipped_by_environment():
+        print(f"ВНИМАНИЕ: проверка второй копии отключена ({SKIP_LOCK_ENV}=1). Две копии на одной базе могут испортить данные.")
+        return None
+    lock = InstanceLock(lock_path_for(db_path), port=port, progress=print)
+    try:
+        lock.acquire()
+    except InstanceAlreadyRunning as exc:
+        fail(
+            f"{exc}\nНа одной базе может работать только одна копия: закройте её или откройте программу в ней "
+            f"(с других компьютеров — по адресу этого компьютера и порту, если в infra_registry.toml разрешён доступ по сети).\n"
+            f"Если копия была закрыта аварийно, запустите программу снова: база освободится сама не позже чем через "
+            f"{LockTiming().stale_after:g} с."
+        )
+    except InstanceLockError as exc:
+        fail(
+            f"{exc}\nЕсли других копий программы нет, закройте её на всех компьютерах и удалите файл {lock.path}. "
+            f"Проверку можно отключить на свой риск: переменная окружения {SKIP_LOCK_ENV}=1."
+        )
+    return lock
+
+
+def stop_after_lock_loss(
+    server,
+    reason: str,
+    *,
+    force_exit_after: float = LOCK_LOST_FORCE_EXIT_SECONDS,
+    exit_func=os._exit,
+) -> None:
+    """Блокировка базы потеряна (её заняла другая копия или пропала сетевая папка): запись в базу нужно прекратить.
+
+    Просит сервер остановиться штатно; если за ``force_exit_after`` секунд он не остановился (например, держат соединения), процесс
+    завершается принудительно — продолжать писать в базу рядом с другой копией хуже, чем оборвать запросы.
+    """
+    logger.critical("%s Сервер останавливается.", reason)
+    server.should_exit = True
+    watchdog = threading.Timer(force_exit_after, exit_func, args=(EXIT_CODE_LOCK_LOST,))
+    watchdog.daemon = True
+    watchdog.start()
+
+
+def serve(app, settings, port: int, instance_lock) -> None:
+    """Запускает uvicorn и связывает потерю блокировки базы с остановкой сервера; после остановки по этой причине — ошибка запуска."""
+    import uvicorn
+
+    server = uvicorn.Server(uvicorn.Config(app, host=settings.listen_host, port=port, log_level="info"))
+    if instance_lock is not None:
+        instance_lock.set_on_lost(lambda reason: stop_after_lock_loss(server, reason))
+    server.run()
+    if instance_lock is not None and instance_lock.lost:
+        fail(f"{instance_lock.lost_reason}\nРабота остановлена, чтобы не повредить данные. Запустите программу заново.")
 
 
 def open_browser_when_ready(port: int):
@@ -226,19 +298,24 @@ def main():
     port = args.port if args.port is not None else settings.port
 
     prepare_environment(settings, root)
-    migrate_or_fail()
+    # Блокировка базы — до миграций: вторая копия не должна обновлять базу, которую уже использует первая.
+    instance_lock = acquire_instance_lock(data_dir() / DB_FILENAME, port)
+    try:
+        migrate_or_fail()
 
-    import uvicorn
-    from app.main import app
+        from app.main import app
 
-    if settings.network_access:
-        print(f"Доступ по сети разрешён для: {', '.join(settings.allowed_clients)} (порт {port}). Файл настроек: {settings_path}")
-    else:
-        print(f"Доступ только с этого компьютера. Как открыть доступ другим компьютерам — в файле {settings_path}")
+        if settings.network_access:
+            print(f"Доступ по сети разрешён для: {', '.join(settings.allowed_clients)} (порт {port}). Файл настроек: {settings_path}")
+        else:
+            print(f"Доступ только с этого компьютера. Как открыть доступ другим компьютерам — в файле {settings_path}")
 
-    if settings.open_browser and not args.no_browser:
-        threading.Thread(target=lambda: open_browser_when_ready(port), daemon=True).start()
-    uvicorn.run(app, host=settings.listen_host, port=port, log_level="info")
+        if settings.open_browser and not args.no_browser:
+            threading.Thread(target=lambda: open_browser_when_ready(port), daemon=True).start()
+        serve(app, settings, port, instance_lock)
+    finally:
+        if instance_lock is not None:
+            instance_lock.release()
 
 
 if __name__ == "__main__":

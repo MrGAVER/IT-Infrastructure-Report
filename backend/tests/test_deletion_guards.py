@@ -177,6 +177,11 @@ PROTECTED_MODELS = {"PhysicalDevice", "VirtualMachine", "Container", "Informatio
 
 _RAW_DELETE_SQL = re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE)
 
+# Сырой DELETE FROM в app/ запрещён: он обходит ORM-защиты записей реестра. Исключение — служебная база защиты от второй копии
+# приложения (services/instance_lock.py): это не база реестра и не ORM-модель, в ней одна строка «аренды»,
+# и записей реестра она не касается.
+ALLOWED_RAW_DELETE_SQL = {("app/services/instance_lock.py", "release")}
+
 
 def _scan_deletions() -> tuple[set[tuple[str, str, str]], list[str]]:
     """Возвращает (найденные прямые удаления, найденные нарушения жёстких правил)."""
@@ -199,7 +204,12 @@ def _scan_deletions() -> tuple[set[tuple[str, str, str]], list[str]]:
                         found.add((rel, func, arg))
                         if isinstance(f, ast.Name) and arg in PROTECTED_MODELS:
                             violations.append(f"{rel}:{child.lineno} — delete({arg}) в функции {func}()")
-                if isinstance(child, ast.Constant) and isinstance(child.value, str) and _RAW_DELETE_SQL.search(child.value):
+                if (
+                    isinstance(child, ast.Constant)
+                    and isinstance(child.value, str)
+                    and _RAW_DELETE_SQL.search(child.value)
+                    and (rel, func) not in ALLOWED_RAW_DELETE_SQL
+                ):
                     violations.append(f"{rel}:{child.lineno} — сырой SQL 'DELETE FROM' в функции {func}()")
                 visit(child, child_func)
 
@@ -222,6 +232,17 @@ class TestNoUnreviewedDeletionPaths:
     def test_protected_models_never_deleted_via_core_or_raw_sql(self):
         _, violations = _scan_deletions()
         assert not violations, "Массовое удаление защищённых моделей / сырой DELETE в обход ORM-защит:\n  " + "\n  ".join(violations)
+
+    def test_raw_delete_allowlist_has_no_stale_entries(self):
+        """Исключение живёт, только пока в этой функции действительно есть сырой DELETE: устаревшая запись не должна копиться."""
+        for rel, func in ALLOWED_RAW_DELETE_SQL:
+            tree = ast.parse((APP_DIR / rel.removeprefix("app/")).read_text(encoding="utf-8"))
+            bodies = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == func]
+            assert any(
+                isinstance(c, ast.Constant) and isinstance(c.value, str) and _RAW_DELETE_SQL.search(c.value)
+                for b in bodies
+                for c in ast.walk(b)
+            ), f"{rel}:{func}() больше не содержит сырой DELETE — уберите запись из ALLOWED_RAW_DELETE_SQL"
 
     def test_scanner_detects_a_forbidden_pattern(self):
         """Сам сторож не должен молча ослепнуть: проверяем его на искусственном коде."""
